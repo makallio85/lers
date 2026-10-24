@@ -1,0 +1,12 @@
+{
+  "name": "lers",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test packages/simulation/*.test.mjs",
+    "benchmark": "node scripts/benchmark.mjs"
+  }
+}

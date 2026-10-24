@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.keystore
+*.p12
+*.mobileprovision
+.DS_Store
