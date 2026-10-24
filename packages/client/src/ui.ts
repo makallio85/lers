@@ -1,6 +1,6 @@
 import {
   BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, GOOD_TYPES, SETTLER_LABELS, TICKS_PER_SECOND, TOOL_TYPES,
-  castleOf, costTotal, goodCount, isStorageBuilding, settlerById
+  castleOf, costTotal, goodCount, isSoldierType, isStorageBuilding, settlerById
 } from '../../simulation/src/index.ts';
 import type {
   Building, BuildingGroupType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, SettlerType, World
@@ -143,7 +143,7 @@ export function renderSettlersPanel(world: World): string {
 }
 
 export function renderMilitaryPanel(world: World): string {
-  const soldiers = world.settlers.filter((s) => s.settlerType === 'soldier');
+  const soldiers = world.settlers.filter((s) => isSoldierType(s.settlerType));
   const free = soldiers.filter((s) => s.phase === 'idle').length;
   const towers = world.buildings.filter((b) => BUILDING_TYPES[b.typeId].territoryRadius > 0 && b.typeId !== 'castle');
   const occupied = towers.filter((b) => settlerById(world, b.workerId)?.phase === 'inside').length;

@@ -4,3 +4,8 @@ export * from './commands.ts';
 export * from './step.ts';
 export { findPath } from './pathfinding.ts';
 export * from './save.ts';
+export * from './vision.ts';
+export * from './combat.ts';
+export * from './bot.ts';
+export * from './match.ts';
+export * from './movement.ts';

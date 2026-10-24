@@ -1,31 +1,34 @@
-import { BUILDING_TYPES, GOOD_NAMES, GOOD_TYPES, SETTLER_LABELS, costTotal, totalGoods } from './definitions.ts';
-import type { GoodType, SettlerType } from './definitions.ts';
+import {
+  BUILDING_TYPES, FAVOURITE_FOOD_MEALS, FOOD_TYPES, GOOD_NAMES, GOOD_TYPES, OTHER_FOOD_MEALS, SETTLER_LABELS,
+  SOLDIER_STATS, WEAPON_SOLDIERS, WEAPON_TYPES, costTotal, isSoldierType, totalGoods
+} from './definitions.ts';
+import type { BuildingTypeId, GoodType, SettlerType } from './definitions.ts';
 import { applyCommand } from './commands.ts';
 import type { Command, CommandResult } from './commands.ts';
-import { findPath } from './pathfinding.ts';
+import { releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
+import { advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
+import { updateVision } from './vision.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_WATER, TREE_MATURE,
-  buildingById, castleOf, inBounds, isStorageBuilding, newSettler, playerOf, pushMessage, recomputeTerritory,
+  buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, newSettler, playerOf, pushMessage,
   storedTotal, tileIndex
 } from './world.ts';
-import type { Building, Settler, World } from './world.ts';
+import type { Building, PlayerState, Settler, World } from './world.ts';
 
-/** Tiles per tick (2.5 tiles per second). */
-export const WALK_SPEED = 0.25;
+
 /** A producer stops once this many finished goods wait at its door. */
 export const OUTPUT_LIMIT = 8;
-/** A workshop keeps at most this many of each input. */
-export const INPUT_LIMIT = 4;
 export const WARN_AFTER_TICKS = 150;
 export const RESIDENT_INTERVAL_TICKS = 60;
 export const MAX_FIELDS_PER_FARM = 12;
+/** A mine digs from deposits this far around its footprint. */
+export const MINE_REACH = 2;
 
 const BUILD_TICKS_PER_GOOD = 60;
 const LEVEL_TICKS_PER_TILE = 15;
 const IDLE_BEFORE_GOING_HOME = 30;
 
 type GatherType = 'woodcutter' | 'stonecutter' | 'forester' | 'fisher' | 'farmer';
-type WorkshopType = 'carpenter' | 'miller' | 'baker' | 'waterworker';
 
 interface GatherRule {
   radius: number;
@@ -47,20 +50,24 @@ function isGatherType(value: SettlerType): value is GatherType {
   return Object.hasOwn(GATHER_RULES, value);
 }
 
-function isWorkshopType(value: SettlerType): value is WorkshopType {
-  return value === 'carpenter' || value === 'miller' || value === 'baker' || value === 'waterworker';
-}
-
 /** Advances the world by one fixed tick after applying the given commands in order. */
 export function step(world: World, commands: readonly Command[] = []): CommandResult[] {
   const results = commands.map((command) => applyCommand(world, command));
+  if (world.winner !== null) { world.tick++; return results; }
   for (const s of world.settlers) { s.prevX = s.x; s.prevY = s.y; }
-  if (world.tick % 10 === 0) grow(world);
+  if (world.tick % 10 === 0) { grow(world); updateVision(world); }
   if (world.tick % RESIDENT_INTERVAL_TICKS === 0) releaseResidents(world);
   if (world.tick % 5 === 0) runLogistics(world);
-  assignConstructionCrews(world);
-  assignWorkers(world);
-  for (const s of world.settlers) updateSettler(world, s);
+  if (world.tick % 5 === 0) { assignConstructionCrews(world); assignWorkers(world); }
+  fillGarrisons(world);
+  recruitSoldiers(world);
+  sendDefenders(world);
+  for (const s of world.settlers) if (!isSoldierType(s.settlerType)) updateSettler(world, s);
+  // Soldiers act in alternating order each tick, so no player always strikes first.
+  const soldiers = world.settlers.filter((s) => isSoldierType(s.settlerType));
+  if (world.tick % 2 === 1) soldiers.reverse();
+  for (const s of soldiers) updateSoldier(world, s);
+  removeDead(world);
   warnAboutBlockedBuildings(world);
   world.tick++;
   return results;
@@ -87,45 +94,6 @@ function releaseResidents(world: World): void {
 }
 
 // ---------------------------------------------------------------- helpers
-
-function tileOf(world: World, s: Settler): number {
-  return tileIndex(world, Math.round(s.x), Math.round(s.y));
-}
-
-function doorTile(world: World, b: Building): number {
-  return tileIndex(world, b.doorX, b.doorY);
-}
-
-function walkTo(world: World, s: Settler, goal: number): boolean {
-  const path = findPath(world, tileOf(world, s), goal);
-  if (path === null) return false;
-  s.path = path;
-  s.isInside = false;
-  return true;
-}
-
-/** Moves along the path; true once the settler has arrived. */
-function advance(world: World, s: Settler): boolean {
-  let budget = WALK_SPEED;
-  while (budget > 0 && s.path.length > 0) {
-    const next = s.path[0];
-    const tx = next % world.width, ty = Math.floor(next / world.width);
-    const dx = tx - s.x, dy = ty - s.y;
-    const distance = Math.hypot(dx, dy);
-    if (distance <= budget) {
-      s.x = tx; s.y = ty; budget -= distance;
-      s.path.shift();
-    } else {
-      s.x += (dx / distance) * budget; s.y += (dy / distance) * budget;
-      budget = 0;
-    }
-  }
-  return s.path.length === 0;
-}
-
-function distance(ax: number, ay: number, bx: number, by: number): number {
-  return Math.hypot(ax - bx, ay - by);
-}
 
 function setBlocked(world: World, b: Building, reason: string | null): void {
   if (reason === b.blockedReason) return;
@@ -173,12 +141,19 @@ function storageFor(world: World, owner: number, good: GoodType, x: number, y: n
 
 // ---------------------------------------------------------------- logistics
 
-interface Request { building: Building; good: GoodType; isConstruction: boolean }
+interface Request { building: Building; good: GoodType; isConstruction: boolean; share: number }
+
+function distributionShare(player: PlayerState | undefined, good: GoodType, typeId: BuildingTypeId): number {
+  const shares = player?.distribution[good];
+  if (!shares || shares[typeId] === undefined) return 1;
+  return shares[typeId]!;
+}
 
 /**
- * Matches goods that are needed (construction sites first, in the order they were placed, then workshop
- * inputs) with goods on offer (storage, finished output) and sends the nearest free carrier. Surplus output
- * goes to storage for goods the player stores. Goods otherwise follow the player's transport priority.
+ * Matches goods that are needed (construction sites first, in the order they were placed, then building
+ * inputs) with goods on offer (storage, finished output) and sends the nearest free carrier. Goods follow
+ * the player's transport priority; a good several building types use is shared by the Distribution setting.
+ * Surplus output goes to storage for goods the player stores.
  */
 function runLogistics(world: World): void {
   const carriers = world.settlers.filter((s) => isIdle(s, 'carrier'));
@@ -191,22 +166,29 @@ function runLogistics(world: World): void {
       const cost = BUILDING_TYPES[b.typeId].cost;
       for (const good of GOOD_TYPES) {
         const need = (cost[good] ?? 0) - b.delivered[good] - b.built[good] - b.incoming[good];
-        for (let k = 0; k < need; k++) requests.push({ building: b, good, isConstruction: true });
+        for (let k = 0; k < need; k++) requests.push({ building: b, good, isConstruction: true, share: 1 });
       }
       continue;
     }
-    const recipe = BUILDING_TYPES[b.typeId].recipe;
-    if (!recipe) continue;
+    const limits = BUILDING_TYPES[b.typeId].inputLimits;
+    const player = playerOf(world, b.owner);
     for (const good of GOOD_TYPES) {
-      if (!recipe.inputs[good]) continue;
-      const need = INPUT_LIMIT - b.input[good] - b.incoming[good];
-      for (let k = 0; k < need; k++) requests.push({ building: b, good, isConstruction: false });
+      const limit = limits[good] ?? 0;
+      if (limit === 0) continue;
+      const share = distributionShare(player, good, b.typeId);
+      if (share <= 0) continue;
+      const need = limit - b.input[good] - b.incoming[good];
+      for (let k = 0; k < need; k++) requests.push({ building: b, good, isConstruction: false, share });
     }
   }
   const order = (r: Request) => rank.get(`${r.building.owner}:${r.good}`) ?? 99;
+  const shareScore = (r: Request) => {
+    const counts = playerOf(world, r.building.owner)?.distributionCount[r.good];
+    return ((counts?.[r.building.typeId] ?? 0) + 1) / r.share;
+  };
   requests.sort((a, b) => Number(b.isConstruction) - Number(a.isConstruction)
     || (a.isConstruction ? a.building.id - b.building.id : 0)
-    || order(a) - order(b) || a.building.id - b.building.id);
+    || order(a) - order(b) || shareScore(a) - shareScore(b) || a.building.id - b.building.id);
 
   const send = (from: Building, to: Building, good: GoodType): boolean => {
     let best = -1, bestDistance = Infinity;
@@ -230,12 +212,18 @@ function runLogistics(world: World): void {
     const to = request.building;
     let from: Building | null = null, fromDistance = Infinity;
     for (const b of world.buildings) {
-      if (b === to || !b.isComplete || b.owner !== to.owner) continue;
+      if (b === to || !b.isComplete || b.owner !== to.owner || isMilitaryBuilding(b) && !isStorageBuilding(b)) continue;
       if (b.stock[request.good] - b.reserved[request.good] <= 0) continue;
       const d = distance(b.doorX, b.doorY, to.doorX, to.doorY);
       if (d < fromDistance) { fromDistance = d; from = b; }
     }
-    if (from) send(from, to, request.good);
+    if (from && send(from, to, request.good) && !request.isConstruction) {
+      const player = playerOf(world, to.owner);
+      if (player?.distribution[request.good]) {
+        const counts = (player.distributionCount[request.good] ??= {});
+        counts[to.typeId] = (counts[to.typeId] ?? 0) + 1;
+      }
+    }
   }
 
   // Surplus output moves to storage, most important goods first.
@@ -254,7 +242,7 @@ function runLogistics(world: World): void {
   }
 }
 
-// ---------------------------------------------------------------- construction crews and workers
+// ---------------------------------------------------------------- construction crews, workers, soldiers
 
 function assignConstructionCrews(world: World): void {
   for (const site of world.buildings) {
@@ -280,16 +268,7 @@ function assignConstructionCrews(world: World): void {
 function assignWorkers(world: World): void {
   for (const b of world.buildings) {
     const type = BUILDING_TYPES[b.typeId];
-    if (!b.isComplete || b.workerId !== null || b.typeId === 'castle') continue;
-    if (type.territoryRadius > 0) {
-      const soldier = nearestIdle(world, 'soldier', b.owner, b.doorX, b.doorY);
-      if (!soldier || !walkTo(world, soldier, doorTile(world, b))) { setBlocked(world, b, 'Waiting for a soldier'); continue; }
-      soldier.phase = 'toWork'; soldier.homeId = b.id;
-      b.workerId = soldier.id;
-      setBlocked(world, b, null);
-      continue;
-    }
-    if (type.worker === null) continue;
+    if (!b.isComplete || b.workerId !== null || type.worker === null) continue;
     let store: Building | null = null;
     if (type.tool) {
       let bestDistance = Infinity;
@@ -317,6 +296,68 @@ function assignWorkers(world: World): void {
   }
 }
 
+function isFreeSoldier(s: Settler): boolean {
+  return isSoldierType(s.settlerType) && s.phase === 'idle' && !s.isInside && s.health > 0;
+}
+
+/** Free soldiers walk into military buildings that want more; the emptiest building goes first. */
+function fillGarrisons(world: World): void {
+  if (world.tick % 5 !== 0) return;
+  const wanting = world.buildings
+    .filter((b) => b.isComplete && isMilitaryBuilding(b))
+    .map((b) => {
+      const coming = world.settlers.filter((s) => s.phase === 'toGarrison' && s.homeId === b.id).length;
+      return { b, missing: Math.min(b.garrisonWanted, BUILDING_TYPES[b.typeId].garrisonCapacity) - b.garrison.length - coming };
+    })
+    .filter((w) => w.missing > 0)
+    .sort((a, b) => a.b.garrison.length - b.b.garrison.length || a.b.id - b.b.id);
+  for (const { b, missing } of wanting) {
+    for (let k = 0; k < missing; k++) {
+      let best: Settler | null = null, bestDistance = Infinity;
+      for (const s of world.settlers) {
+        if (!isFreeSoldier(s) || s.owner !== b.owner) continue;
+        const d = distance(s.x, s.y, b.doorX, b.doorY);
+        if (d < bestDistance) { bestDistance = d; best = s; }
+      }
+      if (!best || !walkTo(world, best, doorTile(world, b))) break;
+      best.phase = 'toGarrison'; best.homeId = b.id;
+    }
+    if (b.garrison.length === 0 && b.typeId !== 'castle') setBlocked(world, b, 'Waiting for a soldier');
+    else setBlocked(world, b, null);
+  }
+  // A garrison above what the player wants sends the extra soldiers outside.
+  for (const b of world.buildings) {
+    if (!isMilitaryBuilding(b)) continue;
+    while (b.garrison.length > b.garrisonWanted) {
+      const s = world.settlers.find((settler) => settler.id === b.garrison[b.garrison.length - 1]);
+      b.garrison.pop();
+      if (!s) continue;
+      s.phase = 'idle'; s.isInside = false; s.homeId = null; s.x = b.doorX; s.y = b.doorY; s.path = [];
+    }
+  }
+  releaseEmptyBuildings(world);
+}
+
+/** A free carrier fetches a weapon at the barracks and becomes a soldier. */
+function recruitSoldiers(world: World): void {
+  if (world.tick % 5 !== 0) return;
+  for (const b of world.buildings) {
+    if (!b.isComplete || b.typeId !== 'barracks') continue;
+    const player = playerOf(world, b.owner);
+    if (!player) continue;
+    for (const weapon of WEAPON_TYPES) {
+      while (b.input[weapon] > 0 && (player.isRecruitingAutomatic || player.recruitsLeft > 0)) {
+        const carrier = nearestIdle(world, 'carrier', b.owner, b.doorX, b.doorY);
+        if (!carrier || !walkTo(world, carrier, doorTile(world, b))) { setBlocked(world, b, 'Waiting for a free settler'); return; }
+        b.input[weapon]--;
+        if (!player.isRecruitingAutomatic) player.recruitsLeft--;
+        carrier.phase = 'toRecruit'; carrier.homeId = b.id; carrier.good = weapon;
+        setBlocked(world, b, null);
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------- settler behaviour
 
 function updateSettler(world: World, s: Settler): void {
@@ -329,6 +370,7 @@ function updateSettler(world: World, s: Settler): void {
     case 'leveling': return updateLeveling(world, s);
     case 'building': return updateBuilding(world, s);
     case 'toTool': return updateToTool(world, s);
+    case 'toRecruit': return updateToRecruit(world, s);
     default: return updateWorker(world, s);
   }
 }
@@ -340,7 +382,8 @@ function updateIdle(world: World, s: Settler): void {
   if (s.path.length === 0) {
     const home = storageFor(world, s.owner, 'log', s.x, s.y, false);
     if (!home) return;
-    if (tileOf(world, s) !== doorTile(world, home) && !walkTo(world, s, doorTile(world, home))) return;
+    // Cut off from storage: wait a while before trying again.
+    if (tileOf(world, s) !== doorTile(world, home) && !walkTo(world, s, doorTile(world, home))) { s.timer = 50; return; }
   }
   if (advance(world, s)) s.isInside = true;
 }
@@ -350,7 +393,7 @@ function updateToStore(world: World, s: Settler): void {
     const store = buildingById(world, s.toId) ?? storageFor(world, s.owner, s.carrying ?? 'log', s.x, s.y, false);
     if (!store) return;
     s.toId = store.id;
-    if (tileOf(world, s) !== doorTile(world, store) && !walkTo(world, s, doorTile(world, store))) return;
+    if (tileOf(world, s) !== doorTile(world, store) && !walkTo(world, s, doorTile(world, store))) { s.toId = null; return; }
   }
   if (!advance(world, s)) return;
   const store = buildingById(world, s.toId) ?? castleOf(world, s.owner);
@@ -365,9 +408,9 @@ function updatePickup(world: World, s: Settler): void {
   const from = buildingById(world, s.fromId);
   const to = buildingById(world, s.toId);
   const good = s.good!;
-  if (!from || !to) {
-    if (from) from.reserved[good]--;
-    if (to) to.incoming[good]--;
+  if (!from || !to || from.owner !== s.owner || to.owner !== s.owner) {
+    if (from) from.reserved[good] = Math.max(0, from.reserved[good] - 1);
+    if (to) to.incoming[good] = Math.max(0, to.incoming[good] - 1);
     becomeIdle(s);
     return;
   }
@@ -386,8 +429,8 @@ function updateDrop(world: World, s: Settler): void {
   if (!advance(world, s)) return;
   const to = buildingById(world, s.toId);
   const good = s.carrying!;
-  if (!to) { s.phase = 'toStore'; s.toId = null; s.fromId = null; s.good = null; return; }
-  to.incoming[good]--;
+  if (!to || to.owner !== s.owner) { s.phase = 'toStore'; s.toId = null; s.fromId = null; s.good = null; return; }
+  to.incoming[good] = Math.max(0, to.incoming[good] - 1);
   if (!to.isComplete) to.delivered[good]++;
   else if (isStorageBuilding(to)) to.stock[good]++;
   else to.input[good]++;
@@ -428,10 +471,12 @@ function updateBuilding(world: World, s: Settler): void {
   site.residentsLeft = type.residents;
   setBlocked(world, site, null);
   world.mapVersion++;
+  const player = playerOf(world, site.owner);
+  if (player) player.stats.buildingsBuilt++;
   const detail = type.residents > 0 ? `${type.residents} new settlers will move in.`
-    : type.territoryRadius > 0 ? 'A soldier is on the way to occupy it.'
+    : type.garrisonCapacity > 0 ? 'Soldiers are on the way to occupy it.'
     : type.worker ? `A ${SETTLER_LABELS[type.worker].toLowerCase()} is on the way.` : 'Ready to use.';
-  pushMessage(world, `${type.label} finished`, detail, false, site.id);
+  pushMessage(world, site.owner, `${type.label} finished`, detail, false, site.id);
   becomeIdle(s);
 }
 
@@ -454,6 +499,24 @@ function updateToTool(world: World, s: Settler): void {
   s.phase = 'toWork';
 }
 
+function updateToRecruit(world: World, s: Settler): void {
+  if (!advance(world, s)) return;
+  const barracks = buildingById(world, s.homeId);
+  const weapon = s.good as (typeof WEAPON_TYPES)[number];
+  if (!barracks || barracks.owner !== s.owner) {
+    const castle = castleOf(world, s.owner);
+    if (castle) castle.stock[weapon]++;
+    becomeIdle(s);
+    return;
+  }
+  const soldierType = WEAPON_SOLDIERS[weapon];
+  s.settlerType = soldierType;
+  s.health = SOLDIER_STATS[soldierType].health;
+  s.homeId = null; s.good = null; s.phase = 'idle'; s.isInside = false; s.path = [];
+  const player = playerOf(world, s.owner);
+  if (player) player.stats.soldiersRecruited++;
+}
+
 function updateWorker(world: World, s: Settler): void {
   const home = buildingById(world, s.homeId);
   if (!home) { becomeIdle(s); return; }
@@ -462,13 +525,8 @@ function updateWorker(world: World, s: Settler): void {
     case 'toWork':
       if (!advance(world, s)) return;
       s.phase = 'inside'; s.isInside = true; s.timer = 10;
-      if (type === 'soldier') {
-        recomputeTerritory(world);
-        pushMessage(world, `${BUILDING_TYPES[home.typeId].label} occupied`, 'Your territory has grown.', false, home.id);
-      }
       return;
     case 'inside':
-      if (type === 'soldier') return;
       if (s.timer > 0) { s.timer--; return; }
       return decideWork(world, s, home, type);
     case 'toTarget':
@@ -488,11 +546,61 @@ function updateWorker(world: World, s: Settler): void {
   }
 }
 
+/** The next tool or weapon a smith makes: open orders first, then by the long-run shares. */
+function chooseOutput(player: PlayerState, choices: readonly GoodType[]): GoodType | null {
+  for (const good of choices) {
+    if ((player.productionOrders[good] ?? 0) > 0) return good;
+  }
+  const total = choices.reduce((sum, g) => sum + (player.productionShares[g] ?? 0), 0);
+  if (total <= 0) return null;
+  let best: GoodType | null = null, bestCredit = -Infinity;
+  for (const good of choices) {
+    const credit = (player.productionCredit[good] ?? 0) + (player.productionShares[good] ?? 0);
+    if (credit > bestCredit) { bestCredit = credit; best = good; }
+  }
+  return best;
+}
+
+function takeOutputChoice(player: PlayerState, choices: readonly GoodType[], made: GoodType): void {
+  if ((player.productionOrders[made] ?? 0) > 0) { player.productionOrders[made]!--; return; }
+  const total = choices.reduce((sum, g) => sum + (player.productionShares[g] ?? 0), 0);
+  for (const good of choices) player.productionCredit[good] = (player.productionCredit[good] ?? 0) + (player.productionShares[good] ?? 0);
+  player.productionCredit[made] = (player.productionCredit[made] ?? 0) - total;
+}
+
+/** A deposit tile under or around a mine that still holds its ore. */
+function mineTile(world: World, home: Building, deposit: number): number | null {
+  for (let y = home.y - MINE_REACH; y < home.y + home.size + MINE_REACH; y++) {
+    for (let x = home.x - MINE_REACH; x < home.x + home.size + MINE_REACH; x++) {
+      if (!inBounds(world, x, y)) continue;
+      const i = tileIndex(world, x, y);
+      if (world.deposit[i] === deposit && world.depositAmount[i] > 0) return i;
+    }
+  }
+  return null;
+}
+
 function decideWork(world: World, s: Settler, home: Building, type: SettlerType): void {
   if (home.isPaused) { setBlocked(world, home, 'Paused'); s.timer = 10; return; }
-  const recipe = BUILDING_TYPES[home.typeId].recipe;
-  if (isWorkshopType(type) && recipe) {
-    if (home.stock[recipe.output] >= OUTPUT_LIMIT) { setBlocked(world, home, 'Output full: waiting for carriers'); s.timer = 20; return; }
+  const buildingType = BUILDING_TYPES[home.typeId];
+  const recipe = buildingType.recipe;
+  const player = playerOf(world, home.owner);
+  if (!isGatherType(type) && recipe && player) {
+    const output = recipe.outputChoices ? chooseOutput(player, recipe.outputChoices) : recipe.output;
+    if (output === null) { setBlocked(world, home, 'Nothing ordered'); s.timer = 20; return; }
+    if (home.stock[output] >= OUTPUT_LIMIT) { setBlocked(world, home, 'Output full: waiting for carriers'); s.timer = 20; return; }
+    const mine = buildingType.mine;
+    let oreTile: number | null = null;
+    if (mine) {
+      oreTile = mineTile(world, home, mine.deposit);
+      if (oreTile === null) { setBlocked(world, home, 'The deposit is used up'); s.timer = 40; return; }
+      if (home.meals <= 0) {
+        const food = home.input[mine.favouriteFood] > 0 ? mine.favouriteFood : FOOD_TYPES.find((f) => home.input[f] > 0);
+        if (!food) { setBlocked(world, home, 'Waiting: no food'); s.timer = 10; return; }
+        home.input[food]--;
+        home.meals += food === mine.favouriteFood ? FAVOURITE_FOOD_MEALS : OTHER_FOOD_MEALS;
+      }
+    }
     const missing = GOOD_TYPES.filter((g) => (recipe.inputs[g] ?? 0) > home.input[g]);
     if (missing.length > 0) {
       setBlocked(world, home, `Waiting: no ${missing.map((g) => GOOD_NAMES[g][1]).join(' or ')}`);
@@ -500,7 +608,10 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
       return;
     }
     for (const g of GOOD_TYPES) home.input[g] -= recipe.inputs[g] ?? 0;
+    if (mine && oreTile !== null) { home.meals--; world.depositAmount[oreTile]--; }
+    if (recipe.outputChoices) takeOutputChoice(player, recipe.outputChoices, output);
     setBlocked(world, home, null);
+    s.good = output;
     s.phase = 'working'; s.timer = recipe.ticks;
     return;
   }
@@ -559,6 +670,8 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
       if (d > radius) continue;
       const i = tileIndex(world, x, y);
       if (world.claim[i] !== 0) continue;
+      // Workers stay on their own land.
+      if (world.territory[i] !== home.owner + 1) continue;
       switch (type) {
         case 'woodcutter': if (world.tree[i] === TREE_MATURE) candidates.push({ index: i, d }); break;
         case 'stonecutter': if (world.rock[i] > 0) candidates.push({ index: i, d }); break;
@@ -566,9 +679,7 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
         case 'fisher': if (isShore(world, x, y)) candidates.push({ index: i, d }); break;
         case 'farmer':
           if (world.field[i] >= FIELD_RIPE) ripe.push({ index: i, d });
-          else if (fields < MAX_FIELDS_PER_FARM && d >= 1.5 && world.territory[i] === home.owner + 1 && isFreeLand(world, i)) {
-            candidates.push({ index: i, d });
-          }
+          else if (fields < MAX_FIELDS_PER_FARM && d >= 1.5 && isFreeLand(world, i)) candidates.push({ index: i, d });
           break;
       }
     }
@@ -578,7 +689,7 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
   for (const list of [ripe, candidates]) {
     list.sort(byDistance);
     for (const candidate of list.slice(0, 5)) {
-      if (walkTo(world, s, candidate.index)) return candidate.index;
+      if (walkTo(world, s, candidate.index, 1500)) return candidate.index;
     }
   }
   return null;
@@ -586,8 +697,13 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
 
 function finishWork(world: World, s: Settler, home: Building, type: SettlerType): void {
   const recipe = BUILDING_TYPES[home.typeId].recipe;
-  if (isWorkshopType(type) && recipe) {
-    home.stock[recipe.output]++;
+  if (!isGatherType(type) && recipe) {
+    const output = s.good ?? recipe.output;
+    home.stock[output]++;
+    const player = playerOf(world, home.owner);
+    if (player && output === 'plank') player.stats.planksMade++;
+    if (player && output === 'bread') player.stats.breadBaked++;
+    s.good = null;
     s.phase = 'inside'; s.timer = 5;
     return;
   }
@@ -619,6 +735,6 @@ function warnAboutBlockedBuildings(world: World): void {
     if (world.tick - b.blockedSince < WARN_AFTER_TICKS) continue;
     b.hasWarned = true;
     const label = BUILDING_TYPES[b.typeId].label;
-    pushMessage(world, `${label} is waiting`, `${b.blockedReason}.`, true, b.id);
+    pushMessage(world, b.owner, `${label} is waiting`, `${b.blockedReason}.`, true, b.id);
   }
 }

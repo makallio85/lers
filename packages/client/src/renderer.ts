@@ -17,8 +17,9 @@ const BUILDING_ACCENTS: Partial<Record<BuildingTypeId, number>> = {
 };
 const GOOD_COLORS: Record<GoodType, number> = {
   log: 0x7a4d24, plank: 0xd8a85e, stone: 0xa3a39b, grain: 0xe3c35a, flour: 0xf4efe2, water: 0x5d93bf,
-  bread: 0xb5763a, fish: 0x8fb3d9, axe: 0x5a5a5a, saw: 0x5a5a5a, pick: 0x5a5a5a, scythe: 0x5a5a5a,
-  shovel: 0x5a5a5a, hammer: 0x5a5a5a, rod: 0x5a5a5a
+  bread: 0xb5763a, fish: 0x8fb3d9, pig: 0xe8a0a0, meat: 0xb04a4a, coal: 0x2a2a2a, iron_ore: 0x8a5a4a, iron: 0x9aa3ad,
+  axe: 0x5a5a5a, saw: 0x5a5a5a, pick: 0x5a5a5a, scythe: 0x5a5a5a, shovel: 0x5a5a5a, hammer: 0x5a5a5a, rod: 0x5a5a5a,
+  sword: 0xc0c6cc, spear: 0xc0c6cc, bow: 0x8a5a2b
 };
 const SETTLER_COLORS: Partial<Record<string, number>> = {
   carrier: 0xece6d6, builder: 0xe3a33b, digger: 0xb07a45, soldier: 0xd05a5a

@@ -1,4 +1,7 @@
-import { BUILDING_TYPES, GOOD_TYPES, emptyGoods } from './definitions.ts';
+import {
+  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_IRON, DEPOSIT_NONE, GOOD_TYPES, SOLDIER_STATS, TOOL_TYPES, WEAPON_TYPES,
+  consumersOf, distributedGoods, emptyGoods, isSoldierType
+} from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, GoodType, SettlerType } from './definitions.ts';
 import { createRandom } from './random.ts';
 
@@ -15,6 +18,12 @@ export const TREE_MATURE = 60;
 export const NO_FIELD = -1;
 export const FIELD_RIPE = 90;
 export const ROCK_STONE = 6;
+export const DEPOSIT_AMOUNT = 20;
+
+/** Fog of war per tile and player. */
+export const VISION_NONE = 0;
+export const VISION_EXPLORED = 1;
+export const VISION_VISIBLE = 2;
 
 export interface Building {
   id: number;
@@ -30,7 +39,7 @@ export interface Building {
   isComplete: boolean;
   /** Goods held: storage for storage buildings, finished output for producers. */
   stock: GoodAmounts;
-  /** Goods waiting to be processed by a workshop. */
+  /** Goods waiting to be used by the building. */
   input: GoodAmounts;
   /** Goods carriers are on their way to deliver. */
   incoming: GoodAmounts;
@@ -45,8 +54,15 @@ export interface Building {
   buildProgress: number;
   diggerId: number | null;
   builderId: number | null;
-  /** The worker, or for a military building the occupying soldier. */
+  /** The civilian worker. */
   workerId: number | null;
+  /** Soldiers inside a military building, and how many it asks for. */
+  garrison: number[];
+  garrisonWanted: number;
+  /** A military building claims land from the first soldier moving in until its last defender is gone. */
+  isOccupied: boolean;
+  /** Shifts a miner can still work from the last meal. */
+  meals: number;
   isPaused: boolean;
   /** Settlers a residence still has to send out. */
   residentsLeft: number;
@@ -57,7 +73,8 @@ export interface Building {
 
 export type SettlerPhase =
   | 'idle' | 'toPickup' | 'toDrop' | 'toStore' | 'toSite' | 'leveling' | 'building'
-  | 'toTool' | 'toWork' | 'inside' | 'toTarget' | 'working' | 'returning';
+  | 'toTool' | 'toWork' | 'inside' | 'toTarget' | 'working' | 'returning'
+  | 'toRecruit' | 'toGarrison' | 'defending' | 'moving' | 'attacking';
 
 export interface Settler {
   id: number;
@@ -76,22 +93,53 @@ export interface Settler {
   fromId: number | null;
   toId: number | null;
   good: GoodType | null;
-  /** Workplace, construction site or occupied tower. */
+  /** Workplace, construction site, barracks or the military building a soldier belongs to. */
   homeId: number | null;
   targetTile: number;
   isInside: boolean;
+  /** Soldiers only: health, ticks until the next blow, the enemy fought and the building attacked. */
+  health: number;
+  cooldown: number;
+  enemyId: number | null;
+  attackId: number | null;
+}
+
+export interface PlayerStats {
+  buildingsBuilt: number;
+  soldiersRecruited: number;
+  soldiersLost: number;
+  towersTaken: number;
+  planksMade: number;
+  breadBaked: number;
+  largestTerritory: number;
 }
 
 export interface PlayerState {
   id: number;
+  isBot: boolean;
+  isEliminated: boolean;
   /** All goods, carried first to last. */
   transportPriority: GoodType[];
   /** Goods that carriers may take to storage. */
   isStored: Record<GoodType, boolean>;
+  /** Tools and weapons ordered from the smiths; worked off before the shares. */
+  productionOrders: Partial<Record<GoodType, number>>;
+  /** Long-run share (0–10) of each tool and weapon. */
+  productionShares: Partial<Record<GoodType, number>>;
+  productionCredit: Partial<Record<GoodType, number>>;
+  /** For goods several building types use: share (0–10) per consumer type, and deliveries so far. */
+  distribution: Partial<Record<GoodType, Partial<Record<BuildingTypeId, number>>>>;
+  distributionCount: Partial<Record<GoodType, Partial<Record<BuildingTypeId, number>>>>;
+  /** Automatic: every weapon at the barracks becomes a soldier. Otherwise only `recruitsLeft` more. */
+  isRecruitingAutomatic: boolean;
+  recruitsLeft: number;
+  stats: PlayerStats;
 }
 
 export interface GameMessage {
   id: number;
+  /** Player the message is for. */
+  owner: number;
   tick: number;
   text: string;
   detail: string;
@@ -108,6 +156,9 @@ export interface World {
   tree: Int16Array;
   field: Int16Array;
   rock: Uint8Array;
+  /** Ore under mountain tiles and how much is left. */
+  deposit: Uint8Array;
+  depositAmount: Uint8Array;
   /** Building id + 1 on footprint tiles, 0 elsewhere. */
   footprint: Int32Array;
   /** Building id + 1 on door tiles, 0 elsewhere. */
@@ -116,6 +167,8 @@ export interface World {
   territory: Uint8Array;
   /** Settler id + 1 that has claimed a tree, rock, field or planting spot. */
   claim: Int32Array;
+  /** Per player: what each tile shows through the fog of war. */
+  vision: Uint8Array[];
   players: PlayerState[];
   buildings: Building[];
   settlers: Settler[];
@@ -125,6 +178,7 @@ export interface World {
   /** Bumped when trees, fields, rocks or buildings change, so renderers can redraw. */
   mapVersion: number;
   territoryVersion: number;
+  winner: number | null;
 }
 
 export function tileIndex(world: World, x: number, y: number): number {
@@ -157,8 +211,19 @@ export function playerOf(world: World, owner: number): PlayerState | undefined {
   return world.players.find((p) => p.id === owner);
 }
 
+export function nextRandom(world: World): number {
+  const random = createRandom(world.randomState);
+  const value = random.next();
+  world.randomState = random.state;
+  return value;
+}
+
 export function isStorageBuilding(b: Building): boolean {
   return b.isComplete && BUILDING_TYPES[b.typeId].storageCapacity > 0;
+}
+
+export function isMilitaryBuilding(b: Building): boolean {
+  return BUILDING_TYPES[b.typeId].garrisonCapacity > 0;
 }
 
 export function storedTotal(b: Building): number {
@@ -168,7 +233,8 @@ export function storedTotal(b: Building): number {
 }
 
 export function newBuilding(world: World, typeId: BuildingTypeId, owner: number, x: number, y: number): Building {
-  const size = BUILDING_TYPES[typeId].size;
+  const type = BUILDING_TYPES[typeId];
+  const size = type.size;
   const b: Building = {
     id: world.nextId++, typeId, owner, x, y, size,
     doorX: x + Math.floor(size / 2), doorY: y + size,
@@ -176,6 +242,7 @@ export function newBuilding(world: World, typeId: BuildingTypeId, owner: number,
     stock: emptyGoods(), input: emptyGoods(), incoming: emptyGoods(), reserved: emptyGoods(),
     delivered: emptyGoods(), built: emptyGoods(),
     levelProgress: 0, buildProgress: 0, diggerId: null, builderId: null, workerId: null,
+    garrison: [], garrisonWanted: typeId === 'castle' ? 3 : Math.min(1, type.garrisonCapacity), isOccupied: false, meals: 0,
     isPaused: false, residentsLeft: 0,
     blockedReason: null, blockedSince: null, hasWarned: false
   };
@@ -205,36 +272,38 @@ export function removeBuilding(world: World, b: Building): void {
 export function newSettler(world: World, owner: number, settlerType: SettlerType, x: number, y: number): Settler {
   const s: Settler = {
     id: world.nextId++, owner, settlerType, x, y, prevX: x, prevY: y, path: [], phase: 'idle', timer: 0,
-    carrying: null, fromId: null, toId: null, good: null, homeId: null, targetTile: -1, isInside: true
+    carrying: null, fromId: null, toId: null, good: null, homeId: null, targetTile: -1, isInside: true,
+    health: isSoldierType(settlerType) ? SOLDIER_STATS[settlerType].health : 0, cooldown: 0, enemyId: null, attackId: null
   };
   world.settlers.push(s);
   return s;
 }
 
-export function pushMessage(world: World, text: string, detail: string, isWarning: boolean, buildingId: number | null): void {
-  world.messages.push({ id: world.nextId++, tick: world.tick, text, detail, isWarning, buildingId });
-  if (world.messages.length > 30) world.messages.shift();
+export function pushMessage(world: World, owner: number, text: string, detail: string, isWarning: boolean, buildingId: number | null): void {
+  world.messages.push({ id: world.nextId++, owner, tick: world.tick, text, detail, isWarning, buildingId });
+  if (world.messages.length > 60) world.messages.shift();
 }
 
-/** A military building counts once finished and occupied; the castle always counts. */
-export function claimsTerritory(world: World, b: Building): boolean {
+/** The castle always claims land; any other military building while it is occupied. */
+export function claimsTerritory(b: Building): boolean {
   if (!b.isComplete || BUILDING_TYPES[b.typeId].territoryRadius === 0) return false;
-  if (b.typeId === 'castle') return true;
-  const soldier = settlerById(world, b.workerId);
-  return !!soldier && soldier.phase === 'inside';
+  return b.typeId === 'castle' || b.isOccupied;
 }
 
-/** Rebuilds owned land from the buildings that claim territory. */
+/** Rebuilds owned land: each tile belongs to the nearest building that claims it. */
 export function recomputeTerritory(world: World): void {
   const next = new Uint8Array(world.width * world.height);
+  const best = new Float32Array(world.width * world.height).fill(Infinity);
   for (const b of world.buildings) {
-    if (!claimsTerritory(world, b)) continue;
+    if (!claimsTerritory(b)) continue;
     const r = BUILDING_TYPES[b.typeId].territoryRadius;
     const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
     for (let y = Math.max(0, Math.floor(cy - r)); y < Math.min(world.height, Math.ceil(cy + r)); y++) {
       for (let x = Math.max(0, Math.floor(cx - r)); x < Math.min(world.width, Math.ceil(cx + r)); x++) {
         const i = tileIndex(world, x, y);
-        if (next[i] === 0 && Math.hypot(x + 0.5 - cx, y + 0.5 - cy) <= r) next[i] = b.owner + 1;
+        const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+        // Land already held by another player stays theirs unless this building is closer.
+        if (d <= r && d < best[i]) { best[i] = d; next[i] = b.owner + 1; }
       }
     }
   }
@@ -243,16 +312,31 @@ export function recomputeTerritory(world: World): void {
   if (!isChanged) return;
   world.territory = next;
   world.territoryVersion++;
+  for (const p of world.players) {
+    let land = 0;
+    for (let i = 0; i < next.length; i++) if (next[i] === p.id + 1) land++;
+    p.stats.largestTerritory = Math.max(p.stats.largestTerritory, land);
+  }
 }
 
-export function defaultPlayer(id: number): PlayerState {
+export function defaultPlayer(id: number, isBot: boolean): PlayerState {
   const isStored = {} as Record<GoodType, boolean>;
   for (const good of GOOD_TYPES) isStored[good] = true;
+  const productionShares: Partial<Record<GoodType, number>> = {};
+  for (const tool of TOOL_TYPES) productionShares[tool] = tool === 'pick' || tool === 'axe' ? 3 : tool === 'hammer' || tool === 'saw' ? 2 : 1;
+  productionShares.sword = 5; productionShares.spear = 2; productionShares.bow = 3;
+  const distribution: PlayerState['distribution'] = {};
+  for (const good of distributedGoods()) {
+    distribution[good] = {};
+    for (const consumer of consumersOf(good)) distribution[good]![consumer] = 5;
+  }
   return {
-    id,
-    transportPriority: ['plank', 'stone', 'log', 'axe', 'saw', 'pick', 'scythe', 'shovel', 'hammer', 'rod',
-      'water', 'grain', 'flour', 'bread', 'fish'],
-    isStored
+    id, isBot, isEliminated: false,
+    transportPriority: ['plank', 'stone', 'log', ...TOOL_TYPES, ...WEAPON_TYPES, 'coal', 'iron_ore', 'iron',
+      'water', 'grain', 'flour', 'bread', 'fish', 'pig', 'meat'],
+    isStored, productionOrders: {}, productionShares, productionCredit: {}, distribution, distributionCount: {},
+    isRecruitingAutomatic: true, recruitsLeft: 0,
+    stats: { buildingsBuilt: 0, soldiersRecruited: 0, soldiersLost: 0, towersTaken: 0, planksMade: 0, breadBaked: 0, largestTerritory: 0 }
   };
 }
 
@@ -260,29 +344,44 @@ export interface CreateWorldOptions {
   seed?: number;
   width?: number;
   height?: number;
+  /** 1: sandbox. 2: a match against a computer player on a mirrored map. */
+  playerCount?: 1 | 2;
 }
 
 export const STARTING_STOCK: Partial<GoodAmounts> = {
-  log: 8, plank: 40, stone: 40, axe: 3, saw: 2, pick: 3, scythe: 2, rod: 1
+  log: 8, plank: 40, stone: 40, axe: 5, saw: 3, pick: 5, scythe: 4, rod: 2, hammer: 3, shovel: 2, bread: 4, fish: 4
 };
-export const STARTING_SETTLERS: Partial<Record<SettlerType, number>> = { carrier: 20, digger: 3, builder: 4, soldier: 5 };
+export const STARTING_SETTLERS: Partial<Record<SettlerType, number>> = {
+  carrier: 20, digger: 3, builder: 4, swordsman: 3, spearman: 1, bowman: 2
+};
 
-/** Creates a seeded single-player map with a castle, territory and starting settlers. */
-export function createWorld({ seed = 1, width = 96, height = 96 }: CreateWorldOptions = {}): World {
+/** Creates a seeded map: a sandbox for one player, or a mirrored two-player match. */
+export function createWorld({ seed = 1, width, height, playerCount = 1 }: CreateWorldOptions = {}): World {
+  const w = width ?? (playerCount === 2 ? 144 : 96);
+  const h = height ?? 96;
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new RangeError('seed must be a uint32');
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 48 || height < 48 || width > 512 || height > 512) {
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w < 48 || h < 48 || w > 512 || h > 512) {
     throw new RangeError('map size must be between 48 and 512 tiles');
   }
-  const n = width * height;
+  const n = w * h;
+  const players = Array.from({ length: playerCount }, (_, k) => defaultPlayer(k, k > 0));
   const world: World = {
-    seed, tick: 0, width, height,
+    seed, tick: 0, width: w, height: h,
     terrain: new Uint8Array(n), tree: new Int16Array(n).fill(NO_TREE), field: new Int16Array(n).fill(NO_FIELD),
-    rock: new Uint8Array(n), footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
-    claim: new Int32Array(n), players: [defaultPlayer(0)], buildings: [], settlers: [], messages: [],
-    nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0
+    rock: new Uint8Array(n), deposit: new Uint8Array(n), depositAmount: new Uint8Array(n),
+    footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
+    claim: new Int32Array(n), vision: players.map(() => new Uint8Array(n)), players, buildings: [], settlers: [], messages: [],
+    nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null
   };
   generateTerrain(world);
-  placeCastle(world, 0);
+  const start = playerCount === 2
+    ? findCastleSpot(world, Math.floor(w * 0.18), Math.floor(w / 2) - 24)
+    : findCastleSpot(world, Math.floor(w * 0.35), w - 12);
+  prepareStart(world, start.x, start.y);
+  if (playerCount === 2) mirrorLeftHalf(world);
+  placeCastle(world, 0, start.x, start.y);
+  if (playerCount === 2) placeCastle(world, 1, w - start.x - BUILDING_TYPES.castle.size, start.y);
+  recomputeTerritory(world);
   return world;
 }
 
@@ -312,6 +411,7 @@ function generateTerrain(world: World): void {
   const coarse = valueNoise(seed ^ 0x9e3779b9, width, height, 16);
   const fine = valueNoise(seed ^ 0x85ebca6b, width, height, 6);
   const forest = valueNoise(seed ^ 0xc2b2ae35, width, height, 10);
+  const ore = valueNoise(seed ^ 0x2545f491, width, height, 5);
   const random = createRandom(seed ^ 0x27d4eb2f);
   for (let i = 0; i < width * height; i++) {
     const elevation = coarse[i] * 0.7 + fine[i] * 0.3;
@@ -320,84 +420,105 @@ function generateTerrain(world: World): void {
   }
   for (let i = 0; i < width * height; i++) {
     const r = random.next();
-    if (world.terrain[i] === TERRAIN_MOUNTAIN && r < 0.35) world.rock[i] = ROCK_STONE;
+    if (world.terrain[i] === TERRAIN_MOUNTAIN) {
+      if (r < 0.25) world.rock[i] = ROCK_STONE;
+      else if (ore[i] > 0.4) setDeposit(world, i, ore[i] > 0.62 ? DEPOSIT_IRON : DEPOSIT_COAL);
+    }
     else if (world.terrain[i] === TERRAIN_GRASS && forest[i] > 0.58 && r < 0.6) world.tree[i] = TREE_MATURE;
     else if (world.terrain[i] === TERRAIN_GRASS && r < 0.012) world.rock[i] = ROCK_STONE;
   }
 }
 
-function placeCastle(world: World, owner: number): void {
-  const size = BUILDING_TYPES.castle.size;
-  const radius = BUILDING_TYPES.castle.territoryRadius;
-  const cx = Math.floor(world.width * 0.35), cy = Math.floor(world.height * 0.5);
-  let best = { x: cx, y: cy };
+function setDeposit(world: World, i: number, deposit: number): void {
+  world.deposit[i] = deposit;
+  world.depositAmount[i] = deposit === DEPOSIT_NONE ? 0 : DEPOSIT_AMOUNT;
+}
+
+function findCastleSpot(world: World, targetX: number, maxX: number): { x: number; y: number } {
+  const cy = Math.floor(world.height * 0.5);
+  let best = { x: targetX, y: cy };
   let bestScore = -Infinity;
-  for (let y = 8; y < world.height - 12; y++) {
-    for (let x = 8; x < world.width - 12; x++) {
-      let grass = 0, water = 0;
+  for (let y = 12; y < world.height - 16; y++) {
+    for (let x = 12; x < maxX; x++) {
+      let grass = 0;
       for (let dy = -6; dy <= 9; dy++) {
         for (let dx = -6; dx <= 9; dx++) {
           if (world.terrain[tileIndex(world, x + dx, y + dy)] === TERRAIN_GRASS) grass++;
         }
       }
-      // A start with water inside the territory allows waterworks and fishers.
-      for (let dy = -12; dy <= 15; dy += 3) {
-        for (let dx = -12; dx <= 15; dx += 3) {
-          if (inBounds(world, x + dx, y + dy) && world.terrain[tileIndex(world, x + dx, y + dy)] === TERRAIN_WATER) water++;
-        }
-      }
-      const score = grass + Math.min(water, 6) * 8 - Math.hypot(x - cx, y - cy) * 2;
+      const score = grass - Math.hypot(x - targetX, y - cy) * 2;
       if (score > bestScore) { bestScore = score; best = { x, y }; }
     }
   }
-  const { x, y } = best;
+  return best;
+}
+
+/**
+ * Clears room around the castle and guarantees the same start everywhere: a grove, a rock cluster and a
+ * pond inside the territory, and a mountain with coal and iron just outside it, so expansion matters.
+ */
+function prepareStart(world: World, x: number, y: number): void {
+  const size = BUILDING_TYPES.castle.size;
+  const radius = BUILDING_TYPES.castle.territoryRadius;
   const centreX = x + size / 2, centreY = y + size / 2;
-  // Clear the castle surroundings so the first buildings have room.
+  const random = createRandom(world.seed ^ 0x165667b1);
+  const angle = random.next() * Math.PI * 2;
+  const at = (a: number, d: number) => ({ x: centreX + Math.cos(a) * d, y: centreY + Math.sin(a) * d });
+  const grove = at(angle, 11), quarry = at(angle + Math.PI, 11), pond = at(angle + Math.PI / 2, 10);
+  const mountain = at(angle - Math.PI / 2, radius + 6);
+  const forEachNear = (p: { x: number; y: number }, r: number, fn: (i: number, d: number) => void) => {
+    for (let ty = Math.floor(p.y - r); ty <= Math.ceil(p.y + r); ty++) {
+      for (let tx = Math.floor(p.x - r); tx <= Math.ceil(p.x + r); tx++) {
+        if (!inBounds(world, tx, ty)) continue;
+        const d = Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y);
+        if (d <= r) fn(tileIndex(world, tx, ty), d);
+      }
+    }
+  };
+  forEachNear(mountain, 5, (i, d) => {
+    world.terrain[i] = TERRAIN_MOUNTAIN; world.tree[i] = NO_TREE; world.rock[i] = 0;
+    setDeposit(world, i, d < 2.2 ? DEPOSIT_IRON : DEPOSIT_COAL);
+  });
+  forEachNear(pond, 2.4, (i) => { world.terrain[i] = TERRAIN_WATER; world.tree[i] = NO_TREE; world.rock[i] = 0; setDeposit(world, i, DEPOSIT_NONE); });
+  forEachNear(grove, 4, (i) => { if (world.terrain[i] === TERRAIN_GRASS && random.next() < 0.7) { world.tree[i] = TREE_MATURE; world.rock[i] = 0; } });
+  forEachNear(quarry, 2.5, (i) => { if (world.terrain[i] === TERRAIN_GRASS && random.next() < 0.7) { world.rock[i] = ROCK_STONE; world.tree[i] = NO_TREE; } });
   for (let ty = y - 5; ty < y + size + 6; ty++) {
     for (let tx = x - 5; tx < x + size + 6; tx++) {
       if (!inBounds(world, tx, ty)) continue;
       const i = tileIndex(world, tx, ty);
-      world.terrain[i] = TERRAIN_GRASS;
-      world.tree[i] = NO_TREE;
-      world.rock[i] = 0;
+      world.terrain[i] = TERRAIN_GRASS; world.tree[i] = NO_TREE; world.rock[i] = 0; setDeposit(world, i, DEPOSIT_NONE);
     }
   }
-  ensureStartingResources(world, centreX, centreY, radius);
+}
+
+/** Copies the left half onto the right, mirrored, so both players start with exactly the same land. */
+function mirrorLeftHalf(world: World): void {
+  const { width, height } = world;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < Math.floor(width / 2); x++) {
+      const from = tileIndex(world, x, y), to = tileIndex(world, width - 1 - x, y);
+      world.terrain[to] = world.terrain[from]; world.tree[to] = world.tree[from]; world.rock[to] = world.rock[from];
+      world.deposit[to] = world.deposit[from]; world.depositAmount[to] = world.depositAmount[from];
+    }
+  }
+}
+
+function placeCastle(world: World, owner: number, x: number, y: number): void {
   const castle = newBuilding(world, 'castle', owner, x, y);
   castle.isComplete = true;
   castle.levelProgress = 1;
   castle.buildProgress = 1;
   for (const good of GOOD_TYPES) castle.stock[good] = STARTING_STOCK[good] ?? 0;
   for (const [type, count] of Object.entries(STARTING_SETTLERS) as [SettlerType, number][]) {
-    for (let i = 0; i < count; i++) newSettler(world, owner, type, castle.doorX, castle.doorY);
-  }
-  recomputeTerritory(world);
-}
-
-/** Every start gets enough trees and rocks inside its territory to begin the timber chain. */
-function ensureStartingResources(world: World, centreX: number, centreY: number, radius: number): void {
-  const random = createRandom(world.seed ^ 0x165667b1);
-  const inRing = (i: number) => {
-    const tx = i % world.width, ty = Math.floor(i / world.width);
-    const d = Math.hypot(tx + 0.5 - centreX, ty + 0.5 - centreY);
-    return d > 8 && d < radius - 1;
-  };
-  let trees = 0, rocks = 0;
-  const candidates: number[] = [];
-  for (let i = 0; i < world.width * world.height; i++) {
-    if (!inRing(i)) continue;
-    if (world.tree[i] >= 0) trees++;
-    if (world.rock[i] > 0) rocks++;
-    if (world.terrain[i] === TERRAIN_GRASS && world.tree[i] < 0 && world.rock[i] === 0) candidates.push(i);
-  }
-  // Grow a grove and a rock cluster on opposite sides, so they compete for space with buildings.
-  const angle = random.next() * Math.PI * 2;
-  const grove = { x: centreX + Math.cos(angle) * 11, y: centreY + Math.sin(angle) * 11 };
-  const quarry = { x: centreX - Math.cos(angle) * 11, y: centreY - Math.sin(angle) * 11 };
-  const near = (i: number, p: { x: number; y: number }, r: number) =>
-    Math.hypot((i % world.width) + 0.5 - p.x, Math.floor(i / world.width) + 0.5 - p.y) < r;
-  for (const i of candidates) {
-    if (trees < 30 && near(i, grove, 4) && random.next() < 0.7) { world.tree[i] = TREE_MATURE; trees++; }
-    else if (rocks < 8 && near(i, quarry, 2.5) && random.next() < 0.7) { world.rock[i] = ROCK_STONE; rocks++; }
+    for (let i = 0; i < count; i++) {
+      const s = newSettler(world, owner, type, castle.doorX, castle.doorY);
+      if (isSoldierType(type) && castle.garrison.length < castle.garrisonWanted) {
+        castle.garrison.push(s.id);
+        s.phase = 'inside'; s.homeId = castle.id;
+      } else if (isSoldierType(type)) {
+        // The rest of the soldiers wait outside, free to be sent to towers or into battle.
+        s.isInside = false;
+      }
+    }
   }
 }
