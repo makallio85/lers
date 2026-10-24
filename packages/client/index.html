@@ -27,8 +27,10 @@
         <div class="controls">
           <span class="muted clock" id="clock">00:00</span>
           <div class="speed" role="group" aria-label="Game speed" id="speed"></div>
+          <button type="button" class="menu-button" id="menu-button" data-action="menu" aria-expanded="false" aria-controls="game-menu">Menu</button>
         </div>
       </header>
+      <div class="game-menu" id="game-menu" hidden></div>
       <div class="map" id="map"></div>
       <div class="selection" id="selection" hidden></div>
       <div class="messages" id="messages" aria-live="polite"></div>

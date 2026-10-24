@@ -2,7 +2,7 @@
 
 An independent, community-oriented settlement and real-time strategy game inspired by The Settlers III. Public project; no monetization objective.
 
-**Status:** early sandbox. In the browser you can build a timber economy (woodcutter, forester, sawmill, stonecutter) and watch settlers carry goods. Food, territory growth, combat, saving, networking and mobile apps are not implemented yet.
+**Status:** early sandbox. In the browser you can build timber and food economies (woodcutter, forester, sawmill, stonecutter, grain farm, mill, waterworks, bakery, fisher), add residences and storage, expand territory with guard towers, and save and load. Mining, tools production, combat, opponents, networking and mobile apps are not implemented yet.
 
 ## Experience
 
@@ -34,7 +34,7 @@ npm run benchmark     # movement-only baseline
 
 Add `?seed=<number>` to the address to replay the same map.
 
-Controls: drag, arrow keys or WASD to scroll; mouse wheel or pinch to zoom; choose a building in the Build menu, then click the map (on touch screens: tap to position, then press Place). Esc or right-click cancels placing. Space pauses.
+Controls: drag or arrow keys to scroll; mouse wheel or pinch to zoom. Q/W/E/R open the build groups (Resources, Food, Military, Misc.) and A/S/D/F the goods views, as in The Settlers III. Choose a building, then click a green marker (on touch screens: tap to position, then press Place). Esc or right-click cancels placing. Space pauses. Menu saves and loads in this browser.
 
 The benchmark measures only movement of 10,000 units on an empty map. It does not measure rendering, collision avoidance, pathfinding, combat, networking or device performance. It cannot establish that the finished game meets its scale targets.
 

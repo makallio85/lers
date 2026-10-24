@@ -1,7 +1,7 @@
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import {
-  BUILDING_TYPES, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE, costTotal, tileIndex
+  BUILDING_TYPES, FIELD_RIPE, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE, tileIndex
 } from '../../simulation/src/index.ts';
 import type { BuildingTypeId, GoodType, World } from '../../simulation/src/index.ts';
 
@@ -10,9 +10,19 @@ const MIN_SCALE = 0.35;
 const MAX_SCALE = 3;
 
 const BUILDING_ACCENTS: Partial<Record<BuildingTypeId, number>> = {
-  castle: 0xe3a33b, woodcutter: 0x8a5a2b, forester: 0x4e7a3a, sawmill: 0xc98f3b, stonecutter: 0x8d8a7c
+  castle: 0xe3a33b, woodcutter: 0x8a5a2b, forester: 0x4e7a3a, sawmill: 0xc98f3b, stonecutter: 0x8d8a7c,
+  farm: 0xd9b44a, mill: 0xe8d9a8, bakery: 0xc77b3c, waterworks: 0x4f7fa6, fisher: 0x5d93bf,
+  guard_tower_small: 0xc45a5a, guard_tower_large: 0xc45a5a,
+  residence_small: 0x9b7fbf, residence_medium: 0x9b7fbf, residence_large: 0x9b7fbf, storage: 0x6d6a60
 };
-const GOOD_COLORS: Record<GoodType, number> = { log: 0x7a4d24, plank: 0xd8a85e, stone: 0xa3a39b };
+const GOOD_COLORS: Record<GoodType, number> = {
+  log: 0x7a4d24, plank: 0xd8a85e, stone: 0xa3a39b, grain: 0xe3c35a, flour: 0xf4efe2, water: 0x5d93bf,
+  bread: 0xb5763a, fish: 0x8fb3d9, axe: 0x5a5a5a, saw: 0x5a5a5a, pick: 0x5a5a5a, scythe: 0x5a5a5a,
+  shovel: 0x5a5a5a, hammer: 0x5a5a5a, rod: 0x5a5a5a
+};
+const SETTLER_COLORS: Partial<Record<string, number>> = {
+  carrier: 0xece6d6, builder: 0xe3a33b, digger: 0xb07a45, soldier: 0xd05a5a
+};
 
 export interface Ghost {
   typeId: BuildingTypeId;
@@ -23,6 +33,9 @@ export interface Ghost {
 
 export interface ViewState {
   ghost: Ghost | null;
+  /** Top-left tiles where the building being placed fits. */
+  markers: readonly number[];
+  markerSize: number;
   selectedId: number | null;
 }
 
@@ -50,6 +63,7 @@ export class MapView {
   private readonly overlay = new Graphics();
   private readonly buildingGraphics = new Map<number, { body: Graphics; label: Text }>();
   private mapVersion = -1;
+  private territoryVersion = -1;
   private world: World;
 
   private constructor(app: Application, world: World) {
@@ -79,7 +93,7 @@ export class MapView {
     for (const { body, label } of this.buildingGraphics.values()) { body.destroy(); label.destroy(); }
     this.buildingGraphics.clear();
     this.drawTerrain();
-    this.drawTerritory();
+    this.territoryVersion = -1;
   }
 
   get scale(): number { return this.camera.scale.x; }
@@ -136,6 +150,14 @@ export class MapView {
     const g = this.objects.clear();
     for (let i = 0; i < world.tree.length; i++) {
       const growth = world.tree[i];
+      if (world.field[i] >= 0) {
+        const t = world.field[i] / FIELD_RIPE;
+        const px = (i % world.width) * TILE, py = Math.floor(i / world.width) * TILE;
+        const color = t >= 1 ? 0xe0b84a : shade(0x8fa34a, Math.round(t * 50));
+        g.rect(px + 2, py + 2, TILE - 4, TILE - 4).fill(color);
+        for (let k = 0; k < 3; k++) g.rect(px + 4 + k * 5, py + 4, 1.5, TILE - 8).fill({ color: 0x5b6a2c, alpha: 0.5 });
+        continue;
+      }
       if (growth < 0 && world.rock[i] === 0) continue;
       const cx = (i % world.width) * TILE + TILE / 2;
       const cy = Math.floor(i / world.width) * TILE + TILE / 2;
@@ -177,24 +199,34 @@ export class MapView {
         body.rect(x, y, size, 5).fill(accent);
         label.style.fill = 0x1b2420;
       } else {
-        const total = costTotal(BUILDING_TYPES[b.typeId].cost);
-        const onSite = b.delivered.log + b.delivered.plank + b.delivered.stone;
-        body.roundRect(x, y, size, size, 4).fill({ color: 0xece6d6, alpha: 0.18 }).stroke({ width: 2, color: 0xece6d6, alpha: 0.8 });
-        body.rect(x, y + size - size * b.buildProgress, size, size * b.buildProgress).fill({ color: 0xd8cfb8, alpha: 0.75 });
+        const onSite = b.delivered.plank + b.delivered.stone + b.delivered.log;
+        if (b.levelProgress < 1) {
+          body.roundRect(x, y, size, size, 4).fill({ color: 0x8a6a45, alpha: 0.35 * b.levelProgress + 0.1 }).stroke({ width: 2, color: 0xece6d6, alpha: 0.6 });
+        } else {
+          body.roundRect(x, y, size, size, 4).fill({ color: 0x9c7a50, alpha: 0.45 }).stroke({ width: 2, color: 0xece6d6, alpha: 0.8 });
+          body.rect(x, y + size - size * b.buildProgress, size, size * b.buildProgress).fill({ color: 0xd8cfb8, alpha: 0.8 });
+        }
         for (let k = 0; k < Math.min(onSite, 8); k++) body.rect(x + 3 + k * 6, y + 3, 4, 4).fill(0xd8a85e);
         label.style.fill = 0xece6d6;
-        if (total === 0) body.rect(x, y, size, 5).fill(accent);
       }
+      if (b.isComplete && b.isPaused) body.rect(x + size - 12, y + 8, 3, 8).fill(0x1b2420).rect(x + size - 7, y + 8, 3, 8).fill(0x1b2420);
       body.rect(b.doorX * TILE + TILE * 0.3, b.doorY * TILE - 3, TILE * 0.4, 6).fill(0x4a3b2a);
       if (b.blockedReason && b.blockedSince !== null && world.tick - b.blockedSince > 30) {
         body.roundRect(x - 2, y - 2, size + 4, size + 4, 5).stroke({ width: 3, color: 0xe8763a });
       }
       if (b.id === selectedId) body.roundRect(x - 4, y - 4, size + 8, size + 8, 6).stroke({ width: 2, color: 0xffffff });
-      label.text = b.isComplete ? BUILDING_TYPES[b.typeId].label : `${BUILDING_TYPES[b.typeId].label} ${Math.floor(b.buildProgress * 100)}%`;
+      const name = BUILDING_TYPES[b.typeId].label;
+      label.text = b.isComplete ? name
+        : b.levelProgress < 1 ? `${name}\nlevelling ${Math.floor(b.levelProgress * 100)}%`
+        : `${name} ${Math.floor(b.buildProgress * 100)}%`;
       label.position.set(x + size / 2, y + size / 2 + 2);
       label.style.wordWrap = true;
-      label.style.wordWrapWidth = size - 4;
+      label.style.wordWrapWidth = Math.max(size * 1.6, 60);
       label.style.align = 'center';
+      // Shrink long names so they stay inside small buildings instead of running into neighbours.
+      label.scale.set(1);
+      const fit = Math.min(1, (size - 4) / label.width, (size - 8) / label.height);
+      label.scale.set(fit);
     }
     for (const [id, entry] of this.buildingGraphics) {
       if (alive.has(id)) continue;
@@ -209,14 +241,21 @@ export class MapView {
       if (s.isInside) continue;
       const x = (s.prevX + (s.x - s.prevX) * alpha) * TILE + TILE / 2;
       const y = (s.prevY + (s.y - s.prevY) * alpha) * TILE + TILE / 2;
-      const color = s.settlerType === 'carrier' ? 0xece6d6 : s.settlerType === 'builder' ? 0xe3a33b : 0x8fb3d9;
+      const color = SETTLER_COLORS[s.settlerType] ?? 0x8fb3d9;
       g.circle(x, y, TILE * 0.26).fill(color).stroke({ width: 1, color: 0x1b2420 });
       if (s.carrying) g.rect(x - 4, y - TILE * 0.62, 8, 6).fill(GOOD_COLORS[s.carrying]).stroke({ width: 1, color: 0x1b2420 });
     }
   }
 
-  private drawOverlay(ghost: Ghost | null): void {
+  private drawOverlay(ghost: Ghost | null, markers: readonly number[], markerSize: number): void {
     const g = this.overlay.clear();
+    // Placement markers: a small diamond at the centre of every spot where the building fits.
+    const half = (markerSize * TILE) / 2;
+    for (const i of markers) {
+      const cx = (i % this.world.width) * TILE + half, cy = Math.floor(i / this.world.width) * TILE + half;
+      g.moveTo(cx, cy - 4).lineTo(cx + 4, cy).lineTo(cx, cy + 4).lineTo(cx - 4, cy).closePath();
+    }
+    if (markers.length > 0) g.fill({ color: 0x8fdc7a, alpha: 0.85 });
     if (!ghost) return;
     const size = BUILDING_TYPES[ghost.typeId].size;
     const color = ghost.isValid ? 0x8fdc7a : 0xe8763a;
@@ -226,13 +265,17 @@ export class MapView {
   }
 
   render(alpha: number, state: ViewState): void {
+    if (this.territoryVersion !== this.world.territoryVersion) {
+      this.territoryVersion = this.world.territoryVersion;
+      this.drawTerritory();
+    }
     if (this.mapVersion !== this.world.mapVersion) {
       this.mapVersion = this.world.mapVersion;
       this.drawObjects();
     }
     this.drawBuildings(state.selectedId);
     this.drawSettlers(alpha);
-    this.drawOverlay(state.ghost);
+    this.drawOverlay(state.ghost, state.markers, state.markerSize);
   }
 
   // ------------------------------------------------------------- camera

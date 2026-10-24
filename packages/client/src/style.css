@@ -101,6 +101,26 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 
 .rotate { display: none; }
 
+/* Lists, priorities and menus */
+.num { font-variant-numeric: tabular-nums; text-align: right; }
+.list li { gap: 12px; }
+.priority-row { align-items: center; padding: 4px 6px 4px 10px !important; }
+.rank { width: 20px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.grow { flex: 1; min-width: 0; }
+.chip { min-height: 32px; padding: 0 10px; border-radius: 16px; border: 1px solid var(--line-strong); background: transparent; font-size: 12px; color: var(--muted); }
+.chip.is-on { border-color: var(--accent); color: var(--accent); }
+.icon-button { min-width: 32px; min-height: 32px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 14px; }
+.icon-button:disabled { opacity: 0.35; }
+.danger { min-height: 44px; border: 0; border-radius: 6px; background: var(--warning); color: var(--accent-text); font-weight: 600; font-size: 15px; padding: 0 16px; }
+.menu-button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 13px; }
+.menu-button[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.game-menu { position: absolute; right: 16px; top: calc(var(--top-height) + 8px); z-index: 4; width: 260px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-strong); }
+.menu-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; font-size: 14px; text-align: left; }
+.menu-item:hover:not(:disabled) { background: var(--card-on); }
+.menu-item:disabled { color: var(--muted); }
+.menu-item .muted { font-size: 12px; }
+.menu-notice { margin: 4px 12px; font-size: 13px; color: var(--text); }
+
 /* Phones held sideways: icon rail plus a drawer instead of the full side panel. */
 @media (max-height: 520px), (max-width: 760px) {
   :root { --side-width: 300px; --top-height: 44px; }
@@ -123,6 +143,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .stock { gap: 12px; }
   .map { inset: 0; }
   .speed button { min-width: 36px; min-height: 30px; padding: 0 6px; font-size: 12px; }
+  .menu-button { min-height: 30px; padding: 0 8px; font-size: 12px; }
+  .game-menu { top: 52px; right: 8px; }
   .messages { right: 72px; bottom: 8px; width: min(260px, calc(100% - 90px)); }
   .message:not(:first-child) { display: none; }
   .message { padding: 8px; }
