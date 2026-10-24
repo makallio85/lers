@@ -2,6 +2,14 @@
 
 This document records intentions, not implemented services or a final engine selection.
 
+## Research recommendation (24 October 2026)
+
+See the [technical architecture study](research/technical-architecture-2026-10-24.md) for 36 source entries, alternatives, assumptions, sizing calculations and measurement gates. Proposed default: TypeScript + PixiJS/WebGL for a fixed isometric web client; Capacitor for installed iOS/Android clients if physical-device tests pass; authoritative Node.js match hosts with isolated match processes; filtered WebSocket updates and interpolation; SQLite metadata and snapshots/journals with off-host backups on one initial Linux host. Evaluate Colyseus against the real replication/isolation workload before choosing it.
+
+Before committing to a large new simulation implementation, audit the MIT-licensed JSettlers implementation and linked archived fork for selectively reusable logic/tests, dependency provenance and headless boundaries. Original media rights remain separate. Do not assume a Java implementation is a drop-in browser/iOS engine. No existing remake code has been imported.
+
+These are recommendations pending the prototype gates, not capabilities or final technology decisions. The movement-only benchmark does not size a full match. Full camera rotation would reopen the renderer decision. Small expected audience justifies simple hosting, but does not remove per-match navigation, replication or mobile constraints.
+
 ## Shared rules, multiple hosts
 
 Keep simulation independent of DOM, rendering, sockets and AI providers. A match host owns the authoritative world. Multiplayer and online solo use a server; offline solo can later run the same rules in a browser worker or mobile host. Offline solo must support pause/save/load. External MCP agents require a reachable match host.
