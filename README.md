@@ -2,7 +2,7 @@
 
 An independent, community-oriented settlement and real-time strategy game inspired by The Settlers III. Public project; no monetization objective.
 
-**Status:** early sandbox. In the browser you can build timber and food economies (woodcutter, forester, sawmill, stonecutter, grain farm, mill, waterworks, bakery, fisher), add residences and storage, expand territory with guard towers, and save and load. Mining, tools production, combat, opponents, networking and mobile apps are not implemented yet.
+**Status:** first playable match. You play against a built-in computer player on a mirrored map: build an economy (timber, food, mining, metal), recruit soldiers, expand with towers and take the enemy castle. A sandbox without an opponent is in the menu. Saving and loading work in the browser. Artwork, sound, multiplayer, AI agents and mobile apps are not implemented yet.
 
 ## Experience
 
@@ -34,7 +34,13 @@ npm run benchmark     # movement-only baseline
 
 Add `?seed=<number>` to the address to replay the same map.
 
-Controls: drag or arrow keys to scroll; mouse wheel or pinch to zoom. Q/W/E/R open the build groups (Resources, Food, Military, Misc.) and A/S/D/F the goods views, as in The Settlers III. Choose a building, then click a green marker (on touch screens: tap to position, then press Place). Esc or right-click cancels placing. Space pauses. Menu saves and loads in this browser.
+Controls:
+- Map: arrow keys, right- or middle-drag to scroll (one finger on touch screens); mouse wheel or pinch to zoom; click the minimap to jump.
+- Build: Q/W/E/R open the build groups (Resources, Food, Military, Misc.), A/S/D/F the goods views, as in The Settlers III. Choose a building, then click a green marker (touch: tap to position, then press Place). Esc or right-click cancels.
+- Soldiers: left-drag a box (touch: Select, then drag), click one soldier, or use All in view. Right-click moves them, or attacks when you right-click an enemy tower or castle; the Move and Attack buttons do the same by touch. Ctrl+1–9 saves a group, 1–9 selects it.
+- Space pauses. Menu saves, loads, starts a new match or sandbox, and surrenders.
+
+Add `?seed=<number>` to the address to replay the same map, and `&mode=sandbox` for a game without an opponent.
 
 The benchmark measures only movement of 10,000 units on an empty map. It does not measure rendering, collision avoidance, pathfinding, combat, networking or device performance. It cannot establish that the finished game meets its scale targets.
 
