@@ -33,6 +33,7 @@ The benchmark measures only movement of 10,000 units on an empty map. It does no
 ## Project map
 
 - [Game design](docs/game-design.md): familiar gameplay and menus, original presentation.
+- [Technical research](docs/research/technical-architecture-2026-10-24.md): engine comparison, existing implementations, networking, mobile, navigation and small-community hosting.
 - [Architecture](docs/architecture.md): shared simulation, authoritative server, browser and mobile clients.
 - [AI integration](docs/mcp.md): agent commands, visibility rules and runtime responsibilities.
 - [Roadmap](docs/roadmap.md): milestones and acceptance criteria.
