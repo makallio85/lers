@@ -83,6 +83,9 @@ const NEEDS: Partial<Record<BuildingTypeId, SpotNeed>> = {
   coal_mine: 'deposit_coal', iron_mine: 'deposit_iron', farm: 'free_land', pig_farm: 'free_land'
 };
 
+/** Buildings that feed miners, in the order the bot adds them when mines go hungry. */
+const FOOD_CHAIN: readonly BuildingTypeId[] = ['fisher', 'farm', 'mill', 'bakery', 'waterworks', 'pig_farm', 'slaughterhouse'];
+
 /** A building may only be added once the ones that feed it exist (ratios as in a balanced settlement). */
 function isUseful(typeId: BuildingTypeId, count: (t: BuildingTypeId) => number): boolean {
   switch (typeId) {
@@ -166,6 +169,17 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       // Without ore of its own, the bot expands toward the mountains it has seen.
       isDone = (!hasOre(obs, spots) && place(tower, 'ore')) || place(tower, 'border');
     }
+    // Mines waiting for food get more of the food chain first, up to a few food buildings per mine.
+    const hungryMines = obs.ownBuildings.filter((b) => BUILDING_TYPES[b.typeId].mine && b.blockedReason === 'Waiting: no food').length;
+    const isFoodComing = sites.some((b) => FOOD_CHAIN.includes(b.typeId));
+    const foodBuildings = obs.ownBuildings.filter((b) => FOOD_CHAIN.includes(b.typeId)).length;
+    const mines = obs.ownBuildings.filter((b) => BUILDING_TYPES[b.typeId].mine).length;
+    if (!isDone && hungryMines > 0 && !isFoodComing && foodBuildings < mines * 3 + 4) {
+      for (const typeId of FOOD_CHAIN) {
+        if (!isUseful(typeId, count) || !hasToolFor(typeId)) continue;
+        if (place(typeId, NEEDS[typeId] ?? 'castle')) { isDone = true; note(`feed ${hungryMines} hungry mines`); break; }
+      }
+    }
     if (!isDone) {
       const planned = new Map<BuildingTypeId, number>();
       for (const typeId of BUILD_PLAN) {
@@ -213,8 +227,10 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       - (t.typeId === 'castle' && mayTakeCastle ? 40 : 0);
     targets.sort((a, b) => cost(a) - cost(b) || a.id - b.id);
     const target = targets[0];
-    const squad = settings.isSendingWholeArmy ? free : nearest(free, target.doorX, target.doorY, target.garrisonCount * 3 + SQUAD_EXTRA);
-    const isAlreadyAttacked = !settings.isSendingWholeArmy && attacking >= target.garrisonCount * 3 + SQUAD_EXTRA;
+    // Once the castle may be taken, a calm bot commits its whole army too, so long matches reach an end.
+    const isAllIn = settings.isSendingWholeArmy || mayTakeCastle;
+    const squad = isAllIn ? free : nearest(free, target.doorX, target.doorY, target.garrisonCount * 3 + SQUAD_EXTRA);
+    const isAlreadyAttacked = !isAllIn && attacking >= target.garrisonCount * 3 + SQUAD_EXTRA;
     if (!isAlreadyAttacked) {
       commands.push({ type: 'attackBuilding', playerId: me, soldierIds: squad.map((s) => s.id), buildingId: target.id });
       note(`attack ${target.typeId} #${target.id} with ${squad.length} (army ${army})`);
