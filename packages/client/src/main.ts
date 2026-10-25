@@ -31,12 +31,14 @@ function randomSeed(): number {
 }
 
 const params = new URLSearchParams(location.search);
-/** The opponent type of the current match, kept for the next one; `?bot=calm` picks the calm bot. */
-const botType = (): BotType => world.players[1]?.botType ?? (params.get('bot') === 'calm' ? 'calm' : 'aggressive');
+/** `?bot=calm` or `#calm` (for hosts that pass only the hash) starts against the calm bot. */
+const startBotType: BotType = params.get('bot') === 'calm' || location.hash === '#calm' ? 'calm' : 'aggressive';
+/** The opponent type of the current match, kept for the next one. */
+const botType = (): BotType => world.players[1]?.botType ?? startBotType;
 const seedParam = Number(params.get('seed'));
 let world: World = params.get('mode') === 'sandbox'
   ? createWorld({ seed: Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed() })
-  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), params.get('bot') === 'calm' ? 'calm' : 'aggressive');
+  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), startBotType);
 
 const ui = {
   tab: 'build' as TabId,
