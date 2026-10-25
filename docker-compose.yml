@@ -1,0 +1,15 @@
+# Coolify deploys this compose file. One stateless service: the game as static files behind nginx.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_interval: 2s
+      start_period: 20s

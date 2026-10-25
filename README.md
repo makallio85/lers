@@ -58,3 +58,8 @@ The benchmark measures only movement of 10,000 units on an empty map. It does no
 ## License
 
 Original project code is provided under the MIT license; see [LICENSE](LICENSE). Commercial reuse is permitted, although this project's goal is not monetization. Third-party assets and dependencies must retain their own compatible licenses and attribution. No original Settlers content is included.
+
+## Deployment
+
+`docker-compose.yml` builds the game (`npm run build`) and serves it as static files with nginx, with `/health` for health checks. Coolify deploys `main` to https://lers-dev.dev.rocksoftware.fi and gives each pull request against `main` its own preview address. Saves live in each player's browser, so there is no database yet.
+
