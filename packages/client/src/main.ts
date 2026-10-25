@@ -1,5 +1,5 @@
 import {
-  BUILDING_GROUP_TYPES, BUILDING_TYPES, MAX_ORDER, applyCommand, buildingById, castleOf, createMatch, createWorld,
+  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAX_ORDER, applyCommand, buildingById, castleOf, createMatch, createWorld,
   groundProblem, isMilitaryBuilding, isSoldierType, loadGame, placementProblem, saveGame, stepMatch, tileIndex, updateVision
 } from '../../simulation/src/index.ts';
 import type { BotType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
@@ -31,14 +31,26 @@ function randomSeed(): number {
 }
 
 const params = new URLSearchParams(location.search);
-/** `?bot=calm` or `#calm` (for hosts that pass only the hash) starts against the calm bot. */
-const startBotType: BotType = params.get('bot') === 'calm' || location.hash === '#calm' ? 'calm' : 'aggressive';
-/** The opponent type of the current match, kept for the next one. */
-const botType = (): BotType => world.players[1]?.botType ?? startBotType;
+const BOT_TYPE_KEY = 'lers.botType';
+/** The opponent chosen last: `?bot=` or `#calm` / `#aggressive` (for hosts that pass only the hash), else the remembered one. */
+let lastBotType: BotType = (() => {
+  const asked = params.get('bot') ?? location.hash.slice(1);
+  if ((BOT_TYPES as readonly string[]).includes(asked)) return asked as BotType;
+  try {
+    const kept = localStorage.getItem(BOT_TYPE_KEY);
+    if (kept && (BOT_TYPES as readonly string[]).includes(kept)) return kept as BotType;
+  } catch { /* storage blocked: use the default */ }
+  return 'aggressive';
+})();
+function rememberBotType(type: BotType): void {
+  lastBotType = type;
+  try { localStorage.setItem(BOT_TYPE_KEY, type); } catch { /* storage blocked */ }
+}
+const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
 const seedParam = Number(params.get('seed'));
 let world: World = params.get('mode') === 'sandbox'
   ? createWorld({ seed: Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed() })
-  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), startBotType);
+  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType);
 
 const ui = {
   tab: 'build' as TabId,
@@ -75,7 +87,9 @@ const view = await MapView.create(els.map, world);
 const isMatch = () => world.players.length > 1;
 
 function showWorld(): void {
-  els.mapName.textContent = isMatch() ? `Match · map ${world.seed}` : `Sandbox · map ${world.seed}`;
+  els.mapName.textContent = isMatch()
+    ? `Match · map ${world.seed} · ${BOT_TYPE_SETTINGS[world.players[1].botType].label} computer`
+    : `Sandbox · map ${world.seed}`;
   // Work out the fog of war before the first frame, so the start is not drawn as unexplored.
   updateVision(world);
   view.setWorld(world);
@@ -146,7 +160,8 @@ function renderMenu(): void {
   if (ui.isMenuOpen) {
     els.menu.innerHTML = renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
-      isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender
+      isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
+      botType: botType()
     });
   }
 }
@@ -656,7 +671,12 @@ document.addEventListener('click', (e) => {
       renderMenu(); break;
     case 'load': load(SAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
     case 'load-autosave': load(AUTOSAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
-    case 'new-match': startNew(createMatch(randomSeed(), botType())); break;
+    case 'new-match': {
+      const type = (BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '') ? target.dataset.bot as BotType : botType();
+      rememberBotType(type);
+      startNew(createMatch(randomSeed(), type));
+      break;
+    }
     case 'new-sandbox': startNew(createWorld({ seed: randomSeed() })); break;
     case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType()) : createWorld({ seed: world.seed })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;

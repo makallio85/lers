@@ -114,11 +114,18 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .danger { min-height: 44px; border: 0; border-radius: 6px; background: var(--warning); color: var(--accent-text); font-weight: 600; font-size: 15px; padding: 0 16px; }
 .menu-button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 13px; }
 .menu-button[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
-.game-menu { position: absolute; right: 16px; top: calc(var(--top-height) + 8px); z-index: 4; width: 260px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-strong); }
+.game-menu { position: absolute; right: 16px; top: calc(var(--top-height) + 8px); z-index: 4; width: min(360px, calc(100vw - 32px)); max-height: calc(100vh - var(--top-height) - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-strong); }
 .menu-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; font-size: 14px; text-align: left; }
 .menu-item:hover:not(:disabled) { background: var(--card-on); }
 .menu-item:disabled { color: var(--muted); }
 .menu-item .muted { font-size: 12px; }
+.menu-section { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; padding: 10px 12px 12px; border-block: 1px solid var(--line); }
+.menu-label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.opponent-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 56px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; text-align: left; font-size: 14px; }
+.opponent-choice:hover { background: var(--card-on); }
+.opponent-choice.is-on { background: var(--card-on); border-color: var(--accent); }
+.opponent-name { font-weight: 600; }
+.opponent-choice .muted { font-size: 13px; }
 .menu-notice { margin: 4px 12px; font-size: 13px; color: var(--text); }
 
 /* Smith orders, shares and military settings */

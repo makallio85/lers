@@ -1,10 +1,10 @@
 import {
-  BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
+  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
   TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, castleOf, consumersOf, costTotal, distributedGoods, goodCount,
   isMilitaryBuilding, isSoldierType, isStorageBuilding, settlerById
 } from '../../simulation/src/index.ts';
 import type {
-  Building, BuildingGroupType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, World
+  BotType, Building, BuildingGroupType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, World
 } from '../../simulation/src/index.ts';
 
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
@@ -275,14 +275,28 @@ export interface MenuState {
   notice: string | null;
   isMatch: boolean;
   isConfirmingSurrender: boolean;
+  /** The opponent type used last; its choice is highlighted. */
+  botType: BotType;
 }
+
+const OPPONENT_TEXTS: Record<BotType, string> = {
+  calm: 'Builds up first and attacks after about 45 minutes. A match lasts an hour or more.',
+  aggressive: 'Attacks as soon as it has soldiers. A match lasts about 20 minutes.'
+};
 
 export function renderGameMenu(state: MenuState): string {
   return `
     <button type="button" class="menu-item" data-action="save">Save game</button>
     <button type="button" class="menu-item" data-action="load" ${state.savedAt ? '' : 'disabled'}>Load saved game${state.savedAt ? `<span class="muted">${state.savedAt}</span>` : ''}</button>
     <button type="button" class="menu-item" data-action="load-autosave" ${state.autosavedAt ? '' : 'disabled'}>Load autosave${state.autosavedAt ? `<span class="muted">${state.autosavedAt}</span>` : ''}</button>
-    <button type="button" class="menu-item" data-action="new-match">New match against the computer</button>
+    <div class="menu-section" role="group" aria-labelledby="menu-new-match">
+      <span class="menu-label" id="menu-new-match">New match against the computer</span>
+      ${BOT_TYPES.map((t) => `
+        <button type="button" class="opponent-choice ${t === state.botType ? 'is-on' : ''}" data-action="new-match" data-bot="${t}">
+          <span class="opponent-name">${BOT_TYPE_SETTINGS[t].label}</span>
+          <span class="muted">${OPPONENT_TEXTS[t]}</span>
+        </button>`).join('')}
+    </div>
     <button type="button" class="menu-item" data-action="new-sandbox">New sandbox (no opponent)</button>
     ${state.isMatch ? (state.isConfirmingSurrender
       ? `<div class="menu-confirm"><span>Give up this match?</span><button type="button" class="danger" data-action="confirm-surrender">Surrender</button><button type="button" class="secondary" data-action="cancel-surrender">Keep playing</button></div>`
