@@ -114,12 +114,73 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .danger { min-height: 44px; border: 0; border-radius: 6px; background: var(--warning); color: var(--accent-text); font-weight: 600; font-size: 15px; padding: 0 16px; }
 .menu-button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 13px; }
 .menu-button[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
-.game-menu { position: absolute; right: 16px; top: calc(var(--top-height) + 8px); z-index: 4; width: 260px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-strong); }
+.game-menu { position: absolute; right: 16px; top: calc(var(--top-height) + 8px); z-index: 4; width: min(360px, calc(100vw - 32px)); max-height: calc(100vh - var(--top-height) - 24px); overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-strong); }
 .menu-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; font-size: 14px; text-align: left; }
 .menu-item:hover:not(:disabled) { background: var(--card-on); }
 .menu-item:disabled { color: var(--muted); }
 .menu-item .muted { font-size: 12px; }
+.menu-section { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; padding: 10px 12px 12px; border-block: 1px solid var(--line); }
+.menu-label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.opponent-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 56px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; text-align: left; font-size: 14px; }
+.opponent-choice:hover { background: var(--card-on); }
+.opponent-choice.is-on { background: var(--card-on); border-color: var(--accent); }
+.opponent-name { font-weight: 600; }
+.opponent-choice .muted { font-size: 13px; }
+.menu-hint { margin-top: 4px; font-size: 13px; color: var(--muted); }
+.map-size-row { display: flex; gap: 6px; }
+.map-size-choice { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1px; min-height: 52px; border: 1px solid var(--line-strong); border-radius: 8px; background: transparent; font-size: 14px; }
+.map-size-choice:hover { background: var(--card-on); }
+.map-size-choice.is-on { background: var(--card-on); border-color: var(--accent); }
+.map-size-choice .muted { font-size: 12px; }
 .menu-notice { margin: 4px 12px; font-size: 13px; color: var(--text); }
+
+/* Smith orders, shares and military settings */
+.stepper { display: inline-flex; align-items: center; gap: 4px; }
+.stepper b { min-width: 22px; text-align: center; }
+.made-head, .made-row { display: grid; grid-template-columns: 1fr auto 92px; gap: 8px; align-items: center; font-size: 13px; }
+.made-head { color: var(--muted); font-size: 12px; }
+.made-row { padding: 4px 0; }
+.share { width: 100%; accent-color: var(--accent); min-height: 28px; }
+.share-block { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 6px; background: var(--card); }
+.share-good { font-weight: 600; font-size: 14px; }
+.share-row { display: grid; grid-template-columns: 104px 1fr 40px; gap: 8px; align-items: center; font-size: 13px; }
+.tile-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tile-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px; border-radius: 6px; background: var(--card); font-size: 12px; }
+.tile-stat b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.segmented { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 8px; background: var(--panel); }
+.segmented button { min-height: 40px; border: 0; border-radius: 6px; background: transparent; font-size: 14px; }
+.segmented button[aria-pressed="true"] { background: var(--card-on); color: var(--accent); font-weight: 600; }
+.group-list { display: flex; flex-direction: column; gap: 6px; }
+.group-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 6px 10px; border: 0; border-radius: 6px; background: var(--card); font-size: 14px; text-align: left; }
+.group-key { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.garrison-row { align-items: center; }
+.garrison-row .link { flex: 1; text-decoration: none; color: var(--text); font-size: 14px; }
+.menu-confirm { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; font-size: 14px; }
+
+/* Soldier order bar */
+.orders { position: absolute; left: 16px; right: 76px; bottom: 16px; z-index: 3; display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 10px 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-strong); }
+.order-summary { display: flex; flex-direction: column; gap: 2px; min-width: 180px; font-size: 13px; }
+.order-summary strong { font-size: 15px; font-weight: 600; }
+.order-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.order-mode { min-height: 44px; min-width: 64px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-weight: 600; font-size: 14px; }
+.order-mode[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.order-mode:disabled { opacity: 0.4; }
+.order-hint { margin-left: auto; font-size: 13px; }
+.stage:has(.orders:not([hidden])) .messages { bottom: 110px; }
+.stage:has(.orders:not([hidden])) .hint { bottom: 110px; }
+
+/* End of the match */
+.end-screen { position: fixed; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(15, 20, 18, 0.72); }
+.end-card { width: min(640px, 100%); max-height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 28px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line-strong); }
+.end-eyebrow { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.end-title { margin: 0; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 56px; line-height: 1; }
+.end-card p { margin: 0; font-size: 16px; }
+.end-table { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+.end-table th { padding: 6px 0; color: var(--muted); font-weight: 500; font-size: 13px; text-align: right; }
+.end-table th:first-child, .end-table td:first-child { text-align: left; }
+.end-table td { padding: 9px 0; border-top: 1px solid var(--line); text-align: right; }
+.end-table td:nth-child(2) { font-weight: 600; }
+.end-table td:nth-child(3) { color: var(--muted); }
 
 /* Phones held sideways: icon rail plus a drawer instead of the full side panel. */
 @media (max-height: 520px), (max-width: 760px) {
@@ -151,6 +212,21 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .hint { left: 8px; bottom: 8px; }
   .selection { left: 8px; top: 52px; width: 240px; }
   .zoom { right: max(8px, env(safe-area-inset-right)); bottom: 8px; }
+  .orders { left: 8px; right: 64px; bottom: 8px; padding: 6px; gap: 6px; }
+  .order-summary { min-width: 0; flex-direction: row; gap: 8px; align-items: baseline; }
+  .order-summary strong { font-size: 13px; }
+  .order-summary .muted { font-size: 11px; }
+  .order-buttons { flex-wrap: nowrap; gap: 4px; }
+  .order-mode { min-height: 44px; min-width: 0; padding: 0 8px; font-size: 12px; }
+  .order-hint { display: none; }
+  .stage:has(.orders:not([hidden])) .messages, .stage:has(.orders:not([hidden])) .hint { bottom: 120px; }
+  .end-card { padding: 14px 18px; gap: 8px; }
+  .end-title { font-size: 32px; }
+  .end-card p { font-size: 14px; }
+  .end-table { font-size: 13px; }
+  .end-table th { padding: 2px 0; font-size: 12px; }
+  .end-table td { padding: 2px 0; }
+  .end-card .primary, .end-card .secondary { min-height: 40px; font-size: 14px; }
 }
 
 @media (orientation: portrait) and (max-width: 760px) {

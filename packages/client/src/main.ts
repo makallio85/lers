@@ -1,40 +1,71 @@
 import {
-  BUILDING_GROUP_TYPES, BUILDING_TYPES, applyCommand, buildingById, castleOf, createWorld, groundProblem, loadGame,
-  placementProblem, saveGame, step, tileIndex
+  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, applyCommand,
+  buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, loadGame, mapSizeTypeOf,
+  placementProblem, saveGame, stepMatch, tileIndex, updateVision
 } from '../../simulation/src/index.ts';
-import type { BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, World } from '../../simulation/src/index.ts';
+import type { BotType, MapSizeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import {
-  GOODS_VIEWS, formatClock, renderBuildPanel, renderGameMenu, renderGoodsPanel, renderMessages, renderMilitaryPanel,
-  renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs
+  GOODS_VIEWS, formatClock, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
+  renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs
 } from './ui.ts';
-import type { GoodsViewId, TabId } from './ui.ts';
+import type { GoodsViewId, MilitaryViewId, OrderMode, TabId } from './ui.ts';
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v1';
-const AUTOSAVE_KEY = 'lers.autosave.v1';
+const SAVE_KEY = 'lers.save.v3';
+const AUTOSAVE_KEY = 'lers.autosave.v3';
 const AUTOSAVE_MS = 5 * 60 * 1000;
+const DRAG_THRESHOLD = 6;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const els = {
   side: $('side'), tabs: $('tabs'), panel: $('panel'), stock: $('stock'), clock: $('clock'), speed: $('speed'),
-  map: $('map'), messages: $('messages'), hint: $('hint'), selection: $('selection'),
-  minimap: $<HTMLCanvasElement>('minimap'), mapName: $('map-name'), menu: $('game-menu'), menuButton: $('menu-button')
+  map: $('map'), messages: $('messages'), hint: $('hint'), selection: $('selection'), orders: $('orders'),
+  end: $('end-screen'), minimap: $<HTMLCanvasElement>('minimap'), mapName: $('map-name'), menu: $('game-menu'),
+  menuButton: $('menu-button')
 };
 
 function randomSeed(): number {
   return Math.floor(Math.random() * 1_000_000) + 1;
 }
 
-const seedParam = Number(new URLSearchParams(location.search).get('seed'));
-let world: World = createWorld({ seed: Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed() });
+const params = new URLSearchParams(location.search);
+const BOT_TYPE_KEY = 'lers.botType';
+const MAP_SIZE_KEY = 'lers.mapSize';
+/** Hash words such as `#calm`, `#small` or `#calm-small`, for hosts that pass only the hash to the page. */
+const hashWords = location.hash.slice(1).split('-');
+
+/** A choice made last time: from the address first, else remembered in this browser, else the default. */
+function chosen<T extends string>(values: readonly T[], key: string, param: string, fallback: T): T {
+  const asked = [params.get(param), ...hashWords].find((w) => w !== null && (values as readonly string[]).includes(w));
+  if (asked) return asked as T;
+  try {
+    const kept = localStorage.getItem(key);
+    if (kept && (values as readonly string[]).includes(kept)) return kept as T;
+  } catch { /* storage blocked: use the default */ }
+  return fallback;
+}
+function remember(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* storage blocked */ }
+}
+
+/** The opponent and map size chosen last; the menu highlights them and "Play again" keeps them. */
+let lastBotType: BotType = chosen(BOT_TYPES, BOT_TYPE_KEY, 'bot', 'aggressive');
+let lastMapSize: MapSizeType = chosen(MAP_SIZE_TYPES, MAP_SIZE_KEY, 'size', 'medium');
+const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
+const mapSize = (): MapSizeType => (isMatch() ? mapSizeTypeOf(world.width) : lastMapSize);
+const seedParam = Number(params.get('seed'));
+let world: World = params.get('mode') === 'sandbox'
+  ? createWorld({ seed: Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed() })
+  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType, lastMapSize);
 
 const ui = {
   tab: 'build' as TabId,
   groupType: 'resources' as BuildingGroupType,
   goodsView: 'inventory' as GoodsViewId,
+  militaryView: 'recruiting' as MilitaryViewId,
   selectedType: 'woodcutter' as BuildingTypeId,
   placing: null as BuildingTypeId | null,
   ghost: null as Ghost | null,
@@ -47,23 +78,35 @@ const ui = {
   problemUntil: 0,
   selectedId: null as number | null,
   isConfirmingDemolish: false,
+  selectedSoldiers: new Set<number>(),
+  groups: new Map<number, number[]>(),
+  orderMode: null as OrderMode,
+  selectionBox: null as { x0: number; y0: number; x1: number; y1: number } | null,
   speed: 1,
   isDrawerOpen: true,
   isMenuOpen: false,
+  isConfirmingSurrender: false,
   menuNotice: null as string | null,
+  isEndHidden: false,
   dismissed: new Set<number>()
 };
 
 const queue: Command[] = [];
 const view = await MapView.create(els.map, world);
+const isMatch = () => world.players.length > 1;
 
 function showWorld(): void {
-  els.mapName.textContent = `Sandbox · map ${world.seed}`;
+  els.mapName.textContent = isMatch()
+    ? `Match · ${MAP_SIZE_SETTINGS[mapSizeTypeOf(world.width)].label.toLowerCase()} map ${world.seed} · ${BOT_TYPE_SETTINGS[world.players[1].botType].label} computer`
+    : `Sandbox · map ${world.seed}`;
+  // Work out the fog of war before the first frame, so the start is not drawn as unexplored.
+  updateVision(world);
   view.setWorld(world);
   const castle = castleOf(world, PLAYER)!;
   view.centreOn(castle.x + 2, castle.y + 2);
   minimapVersion = -1;
   ui.selectedId = null; ui.placing = null; ui.ghost = null; ui.markers = []; ui.markersKey = '';
+  ui.selectedSoldiers.clear(); ui.groups.clear(); ui.orderMode = null; ui.isEndHidden = false;
   queue.length = 0;
 }
 
@@ -81,8 +124,8 @@ function savedLabel(key: string): string | null {
   const raw = storageRead(key);
   if (!raw) return null;
   try {
-    const data = JSON.parse(raw) as { tick?: number; seed?: number };
-    return `map ${data.seed} · ${formatClock(data.tick ?? 0)}`;
+    const data = JSON.parse(raw) as { tick?: number; seed?: number; players?: unknown[] };
+    return `${(data.players?.length ?? 1) > 1 ? 'match' : 'sandbox'} · map ${data.seed} · ${formatClock(data.tick ?? 0)}`;
   } catch { return 'damaged'; }
 }
 
@@ -110,18 +153,26 @@ let lastAutosave = performance.now();
 function renderPanel(): void {
   els.tabs.innerHTML = renderTabs(ui.tab);
   els.side.classList.toggle('is-collapsed', !ui.isDrawerOpen);
+  // Range inputs keep their position while being dragged; re-rendering under the pointer would reset them.
+  if (document.activeElement instanceof HTMLInputElement && els.panel.contains(document.activeElement)) return;
   els.panel.innerHTML =
     ui.tab === 'build' ? renderBuildPanel(ui.groupType, ui.selectedType, ui.placing)
-    : ui.tab === 'goods' ? renderGoodsPanel(world, ui.goodsView)
-    : ui.tab === 'settlers' ? renderSettlersPanel(world)
-    : ui.tab === 'military' ? renderMilitaryPanel(world)
-    : renderStatsPanel(world);
+    : ui.tab === 'goods' ? renderGoodsPanel(world, ui.goodsView, PLAYER)
+    : ui.tab === 'settlers' ? renderSettlersPanel(world, PLAYER)
+    : ui.tab === 'military' ? renderMilitaryPanel(world, ui.militaryView, PLAYER, ui.groups)
+    : renderStatsPanel(world, PLAYER);
 }
 
 function renderMenu(): void {
   els.menu.hidden = !ui.isMenuOpen;
   els.menuButton.setAttribute('aria-expanded', String(ui.isMenuOpen));
-  if (ui.isMenuOpen) els.menu.innerHTML = renderGameMenu(savedLabel(SAVE_KEY), savedLabel(AUTOSAVE_KEY), ui.menuNotice);
+  if (ui.isMenuOpen) {
+    els.menu.innerHTML = renderGameMenu({
+      savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
+      isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
+      botType: botType(), mapSize: lastMapSize
+    });
+  }
 }
 
 function renderHint(): void {
@@ -138,24 +189,54 @@ function renderHint(): void {
     <button type="button" class="secondary" data-action="cancel-placing">Cancel</button>`;
 }
 
+function selectedSoldierList(): Settler[] {
+  const out: Settler[] = [];
+  for (const s of world.settlers) {
+    if (ui.selectedSoldiers.has(s.id) && s.owner === PLAYER && !s.isInside && s.health > 0) out.push(s);
+  }
+  // Fallen or garrisoned soldiers drop out of the selection.
+  if (out.length !== ui.selectedSoldiers.size) ui.selectedSoldiers = new Set(out.map((s) => s.id));
+  return out;
+}
+
 function renderSelectionCard(): void {
   const b = buildingById(world, ui.selectedId);
-  if (!b) { ui.selectedId = null; ui.isConfirmingDemolish = false; els.selection.hidden = true; return; }
+  if (!b || !view.isBuildingVisible(b)) { ui.selectedId = null; ui.isConfirmingDemolish = false; els.selection.hidden = true; return; }
   els.selection.hidden = false;
-  els.selection.innerHTML = renderSelection(world, b, ui.isConfirmingDemolish);
+  els.selection.innerHTML = renderSelection(world, b, PLAYER, ui.isConfirmingDemolish, ui.selectedSoldiers.size);
+}
+
+function renderOrders(): void {
+  const soldiers = selectedSoldierList();
+  const isShown = isMatch() && world.winner === null && !ui.placing && (soldiers.length > 0 || ui.orderMode !== null || ui.tab === 'military');
+  els.orders.hidden = !isShown;
+  if (isShown) els.orders.innerHTML = renderOrderBar(soldiers, ui.orderMode, isTouchDevice());
+}
+
+function renderEnd(): void {
+  const isShown = world.winner !== null && !ui.isEndHidden;
+  els.end.hidden = !isShown;
+  if (isShown && !els.end.dataset.shown) { els.end.innerHTML = renderEndScreen(world, PLAYER); els.end.dataset.shown = '1'; }
+  if (!isShown) delete els.end.dataset.shown;
 }
 
 function refreshLive(): void {
-  els.stock.innerHTML = renderStock(world);
+  els.stock.innerHTML = renderStock(world, PLAYER);
   els.clock.textContent = formatClock(world.tick);
-  els.messages.innerHTML = renderMessages(world, ui.dismissed);
+  els.messages.innerHTML = renderMessages(world, PLAYER, ui.dismissed);
   if (ui.tab !== 'build') renderPanel();
   renderSelectionCard();
   renderHint();
+  renderOrders();
+  renderEnd();
   drawMinimap();
 }
 
 function renderSpeedButtons(): void { els.speed.innerHTML = renderSpeed(ui.speed); }
+
+function isTouchDevice(): boolean {
+  return window.matchMedia('(pointer: coarse)').matches;
+}
 
 // ---------------------------------------------------------------- minimap
 
@@ -165,26 +246,33 @@ function buildMinimapBase(): void {
   minimapBase.width = world.width; minimapBase.height = world.height;
   const ctx = minimapBase.getContext('2d')!;
   const img = ctx.createImageData(world.width, world.height);
+  const vision = world.vision[PLAYER];
   for (let i = 0; i < world.width * world.height; i++) {
     const t = world.terrain[i];
     let [r, g, b] = t === 1 ? [79, 127, 166] : t === 2 ? [141, 138, 124] : [122, 148, 80];
     if (world.tree[i] >= 0) [r, g, b] = [61, 90, 46];
     if (world.field[i] >= 0) [r, g, b] = [217, 180, 74];
-    if (world.territory[i] !== PLAYER + 1) { r *= 0.55; g *= 0.55; b *= 0.55; }
+    const owner = world.territory[i];
+    if (owner === 2) { r = r * 0.6 + 80; g *= 0.55; b *= 0.55; }
+    else if (owner !== PLAYER + 1) { r *= 0.6; g *= 0.6; b *= 0.6; }
+    if (vision && vision[i] === 0) [r, g, b] = [15, 20, 18];
     img.data.set([r, g, b, 255], i * 4);
   }
   ctx.putImageData(img, 0, 0);
 }
 function drawMinimap(): void {
   if (getComputedStyle(els.minimap).display === 'none') return;
-  const version = world.mapVersion * 1000 + world.territoryVersion;
+  const version = world.mapVersion * 100_000 + world.territoryVersion * 100 + Math.floor(world.tick / 50) % 100;
   if (minimapVersion !== version) { buildMinimapBase(); minimapVersion = version; }
   const ctx = els.minimap.getContext('2d')!;
   const sx = els.minimap.width / world.width, sy = els.minimap.height / world.height;
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(minimapBase, 0, 0, els.minimap.width, els.minimap.height);
-  ctx.fillStyle = '#ece6d6';
-  for (const b of world.buildings) ctx.fillRect(b.x * sx, b.y * sy, b.size * sx, b.size * sy);
+  for (const b of world.buildings) {
+    if (!view.isBuildingVisible(b)) continue;
+    ctx.fillStyle = b.owner === PLAYER ? '#ece6d6' : '#d05a5a';
+    ctx.fillRect(b.x * sx, b.y * sy, b.size * sx, b.size * sy);
+  }
   const v = view.visibleTiles();
   ctx.strokeStyle = '#e3a33b'; ctx.lineWidth = 2;
   ctx.strokeRect(v.x * sx, v.y * sy, v.w * sx, v.h * sy);
@@ -202,18 +290,30 @@ function submit(command: Command): void {
   else queue.push(command);
 }
 
+function showProblem(reason: string): void {
+  ui.problem = reason;
+  ui.problemUntil = performance.now() + 2500;
+  ui.menuNotice = null;
+  showToast(reason);
+}
+
+let toastTimer = 0;
+function showToast(text: string): void {
+  els.hint.hidden = false;
+  if (!ui.placing) {
+    els.hint.innerHTML = `<span class="is-problem">${text.replace(/[<>&]/g, '')}</span>`;
+    clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => { if (!ui.placing) els.hint.hidden = true; }, 2500);
+  }
+}
+
 function handleResults(results: CommandResult[], commands: Command[]): void {
   let isPanelStale = false;
   results.forEach((result, k) => {
     const command = commands[k];
-    if (!result.isAccepted) {
-      ui.problem = result.reason;
-      ui.problemUntil = performance.now() + 2500;
-    } else if (command.type === 'placeBuilding') {
-      ui.selectedId = result.buildingId ?? null;
-    } else if (command.type === 'setTransportPriority' || command.type === 'setGoodStored') {
-      isPanelStale = true;
-    }
+    if (!result.isAccepted) showProblem(result.reason);
+    else if (command.type === 'placeBuilding') ui.selectedId = result.buildingId ?? null;
+    else if (command.type !== 'moveSoldiers' && command.type !== 'attackBuilding') isPanelStale = true;
   });
   if (isPanelStale) renderPanel();
 }
@@ -238,15 +338,15 @@ function startPlacing(typeId: BuildingTypeId, isTouch: boolean): void {
   ui.placing = typeId;
   ui.isTouchPlacement = isTouch;
   ui.ghost = null; ui.ghostKey = ''; ui.markersKey = '';
-  ui.selectedId = null;
+  ui.selectedId = null; ui.orderMode = null;
   refreshMarkers();
   if (isTouch && window.matchMedia('(max-height: 520px), (max-width: 760px)').matches) ui.isDrawerOpen = false;
-  renderPanel(); renderHint();
+  renderPanel(); renderHint(); renderOrders();
 }
 
 function stopPlacing(): void {
   ui.placing = null; ui.ghost = null; ui.ghostKey = ''; ui.markers = [];
-  renderPanel(); renderHint();
+  renderPanel(); renderHint(); renderOrders();
 }
 
 function checkGhost(x: number, y: number): void {
@@ -268,36 +368,102 @@ function moveGhost(clientX: number, clientY: number): void {
 
 function confirmPlacement(): void {
   if (!ui.placing || !ui.ghost) return;
-  if (!ui.ghost.isValid) { ui.problem = ui.ghostProblem; ui.problemUntil = performance.now() + 2500; renderHint(); return; }
+  if (!ui.ghost.isValid) { showProblem(ui.ghostProblem ?? 'It does not fit there'); renderHint(); return; }
   submit({ type: 'placeBuilding', playerId: PLAYER, buildingType: ui.placing, x: ui.ghost.x, y: ui.ghost.y });
   stopPlacing();
 }
 
-function selectAt(clientX: number, clientY: number): void {
+function buildingAt(clientX: number, clientY: number) {
   const tile = view.screenToTile(clientX, clientY);
-  ui.isConfirmingDemolish = false;
-  if (tile.x < 0 || tile.y < 0 || tile.x >= world.width || tile.y >= world.height) { ui.selectedId = null; renderSelectionCard(); return; }
+  if (tile.x < 0 || tile.y < 0 || tile.x >= world.width || tile.y >= world.height) return undefined;
   const i = tileIndex(world, tile.x, tile.y);
-  const id = (world.footprint[i] || world.door[i]) - 1;
-  ui.selectedId = id >= 0 ? id : null;
-  renderSelectionCard();
+  const b = buildingById(world, (world.footprint[i] || world.door[i]) - 1);
+  return b && view.isBuildingVisible(b) ? b : undefined;
+}
+
+/** The player's own soldier outside a building nearest to a point, within about a tile. */
+function soldierAt(clientX: number, clientY: number): Settler | undefined {
+  const p = view.screenToWorld(clientX, clientY);
+  let best: Settler | undefined, bestDistance = 0.9;
+  for (const s of world.settlers) {
+    if (s.owner !== PLAYER || !isSoldierType(s.settlerType) || s.isInside) continue;
+    const d = Math.hypot(s.x + 0.5 - p.x, s.y + 0.5 - p.y);
+    if (d < bestDistance) { bestDistance = d; best = s; }
+  }
+  return best;
+}
+
+function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
+  ui.isConfirmingDemolish = false;
+  const soldier = soldierAt(clientX, clientY);
+  if (soldier) {
+    if (!isAdding) ui.selectedSoldiers.clear();
+    ui.selectedSoldiers.add(soldier.id);
+    ui.selectedId = null;
+    renderSelectionCard(); renderOrders();
+    return;
+  }
+  const b = buildingAt(clientX, clientY);
+  ui.selectedId = b ? b.id : null;
+  if (!b && !isAdding) ui.selectedSoldiers.clear();
+  renderSelectionCard(); renderOrders();
+}
+
+function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'auto'): void {
+  const soldierIds = selectedSoldierList().map((s) => s.id);
+  if (soldierIds.length === 0) return;
+  const b = buildingAt(clientX, clientY);
+  if (b && b.owner !== PLAYER && mode !== 'move') {
+    submit({ type: 'attackBuilding', playerId: PLAYER, soldierIds, buildingId: b.id });
+  } else if (mode === 'attack') {
+    showProblem('Choose an enemy tower or castle to attack');
+    return;
+  } else {
+    const tile = view.screenToTile(clientX, clientY);
+    submit({ type: 'moveSoldiers', playerId: PLAYER, soldierIds, x: tile.x, y: tile.y });
+  }
+  ui.orderMode = null;
+  renderOrders();
+}
+
+function selectInBox(x0: number, y0: number, x1: number, y1: number, isAdding: boolean): void {
+  const left = Math.min(x0, x1), right = Math.max(x0, x1), top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+  if (!isAdding) ui.selectedSoldiers.clear();
+  for (const s of world.settlers) {
+    if (s.owner !== PLAYER || !isSoldierType(s.settlerType) || s.isInside) continue;
+    const p = view.tileToCanvas(s.x, s.y);
+    if (p.x >= left && p.x <= right && p.y >= top && p.y <= bottom) ui.selectedSoldiers.add(s.id);
+  }
+  if (ui.selectedSoldiers.size > 0) ui.selectedId = null;
+  renderSelectionCard(); renderOrders();
+}
+
+function selectInView(): void {
+  const rect = view.app.canvas.getBoundingClientRect();
+  selectInBox(0, 0, rect.width, rect.height, false);
 }
 
 // ---------------------------------------------------------------- pointer, wheel and keyboard input
 
-const pointers = new Map<number, { x: number; y: number; startX: number; startY: number }>();
-let isPanning = false;
+const pointers = new Map<number, { x: number; y: number; startX: number; startY: number; button: number }>();
+let gesture: 'none' | 'pan' | 'box' = 'none';
 let pinchDistance = 0;
 const canvas = view.app.canvas;
 
+function canvasPoint(e: PointerEvent): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY });
-  isPanning = false;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, button: e.button });
+  gesture = 'none';
   if (ui.isMenuOpen) { ui.isMenuOpen = false; renderMenu(); }
   if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     pinchDistance = Math.hypot(a.x - b.x, a.y - b.y);
+    ui.selectionBox = null;
   }
 });
 
@@ -313,42 +479,78 @@ canvas.addEventListener('pointermove', (e) => {
     const d = Math.hypot(a.x - b.x, a.y - b.y);
     if (pinchDistance > 0) view.zoomAt(d / pinchDistance, (a.x + b.x) / 2, (a.y + b.y) / 2);
     pinchDistance = d;
-    isPanning = true;
+    gesture = 'pan';
     return;
   }
-  if (!isPanning && Math.hypot(e.clientX - p.startX, e.clientY - p.startY) > 6) isPanning = true;
-  if (isPanning) view.panBy(e.clientX - p.x, e.clientY - p.y);
+  if (gesture === 'none' && Math.hypot(e.clientX - p.startX, e.clientY - p.startY) > DRAG_THRESHOLD) {
+    // Mouse: left-drag selects soldiers, right or middle drag scrolls. Touch: drag scrolls unless in Select mode.
+    const isBoxDrag = isMatch() && !ui.placing && (e.pointerType === 'mouse' ? p.button === 0 : ui.orderMode === 'select');
+    gesture = isBoxDrag ? 'box' : 'pan';
+  }
+  if (gesture === 'pan') view.panBy(e.clientX - p.x, e.clientY - p.y);
+  if (gesture === 'box') {
+    const rect = canvas.getBoundingClientRect();
+    ui.selectionBox = { x0: p.startX - rect.left, y0: p.startY - rect.top, ...(() => { const c = canvasPoint(e); return { x1: c.x, y1: c.y }; })() };
+  }
   p.x = e.clientX; p.y = e.clientY;
-  if (!isPanning && e.pointerType === 'mouse' && ui.placing && !ui.isTouchPlacement) moveGhost(e.clientX, e.clientY);
+  if (gesture === 'none' && e.pointerType === 'mouse' && ui.placing && !ui.isTouchPlacement) moveGhost(e.clientX, e.clientY);
 });
 
 function endPointer(e: PointerEvent): void {
   const p = pointers.get(e.pointerId);
   pointers.delete(e.pointerId);
   if (pointers.size < 2) pinchDistance = 0;
-  if (!p || isPanning || pointers.size > 0 || e.type === 'pointercancel') return;
+  if (!p || pointers.size > 0 || e.type === 'pointercancel') { ui.selectionBox = null; return; }
+  if (gesture === 'box' && ui.selectionBox) {
+    const b = ui.selectionBox;
+    ui.selectionBox = null;
+    selectInBox(b.x0, b.y0, b.x1, b.y1, e.shiftKey);
+    if (ui.orderMode === 'select') ui.orderMode = null;
+    renderOrders();
+    return;
+  }
+  if (gesture !== 'none') return;
+  const isRight = p.button === 2;
   if (ui.placing) {
+    if (isRight) { stopPlacing(); return; }
     if (e.pointerType === 'mouse' && !ui.isTouchPlacement) { moveGhost(e.clientX, e.clientY); confirmPlacement(); }
     else { ui.isTouchPlacement = true; moveGhost(e.clientX, e.clientY); renderHint(); }
-  } else {
-    selectAt(e.clientX, e.clientY);
+    return;
   }
+  if (isRight) { orderAt(e.clientX, e.clientY, 'auto'); return; }
+  if (ui.orderMode === 'move' || ui.orderMode === 'attack') { orderAt(e.clientX, e.clientY, ui.orderMode); return; }
+  tapAt(e.clientX, e.clientY, e.shiftKey);
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); view.zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY); }, { passive: false });
-canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); if (ui.placing) stopPlacing(); });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target instanceof HTMLInputElement) return;
   const key = e.key.toLowerCase();
+  if (/^[1-9]$/.test(key) && !e.altKey) {
+    const n = Number(key);
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const ids = selectedSoldierList().map((s) => s.id);
+      if (ids.length > 0) { ui.groups.set(n, ids); renderPanel(); }
+    } else {
+      const alive = new Set(world.settlers.filter((s) => s.owner === PLAYER && !s.isInside).map((s) => s.id));
+      ui.selectedSoldiers = new Set((ui.groups.get(n) ?? []).filter((id) => alive.has(id)));
+      renderOrders();
+    }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   const group = BUILDING_GROUP_TYPES.find((g) => g.key === key);
   const goodsView = GOODS_VIEWS.find((v) => v.key === key);
   if (e.key === 'Escape') {
     if (ui.isMenuOpen) { ui.isMenuOpen = false; renderMenu(); }
     else if (ui.placing) stopPlacing();
-    else { ui.selectedId = null; renderSelectionCard(); }
+    else if (ui.orderMode) { ui.orderMode = null; renderOrders(); }
+    else { ui.selectedId = null; ui.selectedSoldiers.clear(); renderSelectionCard(); renderOrders(); }
   } else if (e.key === ' ' && (e.target === document.body || e.target === canvas)) {
     e.preventDefault(); setSpeed(ui.speed === 0 ? 1 : 0);
   } else if (group) {
@@ -371,22 +573,32 @@ function selectFirstOfGroup(): void {
   if (first) ui.selectedType = first.id;
 }
 
+function startNew(next: World): void {
+  world = next;
+  showWorld();
+  ui.isMenuOpen = false; ui.isConfirmingSurrender = false;
+  renderMenu(); renderPanel(); refreshLive();
+}
+
 // ---------------------------------------------------------------- button actions
 
 document.addEventListener('click', (e) => {
   const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
   if (!target) return;
   const { action } = target.dataset;
-  const isTouch = (e as PointerEvent).pointerType === 'touch' || window.matchMedia('(pointer: coarse)').matches;
+  const isTouch = (e as PointerEvent).pointerType === 'touch' || isTouchDevice();
   const selected = buildingById(world, ui.selectedId);
+  const delta = Number(target.dataset.delta ?? 0);
+  const player = world.players[PLAYER];
   switch (action) {
     case 'tab': {
       const tab = target.dataset.tab as TabId;
       if (ui.tab === tab) ui.isDrawerOpen = !ui.isDrawerOpen; else { ui.tab = tab; ui.isDrawerOpen = true; }
-      renderPanel(); break;
+      renderPanel(); renderOrders(); break;
     }
     case 'group': ui.groupType = target.dataset.group as BuildingGroupType; selectFirstOfGroup(); renderPanel(); break;
     case 'goods-view': ui.goodsView = target.dataset.view as GoodsViewId; renderPanel(); break;
+    case 'military-view': ui.militaryView = target.dataset.view as MilitaryViewId; renderPanel(); break;
     case 'select-type': ui.selectedType = target.dataset.type as BuildingTypeId; renderPanel(); break;
     case 'start-placing': startPlacing(ui.selectedType, isTouch); break;
     case 'cancel-placing': stopPlacing(); break;
@@ -404,30 +616,106 @@ document.addEventListener('click', (e) => {
       break;
     case 'toggle-stored': {
       const good = target.dataset.good as GoodType;
-      submit({ type: 'setGoodStored', playerId: PLAYER, good, isStored: !world.players[0].isStored[good] });
+      submit({ type: 'setGoodStored', playerId: PLAYER, good, isStored: !player.isStored[good] });
       break;
     }
     case 'priority':
       submit({ type: 'setTransportPriority', playerId: PLAYER, good: target.dataset.good as GoodType, position: Number(target.dataset.position) });
       break;
+    case 'order': {
+      const good = target.dataset.good as GoodType;
+      const count = Math.max(0, Math.min(MAX_ORDER, (player.productionOrders[good] ?? 0) + delta));
+      submit({ type: 'setProductionOrder', playerId: PLAYER, good, count });
+      break;
+    }
+    case 'recruit-mode':
+      submit({ type: 'setRecruiting', playerId: PLAYER, isAutomatic: target.dataset.auto === 'true', count: player.recruitsLeft });
+      break;
+    case 'recruit-count':
+      submit({ type: 'setRecruiting', playerId: PLAYER, isAutomatic: false, count: Math.max(0, Math.min(MAX_ORDER, player.recruitsLeft + delta)) });
+      break;
+    case 'garrison': {
+      const b = buildingById(world, Number(target.dataset.id));
+      if (!b || !isMilitaryBuilding(b)) break;
+      const min = b.typeId === 'castle' ? 0 : 1;
+      const count = Math.max(min, Math.min(BUILDING_TYPES[b.typeId].garrisonCapacity, b.garrisonWanted + delta));
+      submit({ type: 'setGarrisonWanted', playerId: PLAYER, buildingId: b.id, count });
+      break;
+    }
+    case 'select-group': {
+      const alive = new Set(world.settlers.filter((s) => s.owner === PLAYER && !s.isInside).map((s) => s.id));
+      ui.selectedSoldiers = new Set((ui.groups.get(Number(target.dataset.groupNumber)) ?? []).filter((id) => alive.has(id)));
+      renderOrders(); break;
+    }
+    case 'select-free':
+      ui.selectedSoldiers = new Set(world.settlers.filter((s) => s.owner === PLAYER && isSoldierType(s.settlerType) && !s.isInside).map((s) => s.id));
+      renderOrders(); break;
+    case 'select-in-view': selectInView(); break;
+    case 'order-mode': {
+      const mode = target.dataset.mode as Exclude<OrderMode, null>;
+      ui.orderMode = ui.orderMode === mode ? null : mode;
+      renderOrders(); break;
+    }
+    case 'clear-selection': ui.selectedSoldiers.clear(); ui.orderMode = null; renderOrders(); renderSelectionCard(); break;
+    case 'back-to-towers': {
+      const ids = selectedSoldierList().map((s) => s.id);
+      const castle = castleOf(world, PLAYER);
+      if (ids.length && castle) submit({ type: 'moveSoldiers', playerId: PLAYER, soldierIds: ids, x: castle.doorX, y: castle.doorY + 2 });
+      break;
+    }
+    case 'attack-selected': {
+      const ids = selectedSoldierList().map((s) => s.id);
+      if (ids.length && selected) submit({ type: 'attackBuilding', playerId: PLAYER, soldierIds: ids, buildingId: selected.id });
+      break;
+    }
     case 'dismiss': ui.dismissed.add(Number(target.dataset.id)); refreshLive(); break;
     case 'show-building': {
       const b = buildingById(world, Number(target.dataset.id));
       if (b) { view.centreOn(b.x + b.size / 2, b.y + b.size / 2); ui.selectedId = b.id; renderSelectionCard(); }
       break;
     }
-    case 'menu': ui.isMenuOpen = !ui.isMenuOpen; ui.menuNotice = null; renderMenu(); break;
+    case 'menu': ui.isMenuOpen = !ui.isMenuOpen; ui.menuNotice = null; ui.isConfirmingSurrender = false; renderMenu(); break;
     case 'save':
       ui.menuNotice = save(SAVE_KEY) ? `Saved at ${formatClock(world.tick)}.` : 'This browser does not allow saving here.';
       renderMenu(); break;
     case 'load': load(SAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
     case 'load-autosave': load(AUTOSAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
-    case 'new-map':
-      world = createWorld({ seed: randomSeed() });
-      showWorld(); ui.isMenuOpen = false; renderMenu(); renderPanel(); refreshLive();
+    case 'new-match': {
+      const type = (BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '') ? target.dataset.bot as BotType : botType();
+      lastBotType = type; remember(BOT_TYPE_KEY, type);
+      startNew(createMatch(randomSeed(), type, lastMapSize));
+      break;
+    }
+    case 'map-size':
+      if ((MAP_SIZE_TYPES as readonly string[]).includes(target.dataset.size ?? '')) {
+        lastMapSize = target.dataset.size as MapSizeType; remember(MAP_SIZE_KEY, lastMapSize);
+      }
+      renderMenu(); break;
+    case 'new-sandbox': startNew(createWorld({ seed: randomSeed() })); break;
+    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize()) : createWorld({ seed: world.seed })); break;
+    case 'close-end': ui.isEndHidden = true; renderEnd(); break;
+    case 'surrender': ui.isConfirmingSurrender = true; renderMenu(); break;
+    case 'cancel-surrender': ui.isConfirmingSurrender = false; renderMenu(); break;
+    case 'confirm-surrender':
+      submit({ type: 'surrender', playerId: PLAYER });
+      ui.isMenuOpen = false; ui.isConfirmingSurrender = false; renderMenu();
       break;
   }
 });
+
+// Share sliders for tools, weapons and distribution.
+document.addEventListener('change', (e) => {
+  const input = e.target;
+  if (!(input instanceof HTMLInputElement) || input.type !== 'range') return;
+  const share = Number(input.value);
+  if (input.dataset.shareGood) {
+    submit({ type: 'setProductionShare', playerId: PLAYER, good: input.dataset.shareGood as GoodType, share });
+  } else if (input.dataset.distributionGood) {
+    submit({ type: 'setDistribution', playerId: PLAYER, good: input.dataset.distributionGood as GoodType, buildingType: input.dataset.buildingType as BuildingTypeId, share });
+  }
+  input.blur();
+});
+
 $('zoom-in').addEventListener('click', () => view.zoomCentre(1.25));
 $('zoom-out').addEventListener('click', () => view.zoomCentre(0.8));
 
@@ -440,14 +728,17 @@ let lastLive = 0;
 function frame(now: number): void {
   const dt = Math.min(250, now - last);
   last = now;
-  if (ui.speed > 0) {
+  if (ui.speed > 0 && world.winner === null) {
     accumulator += dt * ui.speed;
     while (accumulator >= TICK_MS) {
       const commands = queue.splice(0);
-      handleResults(step(world, commands), commands);
+      handleResults(stepMatch(world, commands), commands);
       accumulator -= TICK_MS;
     }
     if (now - lastAutosave > AUTOSAVE_MS) { lastAutosave = now; save(AUTOSAVE_KEY); }
+  } else if (queue.length > 0) {
+    const commands = queue.splice(0);
+    handleResults(commands.map((c) => applyCommand(world, c)), commands);
   }
   const pan = 0.6 * dt;
   if (keys.has('arrowleft')) view.panBy(pan, 0);
@@ -459,8 +750,9 @@ function frame(now: number): void {
     // Re-check the preview when the map changes under it (a tree grows, a site is placed).
     if (ui.ghost) checkGhost(ui.ghost.x, ui.ghost.y);
   }
-  view.render(ui.speed > 0 ? accumulator / TICK_MS : 1, {
-    ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId
+  view.render(ui.speed > 0 && world.winner === null ? accumulator / TICK_MS : 1, {
+    ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId,
+    selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox
   });
   if (now - lastLive > 250) { lastLive = now; refreshLive(); }
   requestAnimationFrame(frame);
@@ -476,5 +768,5 @@ requestAnimationFrame(frame);
 
 // Exposed for automated screenshots and debugging in the browser console.
 Object.defineProperty(window, 'lers', {
-  get: () => ({ world, view, ui, TILE, placementProblem, step, setSpeed })
+  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive })
 });

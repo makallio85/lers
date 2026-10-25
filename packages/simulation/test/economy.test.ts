@@ -69,7 +69,7 @@ test('the same seed generates the same map with a castle, territory, trees and r
 test('placement rejects unavailable buildings, blocked ground, missing water and other players', () => {
   const world = createWorld({ seed: 3 });
   const castle = castleOf(world, 0)!;
-  assert.match(placementProblem(world, 0, 'coal_mine', castle.x + 6, castle.y)!, /not available/);
+  assert.match(placementProblem(world, 0, 'gold_mine', castle.x + 6, castle.y)!, /not available/);
   assert.match(placementProblem(world, 0, 'castle', castle.x + 6, castle.y)!, /not available/);
   assert.equal(placementProblem(world, 0, 'woodcutter', castle.x, castle.y), 'Another building is in the way');
   assert.equal(placementProblem(world, 0, 'woodcutter', 0, 0) !== null, true);
@@ -186,7 +186,7 @@ test('an occupied guard tower expands the territory', () => {
   const before = ownedTiles(world);
   const id = place(world, 'guard_tower_small', 8);
   runUntil(world, () => building(world, id).isComplete, 4000);
-  runUntil(world, () => world.settlers.some((s) => s.settlerType === 'soldier' && s.homeId === id && s.phase === 'inside'), 1000);
+  runUntil(world, () => world.buildings.some((b) => b.id === id && b.isOccupied), 1000);
   assert.ok(ownedTiles(world) > before, 'territory should grow');
   assert.ok(world.messages.some((m) => m.text === 'Small tower occupied'));
 });
@@ -202,8 +202,9 @@ test('food chain: fields become grain, the mill makes flour, the bakery bakes br
     + world.settlers.filter((s) => s.carrying === good).length;
   runUntil(world, () => {
     if (world.field.some((f) => f >= FIELD_RIPE)) sawRipeField = true;
-    return total('bread') > 0;
+    return world.players[0].stats.breadBaked > 0;
   }, 9000);
+  assert.ok(total('bread') > 0);
   assert.ok(sawRipeField);
 });
 
@@ -211,6 +212,14 @@ test('goods marked as not stored stay at the producer until it is full', () => {
   const world = createWorld({ seed: 11 });
   assert.equal(command(world, { type: 'setGoodStored', playerId: 0, good: 'log', isStored: false }).isAccepted, true);
   const id = place(world, 'woodcutter');
+  // Enough grown trees in reach to fill the hut, whatever this map grew there.
+  const hut = building(world, id);
+  for (let y = hut.doorY - 6; y <= hut.doorY + 6; y++) {
+    for (let x = hut.doorX - 6; x <= hut.doorX + 6; x++) {
+      const i = tileIndex(world, x, y);
+      if (world.territory[i] === 1 && world.footprint[i] === 0 && world.door[i] === 0 && world.tree[i] === NO_TREE && (x + y) % 3 === 0) world.tree[i] = TREE_MATURE;
+    }
+  }
   runUntil(world, () => building(world, id).blockedReason === 'Output full: waiting for carriers', 8000);
   assert.equal(building(world, id).stock.log, 8);
 });

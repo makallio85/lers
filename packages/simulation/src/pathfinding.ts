@@ -102,3 +102,28 @@ export function findPath(world: World, start: number, goal: number, maxVisited =
   }
   return null;
 }
+
+/**
+ * Every tile settlers can reach from `start` (8 directions, no corner cutting), as a membership test.
+ * Used to check that a new building leaves all entrances reachable.
+ */
+export function reachableFrom(world: World, start: number): (tile: number) => boolean {
+  const { width, height } = world;
+  const seen = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  let head = 0, tail = 0;
+  seen[start] = 1; queue[tail++] = start;
+  while (head < tail) {
+    const current = queue[head++];
+    const cx = current % width, cy = Math.floor(current / width);
+    for (const [dx, dy] of DIRECTIONS) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const next = ny * width + nx;
+      if (seen[next] || !isWalkable(world, next)) continue;
+      if (dx !== 0 && dy !== 0 && (!isWalkable(world, cy * width + nx) || !isWalkable(world, ny * width + cx))) continue;
+      seen[next] = 1; queue[tail++] = next;
+    }
+  }
+  return (tile) => seen[tile] === 1;
+}
