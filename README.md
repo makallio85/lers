@@ -2,7 +2,7 @@
 
 An independent, community-oriented settlement and real-time strategy game inspired by The Settlers III. Public project; no monetization objective.
 
-**Status:** project foundation, not a playable game yet. The simulation experiment is executable; rendering, economy, combat, networking and mobile apps are not implemented.
+**Status:** early sandbox. In the browser you can build timber and food economies (woodcutter, forester, sawmill, stonecutter, grain farm, mill, waterworks, bakery, fisher), add residences and storage, expand territory with guard towers, and save and load. Mining, tools production, combat, opponents, networking and mobile apps are not implemented yet.
 
 ## Experience
 
@@ -19,14 +19,22 @@ English is the project language: all player-facing UI, menus, tutorials, notific
 
 Initial scale targets are 2–8 players and 5,000–10,000 soldiers plus civilians **per match**, not per player. These are hypotheses to validate, not measured capabilities.
 
-## Run the foundation
+## Play and develop
 
-Requires Node.js 24; no third-party packages.
+Requires Node.js 24.
 
 ```sh
-npm test
-npm run benchmark
+npm ci
+npm run dev           # play locally at the printed address
+npm run build:single  # dist/single/index.html: the whole game in one file
+npm test              # simulation tests
+npm run typecheck
+npm run benchmark     # movement-only baseline
 ```
+
+Add `?seed=<number>` to the address to replay the same map.
+
+Controls: drag or arrow keys to scroll; mouse wheel or pinch to zoom. Q/W/E/R open the build groups (Resources, Food, Military, Misc.) and A/S/D/F the goods views, as in The Settlers III. Choose a building, then click a green marker (on touch screens: tap to position, then press Place). Esc or right-click cancels placing. Space pauses. Menu saves and loads in this browser.
 
 The benchmark measures only movement of 10,000 units on an empty map. It does not measure rendering, collision avoidance, pathfinding, combat, networking or device performance. It cannot establish that the finished game meets its scale targets.
 
@@ -37,7 +45,8 @@ The benchmark measures only movement of 10,000 units on an empty map. It does no
 - [Architecture](docs/architecture.md): shared simulation, authoritative server, browser and mobile clients.
 - [AI integration](docs/mcp.md): agent commands, visibility rules and runtime responsibilities.
 - [Roadmap](docs/roadmap.md): milestones and acceptance criteria.
-- `packages/simulation/`: initial fixed-step movement experiment and tests.
+- `packages/simulation/`: game rules (map generation, buildings, settlers, transport) with tests; `world.mjs` is the earlier movement experiment.
+- `packages/client/`: browser client (PixiJS map, HTML menus).
 - `scripts/benchmark.mjs`: reproducible CPU-only baseline.
 
 ## License

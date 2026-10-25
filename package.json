@@ -4,9 +4,24 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "test": "node --test packages/simulation/*.test.mjs",
+    "test": "node --test 'packages/simulation/*.test.mjs' 'packages/simulation/test/*.test.ts'",
+    "typecheck": "tsc --noEmit",
+    "dev": "vite packages/client",
+    "build": "vite build packages/client",
+    "build:single": "vite build packages/client --mode single",
     "benchmark": "node scripts/benchmark.mjs"
+  },
+  "dependencies": {
+    "pixi.js": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vite-plugin-singlefile": "2.3.4"
   }
 }
