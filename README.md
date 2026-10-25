@@ -2,7 +2,7 @@
 
 An independent, community-oriented settlement and real-time strategy game inspired by The Settlers III. Public project; no monetization objective.
 
-**Status:** first playable match. You play against a built-in computer player on a mirrored map: build an economy (timber, food, mining, metal), recruit soldiers, expand with towers and take the enemy castle. A sandbox without an opponent is in the menu. Saving and loading work in the browser. Artwork, sound, multiplayer, AI agents and mobile apps are not implemented yet.
+**Status:** first playable match. You play against a built-in computer player on a mirrored map: build an economy (timber, food, mining, metal), recruit soldiers, expand with towers and take the enemy castle. A sandbox without an opponent is in the menu. Saving and loading work in the browser. The map is drawn in an isometric view, with art rendered from free 3D model kits. Sound, multiplayer, AI agents and mobile apps are not implemented yet.
 
 ## Experience
 
@@ -59,4 +59,4 @@ Add `?seed=<number>` to the address to replay the same map, `&mode=sandbox` for 
 
 ## License
 
-Original project code is provided under the MIT license; see [LICENSE](LICENSE). Commercial reuse is permitted, although this project's goal is not monetization. Third-party assets and dependencies must retain their own compatible licenses and attribution. No original Settlers content is included.
+Original project code is provided under the MIT license; see [LICENSE](LICENSE). Commercial reuse is permitted, although this project's goal is not monetization. Third-party assets and dependencies must retain their own compatible licenses and attribution. No original Settlers content is included. The map art is rendered from Kenney's CC0 3D kits (see [art/README.md](art/README.md) and `packages/client/public/art/CREDITS.txt`).

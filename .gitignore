@@ -8,3 +8,5 @@ coverage/
 *.p12
 *.mobileprovision
 .DS_Store
+art/.kits/
+art/.renders/
