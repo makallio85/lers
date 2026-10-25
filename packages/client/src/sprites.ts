@@ -39,27 +39,41 @@ export class SpriteBank {
   /** Base URL of the art folder; the single-file build sets window.LERS_ART_BASE. */
   private readonly base = ((globalThis as { LERS_ART_BASE?: string }).LERS_ART_BASE ?? './art/');
 
-  get isReady(): boolean { return this.manifest !== null; }
+  get isReady(): boolean { return this.sharedLoaded; }
 
-  /** Loads everything a match with these peoples needs. Missing art leaves the old shapes in place. */
+  private readonly loadedRaces = new Set<RaceType>();
+  private sharedLoaded = false;
+
+  /** Loads what a match with these peoples needs; other peoples load when a later match needs them. */
   async load(races: readonly RaceType[]): Promise<void> {
     try {
-      const response = await fetch(this.base + 'manifest.json');
-      if (!response.ok) return;
-      const manifest = await response.json() as Manifest;
+      if (!this.manifest) {
+        const response = await fetch(this.base + 'manifest.json');
+        if (!response.ok) return;
+        this.manifest = await response.json() as Manifest;
+      }
+      const manifest = this.manifest;
+      const wanted = races.filter((r) => !this.loadedRaces.has(r));
       const files = new Set<string>();
-      for (const [key, e] of Object.entries(manifest.buildings)) if (key.startsWith('scaffold/') || races.some((r) => key.startsWith(r + '/'))) files.add(e.file);
-      for (const e of Object.values(manifest.nature)) files.add(e.file);
-      for (const e of Object.values(manifest.goods)) files.add(e.file);
-      for (const [key, e] of Object.entries(manifest.settlers)) if (races.some((r) => key.startsWith(r + '/'))) files.add(e.file);
+      if (!this.sharedLoaded) {
+        for (const [key, e] of Object.entries(manifest.buildings)) if (key.startsWith('scaffold/')) files.add(e.file);
+        for (const e of Object.values(manifest.nature)) files.add(e.file);
+        for (const e of Object.values(manifest.goods)) files.add(e.file);
+      }
+      for (const [key, e] of Object.entries(manifest.buildings)) if (wanted.some((r) => key.startsWith(r + '/'))) files.add(e.file);
+      for (const [key, e] of Object.entries(manifest.settlers)) if (wanted.some((r) => key.startsWith(r + '/'))) files.add(e.file);
       const list = [...files];
       const loaded = await Assets.load(list.map((f) => this.base + f)) as Record<string, Texture>;
       for (const f of list) this.textures.set(f, loaded[this.base + f]);
-      this.manifest = manifest;
+      this.sharedLoaded = true;
+      for (const r of wanted) this.loadedRaces.add(r);
     } catch (error) {
       console.warn('Art could not be loaded; drawing plain shapes instead', error);
     }
   }
+
+  /** True once the art of these peoples is in. */
+  hasRaces(races: readonly RaceType[]): boolean { return this.sharedLoaded && races.every((r) => this.loadedRaces.has(r)); }
 
   private sprite(entry: SpriteEntry | undefined): Sprite | null {
     if (!entry) return null;

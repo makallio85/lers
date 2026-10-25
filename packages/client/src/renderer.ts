@@ -1,7 +1,7 @@
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Matrix, Sprite, Text, Texture } from 'pixi.js';
 import {
-  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, RACE_TYPES, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
+  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
   TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, tileIndex
 } from '../../simulation/src/index.ts';
 import type { Building, BuildingTypeId, GoodType, Settler, World } from '../../simulation/src/index.ts';
@@ -136,7 +136,7 @@ export class MapView {
     // The map area changes size when the phone drawer opens or closes, not only on window resize.
     new ResizeObserver(() => app.resize()).observe(host);
     const view = new MapView(app, world);
-    await view.bank.load(RACE_TYPES);
+    await view.bank.load(world.players.map((p) => p.raceType));
     view.setWorld(world);
     return view;
   }
@@ -146,6 +146,11 @@ export class MapView {
 
   setWorld(world: World): void {
     this.world = world;
+    const races = world.players.map((p) => p.raceType);
+    if (!this.bank.hasRaces(races)) {
+      // Another people's art is needed; draw plain shapes until it arrives, then redraw.
+      void this.bank.load(races).then(() => { if (this.world === world) this.setWorld(world); });
+    }
     this.mapVersion = -1;
     this.territoryVersion = -1;
     this.fogKey = -1;
