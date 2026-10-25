@@ -142,6 +142,8 @@ def main():
         return
     for race in races:
         for look in (only or LOOKS):
+            # A look is finished once its .json is written; skip it so an interrupted run can resume.
+            if not only and os.path.exists(os.path.join(RENDERS, 'settlers', race, look + '.json')): continue
             render_look(race, look)
 
 

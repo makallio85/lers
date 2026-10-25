@@ -25,10 +25,18 @@ def crop(png):
     return im, {'anchor': [round(ax - box[0], 1), round(ay - box[1], 1)], 'w': im.width, 'h': im.height, 'size': meta.get('size', 1)}
 
 
+def clean(im):
+    """Drops the shadow catcher's faint haze and the colour under transparent pixels; both cost bytes but show nothing."""
+    alpha = im.getchannel('A').point(lambda a: 0 if a < 12 else a)
+    im.putalpha(alpha)
+    return Image.composite(im, Image.new('RGBA', im.size), alpha.point(lambda a: 255 if a else 0))
+
+
 def save(im, rel):
+    im = clean(im)
     path = os.path.join(OUT, rel)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    im.save(path, 'WEBP', quality=88, method=6)
+    im.save(path, 'WEBP', quality=84, method=6)
     return rel
 
 
