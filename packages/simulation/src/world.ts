@@ -1,6 +1,6 @@
 import type { BotType } from './bot.ts';
 import {
-  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, GOOD_TYPES, SOLDIER_STATS, TOOL_TYPES, WEAPON_TYPES,
+  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
   consumersOf, distributedGoods, emptyGoods, isSoldierType
 } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, GoodType, SettlerType } from './definitions.ts';
@@ -83,7 +83,7 @@ export type SettlerPhase =
   | 'idle' | 'toPickup' | 'toDrop' | 'toStore' | 'toSite' | 'leveling' | 'building'
   | 'toTool' | 'toWork' | 'inside' | 'toTarget' | 'working' | 'returning'
   | 'toRecruit' | 'toGarrison' | 'defending' | 'moving' | 'attacking'
-  | 'prospecting' | 'claiming';
+  | 'prospecting' | 'claiming' | 'stealing';
 
 export interface Settler {
   id: number;
@@ -111,8 +111,16 @@ export interface Settler {
   cooldown: number;
   enemyId: number | null;
   attackId: number | null;
-  /** Specialists only: the tile they were sent to work around, or -1. */
+  /** Specialists only: the tile they were sent to work around, or -1. Patrolling soldiers: where the patrol started. */
   workCentre: number;
+  /** Soldiers only: tiles still to walk to after the current path, in order. */
+  waypoints: number[];
+  /** Soldiers only: walking between workCentre and targetTile until given another order. */
+  isPatrolling: boolean;
+  /** Soldiers only: stay put and fight only what comes into reach. */
+  isHolding: boolean;
+  /** Soldiers only: walk on without stopping to fight until they arrive. */
+  isIgnoringEnemies: boolean;
 }
 
 export interface PlayerStats {
@@ -296,8 +304,9 @@ export function newSettler(world: World, owner: number, settlerType: SettlerType
   const s: Settler = {
     id: world.nextId++, owner, settlerType, x, y, prevX: x, prevY: y, path: [], phase: 'idle', timer: 0,
     carrying: null, fromId: null, toId: null, good: null, homeId: null, targetTile: -1, isInside: true,
-    health: isSoldierType(settlerType) ? SOLDIER_STATS[settlerType].health : 0, cooldown: 0, enemyId: null, attackId: null,
-    workCentre: -1
+    health: isSoldierType(settlerType) ? SOLDIER_STATS[settlerType].health : settlerType === 'thief' ? THIEF_HEALTH : 0,
+    cooldown: 0, enemyId: null, attackId: null,
+    workCentre: -1, waypoints: [], isPatrolling: false, isHolding: false, isIgnoringEnemies: false
   };
   world.settlers.push(s);
   return s;

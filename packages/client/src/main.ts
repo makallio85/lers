@@ -1,6 +1,6 @@
 import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
-  SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType,
+  SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision
 } from '../../simulation/src/index.ts';
@@ -8,15 +8,15 @@ import type { BotType, MapSizeType, SpecialistType, BuildingGroupType, BuildingT
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import {
-  GOODS_VIEWS, SETTLERS_VIEWS, formatClock, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
+  GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
   renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs
 } from './ui.ts';
 import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } from './ui.ts';
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v4';
-const AUTOSAVE_KEY = 'lers.autosave.v4';
+const SAVE_KEY = 'lers.save.v5';
+const AUTOSAVE_KEY = 'lers.autosave.v5';
 const AUTOSAVE_MS = 5 * 60 * 1000;
 const DRAG_THRESHOLD = 6;
 
@@ -227,7 +227,7 @@ function renderOrders(): void {
   const soldiers = selectedSoldierList();
   const isShown = world.winner === null && !ui.placing && (soldiers.length > 0 || ui.orderMode !== null || (isMatch() && ui.tab === 'military'));
   els.orders.hidden = !isShown;
-  if (isShown) els.orders.innerHTML = renderOrderBar(soldiers, ui.orderMode, isTouchDevice());
+  if (isShown) els.orders.innerHTML = renderOrderBar(soldiers, ui.orderMode, isTouchDevice(), outsideStrength(storedGold(world, PLAYER)));
 }
 
 function renderEnd(): void {
@@ -330,7 +330,7 @@ function handleResults(results: CommandResult[], commands: Command[]): void {
     const command = commands[k];
     if (!result.isAccepted) showProblem(result.reason);
     else if (command.type === 'placeBuilding') ui.selectedId = result.buildingId ?? null;
-    else if (command.type !== 'moveSoldiers' && command.type !== 'attackBuilding' && command.type !== 'moveSpecialists') isPanelStale = true;
+    else if (!['moveSoldiers', 'attackBuilding', 'moveSpecialists', 'patrolSoldiers', 'holdSoldiers'].includes(command.type)) isPanelStale = true;
   });
   if (isPanelStale) renderPanel();
 }
@@ -433,7 +433,7 @@ function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
   renderSelectionCard(); renderOrders();
 }
 
-function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'auto'): void {
+function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'auto' | 'waypoint' | 'patrol' | 'free'): void {
   const units = selectedSoldierList();
   const soldierIds = units.filter((s) => isSoldierType(s.settlerType)).map((s) => s.id);
   const specialistIds = units.filter((s) => isSpecialistType(s.settlerType)).map((s) => s.id);
@@ -450,14 +450,17 @@ function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'au
     } else if (mode === 'attack') {
       showProblem('Choose an enemy tower or castle to attack');
       return;
+    } else if (mode === 'patrol') {
+      submit({ type: 'patrolSoldiers', playerId: PLAYER, soldierIds, x: tile.x, y: tile.y });
     } else {
-      submit({ type: 'moveSoldiers', playerId: PLAYER, soldierIds, x: tile.x, y: tile.y });
+      submit({ type: 'moveSoldiers', playerId: PLAYER, soldierIds, x: tile.x, y: tile.y, isAppending: mode === 'waypoint', isIgnoringEnemies: mode === 'free' });
     }
   } else if (mode === 'attack') {
     showProblem('Only soldiers can attack');
     return;
   }
-  ui.orderMode = null;
+  // Waypoint mode stays on, so the player can tap one spot after another until Done.
+  if (mode !== 'waypoint' || ui.orderMode !== 'waypoint') ui.orderMode = null;
   renderOrders();
 }
 
@@ -471,6 +474,20 @@ function selectInBox(x0: number, y0: number, x1: number, y1: number, isAdding: b
   }
   if (ui.selectedSoldiers.size > 0) ui.selectedId = null;
   renderSelectionCard(); renderOrders();
+}
+
+/** Tab: the player's wounded soldiers outside, so they can be sent to a healer. */
+function selectWounded(): void {
+  ui.selectedSoldiers = new Set(world.settlers.filter((s) => s.owner === PLAYER && isSoldierType(s.settlerType) && !s.isInside
+    && s.health < SOLDIER_STATS[s.settlerType].health).map((s) => s.id));
+  if (ui.selectedSoldiers.size === 0) showProblem('No wounded soldiers outside');
+  ui.selectedId = null; renderSelectionCard(); renderOrders();
+}
+
+function holdSelected(): void {
+  const ids = selectedSoldierList().filter((s) => isSoldierType(s.settlerType)).map((s) => s.id);
+  if (ids.length) submit({ type: 'holdSoldiers', playerId: PLAYER, soldierIds: ids });
+  ui.orderMode = null; renderOrders();
 }
 
 function selectInView(): void {
@@ -519,7 +536,7 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (gesture === 'none' && Math.hypot(e.clientX - p.startX, e.clientY - p.startY) > DRAG_THRESHOLD) {
     // Mouse: left-drag selects soldiers, right or middle drag scrolls. Touch: drag scrolls unless in Select mode.
-    const isBoxDrag = isMatch() && !ui.placing && (e.pointerType === 'mouse' ? p.button === 0 : ui.orderMode === 'select');
+    const isBoxDrag = !ui.placing && (e.pointerType === 'mouse' ? p.button === 0 : ui.orderMode === 'select');
     gesture = isBoxDrag ? 'box' : 'pan';
   }
   if (gesture === 'pan') view.panBy(e.clientX - p.x, e.clientY - p.y);
@@ -552,8 +569,9 @@ function endPointer(e: PointerEvent): void {
     else { ui.isTouchPlacement = true; moveGhost(e.clientX, e.clientY); renderHint(); }
     return;
   }
-  if (isRight) { orderAt(e.clientX, e.clientY, 'auto'); return; }
-  if (ui.orderMode === 'move' || ui.orderMode === 'attack') { orderAt(e.clientX, e.clientY, ui.orderMode); return; }
+  // As in the original: Shift + right-click adds a waypoint, Alt + right-click patrols.
+  if (isRight) { orderAt(e.clientX, e.clientY, e.shiftKey ? 'waypoint' : e.altKey ? 'patrol' : 'auto'); return; }
+  if (ui.orderMode && ui.orderMode !== 'select') { orderAt(e.clientX, e.clientY, ui.orderMode); return; }
   tapAt(e.clientX, e.clientY, e.shiftKey);
 }
 canvas.addEventListener('pointerup', endPointer);
@@ -565,9 +583,10 @@ const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   const key = e.key.toLowerCase();
-  if (/^[1-9]$/.test(key) && !e.altKey) {
+  if (/^[1-9]$/.test(key)) {
     const n = Number(key);
-    if (e.ctrlKey || e.metaKey) {
+    // Alt+number saves a group as in the original game; Ctrl+number does the same.
+    if (e.ctrlKey || e.metaKey || e.altKey) {
       e.preventDefault();
       const ids = selectedSoldierList().map((s) => s.id);
       if (ids.length > 0) { ui.groups.set(n, ids); renderPanel(); }
@@ -582,6 +601,12 @@ window.addEventListener('keydown', (e) => {
   const group = BUILDING_GROUP_TYPES.find((g) => g.key === key);
   const goodsView = GOODS_VIEWS.find((v) => v.key === key);
   const settlersView = SETTLERS_VIEWS.find((v) => v.key === key);
+  if (e.key === 'Tab') {
+    e.preventDefault(); selectWounded(); return;
+  }
+  if (key === 'h' && selectedSoldierList().some((s) => isSoldierType(s.settlerType))) {
+    holdSelected(); return;
+  }
   if (e.key === 'Escape') {
     if (ui.isMenuOpen) { ui.isMenuOpen = false; renderMenu(); }
     else if (ui.workAreaFor !== null) { ui.workAreaFor = null; renderHint(); }
@@ -713,6 +738,8 @@ document.addEventListener('click', (e) => {
       ui.selectedSoldiers = new Set(world.settlers.filter((s) => s.owner === PLAYER && isSoldierType(s.settlerType) && !s.isInside).map((s) => s.id));
       renderOrders(); break;
     case 'select-in-view': selectInView(); break;
+    case 'select-wounded': selectWounded(); break;
+    case 'hold': holdSelected(); break;
     case 'order-mode': {
       const mode = target.dataset.mode as Exclude<OrderMode, null>;
       ui.orderMode = ui.orderMode === mode ? null : mode;

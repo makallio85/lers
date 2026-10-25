@@ -31,7 +31,7 @@ const GOOD_COLORS: Record<GoodType, number> = {
 const SETTLER_COLORS: Partial<Record<string, number>> = {
   carrier: 0xece6d6, builder: 0xe3a33b, digger: 0xb07a45,
   swordsman: 0xd05a5a, spearman: 0xe3a33b, bowman: 0x8fb3d9,
-  geologist: 0x9b7fbf, pioneer: 0x6fb08a
+  geologist: 0x9b7fbf, pioneer: 0x6fb08a, thief: 0x4a4a4a
 };
 
 export interface Ghost {
@@ -312,7 +312,9 @@ export class MapView {
       if (s.owner !== this.viewer && !canSee(this.world, this.viewer, s.x, s.y)) continue;
       const x = (s.prevX + (s.x - s.prevX) * alpha) * TILE + TILE / 2;
       const y = (s.prevY + (s.y - s.prevY) * alpha) * TILE + TILE / 2;
-      const color = SETTLER_COLORS[s.settlerType] ?? 0x8fb3d9;
+      // An enemy thief looks like a carrier to everyone but its owner.
+      const looksAs = s.settlerType === 'thief' && s.owner !== this.viewer ? 'carrier' : s.settlerType;
+      const color = SETTLER_COLORS[looksAs] ?? 0x8fb3d9;
       if (isSpecialistType(s.settlerType) && s.owner === this.viewer) {
         // Geologists and pioneers can be selected and sent, so they get a ring like soldiers.
         if (selected.has(s.id)) g.circle(x, y, TILE * 0.26 + 4).stroke({ width: 2, color: 0xffffff });
@@ -359,6 +361,28 @@ export class MapView {
       g.rect(ghost.x * TILE, ghost.y * TILE, size * TILE, size * TILE).fill({ color, alpha: 0.4 }).stroke({ width: 2, color });
       const doorX = ghost.x + Math.floor(size / 2), doorY = ghost.y + size;
       g.rect(doorX * TILE + 3, doorY * TILE + 3, TILE - 6, TILE - 6).stroke({ width: 2, color });
+    }
+    // Routes of selected soldiers: where they are going, their waypoints, and patrol ends.
+    const w = this.world.width;
+    const centre = (i: number) => ({ x: (i % w) * TILE + TILE / 2, y: Math.floor(i / w) * TILE + TILE / 2 });
+    for (const s of this.world.settlers) {
+      if (!state.selectedSoldiers.has(s.id) || s.owner !== this.viewer || s.isInside) continue;
+      if (s.isPatrolling && s.workCentre >= 0 && s.targetTile >= 0) {
+        const a = centre(s.workCentre), b = centre(s.targetTile);
+        g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: 2, color: 0x8fb3d9, alpha: 0.8 });
+        g.circle(a.x, a.y, 4).circle(b.x, b.y, 4).fill(0x8fb3d9);
+        continue;
+      }
+      const stops = [...(s.path.length > 0 ? [s.path[s.path.length - 1]] : []), ...s.waypoints];
+      if (stops.length === 0) continue;
+      let from = { x: s.x * TILE + TILE / 2, y: s.y * TILE + TILE / 2 };
+      for (const stop of stops) {
+        const to = centre(stop);
+        g.moveTo(from.x, from.y).lineTo(to.x, to.y);
+        from = to;
+      }
+      g.stroke({ width: 2, color: 0xece6d6, alpha: 0.6 });
+      for (const stop of stops) { const p = centre(stop); g.circle(p.x, p.y, 3.5).fill({ color: 0xece6d6, alpha: 0.9 }); }
     }
     if (state.workArea) {
       const { x, y, radius } = state.workArea;

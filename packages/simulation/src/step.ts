@@ -1,22 +1,24 @@
 import {
-  BUILDING_TYPES, FAVOURITE_FOOD_MEALS, FOOD_TYPES, GOOD_NAMES, GOOD_TYPES, OTHER_FOOD_MEALS, SETTLER_LABELS,
-  SOLDIER_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, isSoldierType, isSpecialistType, totalGoods
+  BUILDING_TYPES, FAVOURITE_FOOD_MEALS, FOOD_TYPES, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OTHER_FOOD_MEALS,
+  SETTLER_LABELS, SOLDIER_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, goodCount, isSoldierType,
+  isSpecialistType, totalGoods
 } from './definitions.ts';
 import type { BuildingTypeId, GoodType, SettlerType } from './definitions.ts';
 import { applyCommand } from './commands.ts';
 import type { Command, CommandResult } from './commands.ts';
 import { releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
-import { advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
+import { WALK_SPEED, advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
 import { updateVision } from './vision.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
   buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
-  recomputeTerritory, storedTotal, tileIndex
+  recomputeTerritory, settlerById, storedTotal, tileIndex
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
 
 
 const OCCUPATION_TICKS = 50;
+const HEAL_TICKS = 10;
 /** A geologist looks this far around the spot he was sent to; a pioneer claims this far. */
 export const PROSPECT_RADIUS = 6;
 export const CLAIM_RADIUS = 4;
@@ -74,6 +76,7 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   if (world.tick % 5 === 0) runLogistics(world);
   if (world.tick % 5 === 0) { assignConstructionCrews(world); assignWorkers(world); }
   if (world.tick % OCCUPATION_TICKS === 0) for (const p of world.players) applyOccupations(world, p);
+  if (world.tick % HEAL_TICKS === 0) healSoldiers(world);
   fillGarrisons(world);
   sendDefenders(world);
   for (const s of world.settlers) if (!isSoldierType(s.settlerType)) updateSettler(world, s);
@@ -394,7 +397,7 @@ function updateSettler(world: World, s: Settler): void {
     case 'building': return updateBuilding(world, s);
     case 'toTool': return updateToTool(world, s);
     case 'toRecruit': return updateToRecruit(world, s);
-    case 'moving': case 'prospecting': case 'claiming': return updateSpecialist(world, s);
+    case 'moving': case 'prospecting': case 'claiming': case 'stealing': return updateSpecialist(world, s);
     default: return updateWorker(world, s);
   }
 }
@@ -608,6 +611,8 @@ function mineTile(world: World, home: Building, deposit: number): number | null 
 function decideWork(world: World, s: Settler, home: Building, type: SettlerType): void {
   if (home.isPaused) { setBlocked(world, home, 'Paused'); s.timer = 10; return; }
   const buildingType = BUILDING_TYPES[home.typeId];
+  // Workers with nothing to make, such as the healer, simply stay at their post.
+  if (!isGatherType(type) && !buildingType.recipe) { s.timer = 20; return; }
   const recipe = buildingType.recipe;
   const player = playerOf(world, home.owner);
   if (!isGatherType(type) && recipe && player) {
@@ -819,10 +824,11 @@ function updateSpecialist(world: World, s: Settler): void {
   if (s.phase === 'moving') {
     if (!advance(world, s)) return;
     if (s.workCentre < 0) { s.phase = 'idle'; return; }
-    s.phase = s.settlerType === 'geologist' ? 'prospecting' : 'claiming';
-    s.targetTile = -1; s.timer = 0;
+    s.phase = s.settlerType === 'geologist' ? 'prospecting' : s.settlerType === 'pioneer' ? 'claiming' : 'stealing';
+    s.targetTile = -1; s.timer = 0; s.toId = null;
     return;
   }
+  if (s.phase === 'stealing') return updateThief(world, s);
   if (s.targetTile >= 0) {
     // Walking to the next tile, then working there.
     if (s.path.length > 0) { advance(world, s); return; }
@@ -876,4 +882,61 @@ function specialistTiles(world: World, s: Settler): number[] {
     }
   }
   return found.sort((a, b) => a.d - b.d || a.i - b.i).map((f) => f.i);
+}
+
+/** A thief raids an enemy store near where it was sent, then carries the loot home at half speed. */
+const THIEF_SEARCH_RADIUS = 8;
+const LOOT_ORDER: readonly GoodType[] = ['gold', 'sword', 'spear', 'bow', 'iron', 'hammer', 'pick', 'axe', 'saw', 'shovel', 'scythe', 'rod'];
+
+function updateThief(world: World, s: Settler): void {
+  if (s.carrying) {
+    // Heading home with the loot.
+    if (s.path.length === 0) {
+      const home = storageFor(world, s.owner, s.carrying, s.x, s.y, false);
+      if (!home || (tileOf(world, s) !== doorTile(world, home) && !walkTo(world, s, doorTile(world, home)))) { s.phase = 'idle'; return; }
+      s.toId = home.id;
+    }
+    if (!advance(world, s, WALK_SPEED / 2)) return;
+    const home = buildingById(world, s.toId);
+    if (home && home.owner === s.owner) {
+      home.stock[s.carrying]++;
+      pushMessage(world, s.owner, 'Your thief is back', `It brought ${goodCount(s.carrying, 1)}.`, false, home.id);
+    }
+    s.carrying = null; s.toId = null; s.phase = 'idle'; s.workCentre = -1;
+    return;
+  }
+  let target = buildingById(world, s.toId);
+  if (!target || target.owner === s.owner || !isStorageBuilding(target)) {
+    const cx = s.workCentre % world.width, cy = Math.floor(s.workCentre / world.width);
+    target = world.buildings.filter((b) => b.owner !== s.owner && isStorageBuilding(b) && totalGoods(b.stock) > 0
+      && distance(b.doorX, b.doorY, cx, cy) <= THIEF_SEARCH_RADIUS)
+      .sort((a, b) => distance(a.doorX, a.doorY, s.x, s.y) - distance(b.doorX, b.doorY, s.x, s.y) || a.id - b.id)[0];
+    if (!target || (tileOf(world, s) !== doorTile(world, target) && !walkTo(world, s, doorTile(world, target)))) {
+      s.phase = 'idle'; s.workCentre = -1; return;
+    }
+    s.toId = target.id;
+  }
+  if (!advance(world, s)) return;
+  const stock = target.stock;
+  const loot = LOOT_ORDER.find((g) => stock[g] - target.reserved[g] > 0)
+    ?? GOOD_TYPES.filter((g) => stock[g] - target.reserved[g] > 0).sort((a, b) => stock[b] - stock[a])[0];
+  if (!loot) { s.toId = null; s.phase = 'idle'; s.workCentre = -1; return; }
+  stock[loot]--;
+  s.carrying = loot; s.toId = null; s.path = [];
+  pushMessage(world, target.owner, 'Goods were stolen', `A thief took ${goodCount(loot, 1)}.`, true, target.id);
+}
+
+/** Healer's huts with their healer inside heal the owner's soldiers nearby who are not fighting. */
+function healSoldiers(world: World): void {
+  for (const b of world.buildings) {
+    if (b.typeId !== 'healer' || !b.isComplete || b.isPaused) continue;
+    const healer = settlerById(world, b.workerId);
+    if (!healer || !healer.isInside) continue;
+    for (const s of world.settlers) {
+      if (s.owner !== b.owner || !isSoldierType(s.settlerType) || s.isInside || s.enemyId !== null) continue;
+      const max = SOLDIER_STATS[s.settlerType].health;
+      if (s.health >= max || distance(s.x, s.y, b.doorX, b.doorY) > HEAL_RADIUS) continue;
+      s.health = Math.min(max, s.health + HEAL_PER_ROUND);
+    }
+  }
 }

@@ -1,5 +1,7 @@
-import { BUILDING_TYPES, SOLDIER_STATS, emptyGoods, isSoldierType } from './definitions.ts';
-import { releaseFromBuilding } from './commands.ts';
+import {
+  BUILDING_TYPES, GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, emptyGoods, isSoldierType
+} from './definitions.ts';
+import { coveringBuilding, releaseFromBuilding } from './commands.ts';
 import { advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
 import {
   buildingById, castleOf, isMilitaryBuilding, nextRandom, playerOf, pushMessage, recomputeTerritory, removeBuilding,
@@ -12,6 +14,30 @@ export const ENGAGE_RANGE = 6;
 /** A garrison sends soldiers out against enemies this close to its door. */
 export const DEFEND_RADIUS = 5;
 const REPATH_TICKS = 6;
+/** Soldiers see through a thief's disguise this close. */
+export const THIEF_SPOT_RANGE = 3;
+/** A castle warns its owner at most this often while under attack. */
+const CASTLE_WARNING_TICKS = 600;
+
+/** Gold bars in the player's storage, which set its soldiers' strength outside its own land. */
+export function storedGold(world: World, owner: number): number {
+  let gold = 0;
+  for (const b of world.buildings) if (b.owner === owner && b.isComplete && BUILDING_TYPES[b.typeId].storageCapacity > 0) gold += b.stock.gold;
+  return gold;
+}
+
+/** How hard a soldier hits: always fully on its own land, outside it by the gold its owner has. */
+export function strengthOf(world: World, s: Settler): number {
+  if (world.territory[tileIndex(world, Math.round(s.x), Math.round(s.y))] === s.owner + 1) return 1;
+  return OUTSIDE_MIN_STRENGTH + (1 - OUTSIDE_MIN_STRENGTH) * Math.min(1, storedGold(world, s.owner) / GOLD_FOR_FULL_STRENGTH);
+}
+
+/** An enemy a soldier can fight: a soldier outside, or a thief close enough to be recognised. */
+function isFoe(s: Settler, other: Settler): boolean {
+  if (other.owner === s.owner || other.isInside || other.health <= 0) return false;
+  if (isSoldierType(other.settlerType)) return true;
+  return other.settlerType === 'thief' && distance(other.x, other.y, s.x, s.y) <= THIEF_SPOT_RANGE;
+}
 
 function isAliveSoldier(s: Settler): boolean {
   return isSoldierType(s.settlerType) && s.health > 0;
@@ -32,6 +58,7 @@ export function sendDefenders(world: World): void {
     if (!b.isComplete || !isMilitaryBuilding(b) || b.garrison.length === 0) continue;
     const attackers = enemiesNear(world, b.owner, b.doorX, b.doorY, DEFEND_RADIUS);
     if (attackers.length === 0) continue;
+    if (b.typeId === 'castle') warnCastleUnderAttack(world, b);
     let out = defendersOut(world, b).length;
     while (out < attackers.length && b.garrison.length > 0) {
       const s = settlerById(world, b.garrison.pop()!);
@@ -43,23 +70,30 @@ export function sendDefenders(world: World): void {
   }
 }
 
+function warnCastleUnderAttack(world: World, castle: Building): void {
+  const last = [...world.messages].reverse().find((m) => m.owner === castle.owner && m.text === 'Your castle is under attack');
+  if (last && world.tick - last.tick < CASTLE_WARNING_TICKS) return;
+  pushMessage(world, castle.owner, 'Your castle is under attack', 'If it falls, the match is lost.', true, castle.id);
+}
+
 function hit(world: World, attacker: Settler, target: Settler): void {
   if (!isSoldierType(attacker.settlerType)) return;
   const stats = SOLDIER_STATS[attacker.settlerType];
-  const damage = stats.damage * (0.85 + 0.3 * nextRandom(world));
+  const damage = stats.damage * strengthOf(world, attacker) * (0.85 + 0.3 * nextRandom(world));
   target.health -= damage;
   attacker.cooldown = stats.cooldown;
   if (target.health <= 0) {
     target.health = 0;
     const loser = playerOf(world, target.owner);
-    if (loser) loser.stats.soldiersLost++;
+    if (loser && isSoldierType(target.settlerType)) loser.stats.soldiersLost++;
+    if (target.settlerType === 'thief') pushMessage(world, target.owner, 'A thief was caught', 'Enemy soldiers saw through the disguise.', true, null);
     attacker.enemyId = null;
   }
 }
 
 /** Removes fallen soldiers from the world and from any garrison. */
 export function removeDead(world: World): void {
-  const dead = new Set(world.settlers.filter((s) => isSoldierType(s.settlerType) && s.health <= 0).map((s) => s.id));
+  const dead = new Set(world.settlers.filter((s) => (isSoldierType(s.settlerType) || s.settlerType === 'thief') && s.health <= 0).map((s) => s.id));
   if (dead.size === 0) return;
   world.settlers = world.settlers.filter((s) => !dead.has(s.id));
   for (const b of world.buildings) {
@@ -82,10 +116,10 @@ export function releaseEmptyBuildings(world: World): void {
 
 function nearestEnemy(world: World, s: Settler): Settler | null {
   const current = settlerById(world, s.enemyId);
-  if (current && isAliveSoldier(current) && !current.isInside && distance(current.x, current.y, s.x, s.y) <= ENGAGE_RANGE + 2) return current;
+  if (current && isFoe(s, current) && distance(current.x, current.y, s.x, s.y) <= ENGAGE_RANGE + 2) return current;
   let best: Settler | null = null, bestDistance = ENGAGE_RANGE;
   for (const other of world.settlers) {
-    if (other.owner === s.owner || !isAliveSoldier(other) || other.isInside) continue;
+    if (!isFoe(s, other)) continue;
     const d = distance(other.x, other.y, s.x, s.y);
     if (d <= bestDistance) { bestDistance = d; best = other; }
   }
@@ -98,24 +132,33 @@ export function updateSoldier(world: World, s: Settler): void {
   if (s.cooldown > 0) s.cooldown--;
   if (s.phase === 'toGarrison') return updateToGarrison(world, s);
 
-  const enemy = nearestEnemy(world, s);
+  // Moving without fighting: walk on until they arrive.
+  const enemy = s.isIgnoringEnemies && s.phase === 'moving' ? null : nearestEnemy(world, s);
   if (enemy && isSoldierType(s.settlerType)) {
-    s.enemyId = enemy.id;
     const range = SOLDIER_STATS[s.settlerType].range;
-    if (distance(enemy.x, enemy.y, s.x, s.y) <= range) {
-      s.path = [];
-      if (s.cooldown === 0) hit(world, s, enemy);
-    } else {
-      if (s.path.length === 0 || world.tick % REPATH_TICKS === 0) walkTo(world, s, tileOf(world, enemy), 2500);
-      advance(world, s);
+    const d = distance(enemy.x, enemy.y, s.x, s.y);
+    // Holding position: fight only what comes into reach, never chase.
+    if (!s.isHolding || d <= range) {
+      s.enemyId = enemy.id;
+      if (d <= range) {
+        s.path = [];
+        if (s.cooldown === 0) hit(world, s, enemy);
+      } else {
+        if (s.path.length === 0 || world.tick % REPATH_TICKS === 0) walkTo(world, s, tileOf(world, enemy), 2500);
+        advance(world, s);
+      }
+      return;
     }
-    return;
   }
-  s.enemyId = null;
+  if (s.enemyId !== null) {
+    s.enemyId = null;
+    // A patrol or a waypoint route carries on after a fight.
+    if (s.phase === 'moving') resumeRoute(world, s);
+  }
 
   switch (s.phase) {
     case 'moving':
-      if (advance(world, s)) s.phase = 'idle';
+      if (advance(world, s)) arrive(world, s);
       return;
     case 'attacking':
       return updateAttacking(world, s);
@@ -133,6 +176,25 @@ export function updateSoldier(world: World, s: Settler): void {
     default:
       return;
   }
+}
+
+/** At the end of a path: on to the next waypoint, back along the patrol, or stop. */
+function arrive(world: World, s: Settler): void {
+  if (s.waypoints.length > 0) {
+    const next = s.waypoints.shift()!;
+    if (walkTo(world, s, next)) return;
+  }
+  if (s.isPatrolling) {
+    const here = tileOf(world, s);
+    const next = here === s.targetTile ? s.workCentre : s.targetTile;
+    if (next >= 0 && walkTo(world, s, next)) return;
+  }
+  s.phase = 'idle'; s.isIgnoringEnemies = false; s.isPatrolling = false;
+}
+
+function resumeRoute(world: World, s: Settler): void {
+  const goal = s.waypoints.length > 0 ? s.waypoints[0] : s.isPatrolling ? s.targetTile : -1;
+  if (goal >= 0) walkTo(world, s, goal);
 }
 
 function updateToGarrison(world: World, s: Settler): void {
@@ -158,8 +220,12 @@ function updateAttacking(world: World, s: Settler): void {
     advance(world, s);
     return;
   }
-  // At the door: the building falls once nobody defends it.
-  if (target.garrison.length === 0 && defendersOut(world, target).length === 0) capture(world, target, s);
+  // At the door: the building falls once nobody defends it and no other tower of its owner covers it.
+  if (target.garrison.length > 0 || defendersOut(world, target).length > 0) return;
+  const cover = coveringBuilding(world, target);
+  if (!cover) { capture(world, target, s); return; }
+  // Emptied but covered: take the building that covers it first, as the rule says.
+  s.attackId = cover.id; s.path = [];
 }
 
 /** Removes a building without refund; its people go free and its garrison steps outside. */

@@ -1,6 +1,6 @@
 import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
-  GOOD_NAMES, SPECIALIST_TOOLS, SPECIALIST_TYPES, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
+  GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
   costTotal, distributedGoods, goodCount, isMilitaryBuilding, isSoldierType, isStorageBuilding, settlerById
 } from '../../simulation/src/index.ts';
 import type {
@@ -11,7 +11,7 @@ export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
 export type GoodsViewId = 'inventory' | 'tools' | 'distribution' | 'transport';
 export type MilitaryViewId = 'recruiting' | 'soldiers' | 'garrisons';
 export type SettlersViewId = 'counts' | 'occupations' | 'specialists';
-export type OrderMode = 'select' | 'move' | 'attack' | null;
+export type OrderMode = 'select' | 'move' | 'attack' | 'waypoint' | 'patrol' | 'free' | null;
 
 const ICONS: Record<TabId | 'warning' | 'info', string> = {
   build: '<path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M10 21v-6h4v6"/>',
@@ -31,6 +31,11 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: 'build', label: 'Build' }, { id: 'goods', label: 'Goods' }, { id: 'settlers', label: 'Settlers' },
   { id: 'military', label: 'Military' }, { id: 'stats', label: 'Stats' }
 ];
+
+/** Strength of a player's soldiers outside its own land, from the gold it has in storage. */
+export function outsideStrength(gold: number): number {
+  return OUTSIDE_MIN_STRENGTH + (1 - OUTSIDE_MIN_STRENGTH) * Math.min(1, gold / GOLD_FOR_FULL_STRENGTH);
+}
 
 /** The goods views and their keys follow the original game's A S D F order. */
 export const GOODS_VIEWS: { id: GoodsViewId; label: string; key: string }[] = [
@@ -193,7 +198,7 @@ export function renderSettlersPanel(world: World, view: SettlersViewId, owner: n
       const busy = all.filter((s) => s.phase !== 'idle').length;
       return `<div class="specialist-row">
         <span class="specialist-name">${SETTLER_PLURALS[t]}</span>
-        <span class="muted">${busy} at work · each needs a ${GOOD_NAMES[SPECIALIST_TOOLS[t]][0]}</span>
+        <span class="muted">${busy} at work · ${SPECIALIST_TOOLS[t] ? `each needs a ${GOOD_NAMES[SPECIALIST_TOOLS[t]!][0]}` : 'needs no tool'}</span>
         <div class="specialist-actions">
           ${stepper('specialists', `data-type="${t}"`, all.length, SETTLER_PLURALS[t])}
           <button type="button" class="secondary" data-action="select-specialists" data-type="${t}" ${all.length === 0 ? 'disabled' : ''}>Select</button>
@@ -251,10 +256,23 @@ export function renderMilitaryPanel(world: World, view: MilitaryViewId, owner: n
     const rows = SOLDIER_TYPES.map((t) => {
       const all = soldiers.filter((s) => s.settlerType === t);
       const outside = all.filter((s) => !s.isInside).length;
-      return `<li><span>${SETTLER_PLURALS[t]}</span><span class="num">${all.length}<span class="muted"> · ${outside} outside</span></span></li>`;
+      const wounded = all.filter((s) => s.health < SOLDIER_STATS[t].health).length;
+      return `<li><span>${SETTLER_PLURALS[t]}</span><span class="num">${all.length}<span class="muted"> · ${outside} outside · ${wounded} wounded</span></span></li>`;
     }).join('');
-    return `${tabs}<ul class="list">${rows}</ul>
-      <button type="button" class="secondary" data-action="select-free">Select all soldiers outside</button>
+    const gold = storedGold(world, owner);
+    const strength = Math.round(outsideStrength(gold) * 100);
+    return `${tabs}
+      <div class="strength-block">
+        <span class="menu-label">Strength outside your land</span>
+        <div class="strength-value"><b>${strength} %</b><span class="muted">from ${goodCount('gold', gold)}</span></div>
+        <div class="strength-bar"><div style="width: ${strength}%"></div></div>
+        <span class="muted">On your own land soldiers always fight at 100 %. Outside it, strength rises with the gold bars in your storage, up to 100 % at ${GOLD_FOR_FULL_STRENGTH}.</span>
+      </div>
+      <ul class="list">${rows}</ul>
+      <div class="actions-row">
+        <button type="button" class="secondary" data-action="select-free">Select all soldiers outside</button>
+        <button type="button" class="secondary" data-action="select-wounded" title="Key Tab">Select the wounded</button>
+      </div>
       <p class="empty">Soldiers outside buildings can be selected and sent to move or attack. Soldiers in towers defend them.</p>`;
   }
   const military = world.buildings.filter((b) => b.owner === owner && b.isComplete && isMilitaryBuilding(b));
@@ -398,7 +416,13 @@ function buildingStatus(world: World, b: Building): { text: string; isWarning: b
   if (b.residentsLeft > 0) return { text: `${b.residentsLeft} settlers still moving in`, isWarning: false };
   if (type.residents > 0) return { text: 'Everyone has moved in', isWarning: false };
   const worker = settlerById(world, b.workerId);
+  if (type.worker && !worker) return { text: 'Waiting for a worker', isWarning: false };
   if (worker && (worker.phase === 'toWork' || worker.phase === 'toTool')) return { text: 'Worker on the way', isWarning: false };
+  if (b.typeId === 'healer') {
+    const wounded = world.settlers.filter((s) => s.owner === b.owner && isSoldierType(s.settlerType) && !s.isInside
+      && s.health < SOLDIER_STATS[s.settlerType].health && Math.hypot(s.x - b.doorX, s.y - b.doorY) <= HEAL_RADIUS).length;
+    return { text: `Heals your soldiers within ${HEAL_RADIUS} tiles · ${wounded} wounded nearby`, isWarning: false };
+  }
   return { text: 'Working', isWarning: false };
 }
 
@@ -406,9 +430,12 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
   const type = BUILDING_TYPES[b.typeId];
   if (b.owner !== owner) {
     const canAttack = isMilitaryBuilding(b) && b.isComplete;
+    const cover = canAttack ? coveringBuilding(world, b) : null;
     return `
       <div class="detail-head"><span class="detail-title">Enemy ${type.label.toLowerCase()}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
-      ${canAttack ? `<span>${b.garrison.length} ${b.garrison.length === 1 ? 'defender' : 'defenders'} inside</span>` : '<span class="muted">Not a military building</span>'}
+      ${canAttack ? `<span>${b.garrison.length} ${b.garrison.length === 1 ? 'defender' : 'defenders'} inside</span>`
+        : `<span class="muted">${isMilitaryBuilding(b) ? 'Still being built' : 'Not a military building'}</span>`}
+      ${cover ? `<span class="status-warning">Covered by the ${BUILDING_TYPES[cover.typeId].label.toLowerCase()} behind it: it cannot be taken until that one falls. Attacking still fights its defenders.</span>` : ''}
       ${canAttack ? `<div class="actions"><button type="button" class="primary" data-action="attack-selected" ${selectedSoldiers > 0 ? '' : 'disabled'}>${selectedSoldiers > 0 ? `Attack with ${selectedSoldiers} soldiers` : 'Select soldiers to attack'}</button></div>` : ''}`;
   }
   const status = buildingStatus(world, b);
@@ -456,17 +483,21 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
 }
 
 /** The order bar: what is selected and what to do with it. Order modes make every order reachable by touch. */
-export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boolean): string {
+export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boolean, strength: number): string {
   const soldiers = units.filter((s) => isSoldierType(s.settlerType));
   const types: SettlerType[] = [...SOLDIER_TYPES, ...SPECIALIST_TYPES];
   const byType = types.map((t) => ({ t, n: units.filter((s) => s.settlerType === t).length })).filter((x) => x.n > 0);
   const summary = units.length === 0 ? 'Nobody selected'
     : soldiers.length === units.length ? `${units.length} ${units.length === 1 ? 'soldier' : 'soldiers'} selected` : `${units.length} selected`;
-  const detail = byType.map((x) => `${x.n} ${(x.n === 1 ? SETTLER_LABELS[x.t] : SETTLER_PLURALS[x.t]).toLowerCase()}`).join(' · ');
+  const detail = [...byType.map((x) => `${x.n} ${(x.n === 1 ? SETTLER_LABELS[x.t] : SETTLER_PLURALS[x.t]).toLowerCase()}`),
+    ...(soldiers.length > 0 ? [`strength ${Math.round(strength * 100)} % outside your land`] : [])].join(' · ');
   const hint = mode === 'select' ? (isTouch ? 'Drag over soldiers to select them' : 'Drag a box around soldiers')
     : mode === 'move' ? 'Tap or click where they should go'
     : mode === 'attack' ? 'Tap or click an enemy tower or castle'
-    : isTouch ? '' : 'Drag: select · Right-click: move, or attack an enemy building';
+    : mode === 'waypoint' ? 'Tap or click each spot in turn, then press Done'
+    : mode === 'patrol' ? 'Tap or click the far end of the patrol'
+    : mode === 'free' ? 'Tap or click where they should go; they will not stop to fight'
+    : isTouch ? '' : 'Right-click: move or attack · Shift: waypoint · Alt: patrol · H: hold';
   const modeButton = (id: Exclude<OrderMode, null>, label: string, isDisabled = false) =>
     `<button type="button" class="order-mode" data-action="order-mode" data-mode="${id}" aria-pressed="${mode === id}" ${isDisabled ? 'disabled' : ''}>${label}</button>`;
   return `
@@ -476,6 +507,10 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
       <button type="button" class="order-mode" data-action="select-in-view">All in view</button>
       ${modeButton('move', 'Move', units.length === 0)}
       ${modeButton('attack', 'Attack', soldiers.length === 0)}
+      ${mode === 'waypoint' ? `<button type="button" class="order-mode" data-action="order-mode" data-mode="waypoint" aria-pressed="true">Done</button>` : modeButton('waypoint', 'Waypoint', soldiers.length === 0)}
+      ${modeButton('patrol', 'Patrol', soldiers.length === 0)}
+      <button type="button" class="order-mode" data-action="hold" ${soldiers.length === 0 ? 'disabled' : ''} title="Key H">Hold</button>
+      ${modeButton('free', 'Move, no fighting', soldiers.length === 0)}
       <button type="button" class="order-mode" data-action="back-to-towers" ${soldiers.length === 0 ? 'disabled' : ''} title="Back to the castle">Retreat</button>
       <button type="button" class="order-mode" data-action="clear-selection" ${units.length === 0 && mode === null ? 'disabled' : ''}>Clear</button>
     </div>
