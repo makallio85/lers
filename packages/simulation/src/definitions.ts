@@ -217,33 +217,33 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   woodcutter: building('woodcutter', 'Woodcutter', 'resources', 2, 2, 2, 'Woodcutter + axe', 'Trees nearby', 'Logs', { worker: 'woodcutter', tool: 'axe' }),
   forester: building('forester', 'Forester', 'resources', 2, 3, 1, 'Forester', 'Free land nearby', 'New trees', { worker: 'forester' }),
   sawmill: building('sawmill', 'Sawmill', 'resources', 3, 3, 4, 'Carpenter + saw', 'Logs', 'Planks',
-    { worker: 'carpenter', tool: 'saw', recipe: { inputs: { log: 1 }, output: 'plank', ticks: 50 } }),
+    { worker: 'carpenter', tool: 'saw', recipe: { inputs: { log: 1 }, output: 'plank', ticks: 155 } }),
   stonecutter: building('stonecutter', 'Stonecutter', 'resources', 2, 2, 3, 'Stonecutter + pick', 'Rocks nearby', 'Stone', { worker: 'stonecutter', tool: 'pick' }),
   coal_mine: building('coal_mine', 'Coal mine', 'resources', 2, 4, 1, 'Miner + pick', 'Bread (best), fish or meat', 'Coal',
     { worker: 'miner', tool: 'pick', placementType: 'mountain', inputLimits: MINE_FOOD,
-      recipe: { inputs: {}, output: 'coal', ticks: 70 }, mine: { deposit: DEPOSIT_COAL, favouriteFood: 'bread' } }),
+      recipe: { inputs: {}, output: 'coal', ticks: 210 }, mine: { deposit: DEPOSIT_COAL, favouriteFood: 'bread' } }),
   iron_mine: building('iron_mine', 'Iron mine', 'resources', 2, 4, 1, 'Miner + pick', 'Meat (best), bread or fish', 'Iron ore',
     { worker: 'miner', tool: 'pick', placementType: 'mountain', inputLimits: MINE_FOOD,
-      recipe: { inputs: {}, output: 'iron_ore', ticks: 80 }, mine: { deposit: DEPOSIT_IRON, favouriteFood: 'meat' } }),
+      recipe: { inputs: {}, output: 'iron_ore', ticks: 240 }, mine: { deposit: DEPOSIT_IRON, favouriteFood: 'meat' } }),
   gold_mine: building('gold_mine', 'Gold mine', 'resources', 2, 5, 1, 'Miner + pick', 'Fish (best)', 'Gold ore', LATER),
   smelter: building('smelter', 'Iron smelter', 'resources', 3, 4, 6, 'Smelter', 'Iron ore, coal', 'Iron',
-    { worker: 'smelter', recipe: { inputs: { iron_ore: 1, coal: 1 }, output: 'iron', ticks: 70 } }),
+    { worker: 'smelter', recipe: { inputs: { iron_ore: 1, coal: 1 }, output: 'iron', ticks: 210 } }),
   toolsmith: building('toolsmith', 'Toolsmith', 'resources', 3, 3, 5, 'Smith + hammer', 'Iron, coal', 'Tools',
-    { worker: 'smith', tool: 'hammer', recipe: { inputs: { iron: 1, coal: 1 }, output: 'axe', outputChoices: TOOL_TYPES, ticks: 70 } }),
+    { worker: 'smith', tool: 'hammer', recipe: { inputs: { iron: 1, coal: 1 }, output: 'axe', outputChoices: TOOL_TYPES, ticks: 210 } }),
 
   farm: building('farm', 'Grain farm', 'food', 3, 6, 6, 'Farmer + scythe', 'Free fields nearby', 'Grain', { worker: 'farmer', tool: 'scythe' }),
   mill: building('mill', 'Mill', 'food', 3, 3, 3, 'Miller', 'Grain', 'Flour',
-    { worker: 'miller', recipe: { inputs: { grain: 1 }, output: 'flour', ticks: 60 } }),
+    { worker: 'miller', recipe: { inputs: { grain: 1 }, output: 'flour', ticks: 180 } }),
   bakery: building('bakery', 'Bakery', 'food', 3, 4, 5, 'Baker', 'Flour, water', 'Bread',
-    { worker: 'baker', recipe: { inputs: { flour: 1, water: 1 }, output: 'bread', ticks: 70 } }),
+    { worker: 'baker', recipe: { inputs: { flour: 1, water: 1 }, output: 'bread', ticks: 210 } }),
   waterworks: building('waterworks', 'Waterworks', 'food', 2, 3, 4, 'Waterworker', 'Water nearby', 'Water',
-    { worker: 'waterworker', placementType: 'near_water', recipe: { inputs: {}, output: 'water', ticks: 60 } }),
+    { worker: 'waterworker', placementType: 'near_water', recipe: { inputs: {}, output: 'water', ticks: 180 } }),
   fisher: building('fisher', 'Fisher', 'food', 2, 3, 2, 'Fisher + fishing rod', 'Water nearby', 'Fish',
     { worker: 'fisher', tool: 'rod', placementType: 'near_water' }),
   pig_farm: building('pig_farm', 'Pig farm', 'food', 3, 6, 6, 'Pig farmer', 'Grain, water', 'Pigs',
-    { worker: 'pig_farmer', recipe: { inputs: { grain: 1, water: 1 }, output: 'pig', ticks: 90 } }),
+    { worker: 'pig_farmer', recipe: { inputs: { grain: 1, water: 1 }, output: 'pig', ticks: 270 } }),
   slaughterhouse: building('slaughterhouse', 'Slaughterhouse', 'food', 3, 4, 4, 'Butcher + axe', 'Pigs', 'Meat',
-    { worker: 'butcher', tool: 'axe', recipe: { inputs: { pig: 1 }, output: 'meat', ticks: 50 } }),
+    { worker: 'butcher', tool: 'axe', recipe: { inputs: { pig: 1 }, output: 'meat', ticks: 150 } }),
   donkey_ranch: building('donkey_ranch', 'Donkey ranch', 'food', 3, 4, 4, 'Breeder', 'Grain, water', 'Donkeys', LATER),
 
   guard_tower_small: building('guard_tower_small', 'Small tower', 'military', 2, 2, 3, 'Up to 3 soldiers', 'Soldiers', 'Territory (small)',
@@ -256,7 +256,7 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   barracks: building('barracks', 'Barracks', 'military', 3, 4, 5, 'None', 'Weapons, free settlers', 'Soldiers',
     { inputLimits: { sword: 2, spear: 2, bow: 2 } }),
   weaponsmith: building('weaponsmith', 'Weaponsmith', 'military', 3, 5, 7, 'Smith + hammer', 'Iron, coal', 'Weapons',
-    { worker: 'smith', tool: 'hammer', recipe: { inputs: { iron: 1, coal: 1 }, output: 'sword', outputChoices: WEAPON_TYPES, ticks: 80 } }),
+    { worker: 'smith', tool: 'hammer', recipe: { inputs: { iron: 1, coal: 1 }, output: 'sword', outputChoices: WEAPON_TYPES, ticks: 240 } }),
 
   residence_small: building('residence_small', 'Small residence', 'misc', 2, 2, 3, 'None', 'Nothing', '10 settlers', { residents: 10 }),
   residence_medium: building('residence_medium', 'Medium residence', 'misc', 3, 5, 8, 'None', 'Nothing', '20 settlers', { residents: 20 }),
@@ -281,4 +281,19 @@ export function consumersOf(good: GoodType): BuildingTypeId[] {
 /** Goods with more than one kind of consumer get a Distribution setting. */
 export function distributedGoods(): GoodType[] {
   return GOOD_TYPES.filter((g) => consumersOf(g).length > 1);
+}
+
+/** Match map sizes. Small maps make short test games; medium is the default. */
+export const MAP_SIZE_TYPES = ['small', 'medium', 'large'] as const;
+export type MapSizeType = (typeof MAP_SIZE_TYPES)[number];
+
+export const MAP_SIZE_SETTINGS: Record<MapSizeType, { label: string; width: number; height: number }> = {
+  small: { label: 'Small', width: 96, height: 64 },
+  medium: { label: 'Medium', width: 144, height: 96 },
+  large: { label: 'Large', width: 192, height: 128 }
+};
+
+/** The size a map was made with, found from its width; maps of other widths count as medium. */
+export function mapSizeTypeOf(width: number): MapSizeType {
+  return MAP_SIZE_TYPES.find((t) => MAP_SIZE_SETTINGS[t].width === width) ?? 'medium';
 }

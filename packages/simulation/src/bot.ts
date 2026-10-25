@@ -1,5 +1,5 @@
-import { BUILDING_TYPES, GOOD_NAMES, TOOL_TYPES, isSoldierType } from './definitions.ts';
-import type { BuildingTypeId, GoodType, ToolType } from './definitions.ts';
+import { BUILDING_TYPES, GOOD_NAMES, TOOL_TYPES, isSoldierType, mapSizeTypeOf } from './definitions.ts';
+import type { BuildingTypeId, GoodType, MapSizeType, ToolType } from './definitions.ts';
 import type { Command } from './commands.ts';
 import type { ObservedBuilding, Observation, OwnBuilding } from './vision.ts';
 
@@ -21,20 +21,26 @@ export type BotType = (typeof BOT_TYPES)[number];
 
 export interface BotTypeSettings {
   label: string;
-  /** No attacks or scouting before this tick. */
-  firstAttackTick: number;
+  /** No attacks or scouting before this game minute, per map size. */
+  firstAttackMinutes: Record<MapSizeType, number>;
   /** Soldiers outside buildings needed before an attack. */
   attackArmy: number;
-  /** The castle becomes a target once the army has this many soldiers and this tick has passed. */
+  /** The castle becomes a target once the army has this many soldiers and this minute has passed. */
   castleArmy: number;
-  castleTick: number;
+  castleMinutes: Record<MapSizeType, number>;
   /** Sends the whole free army at once; otherwise a squad sized to the target, and a small scouting party. */
   isSendingWholeArmy: boolean;
 }
 
 export const BOT_TYPE_SETTINGS: Record<BotType, BotTypeSettings> = {
-  calm: { label: 'Calm', firstAttackTick: 45 * TICKS_PER_MINUTE, attackArmy: 10, castleArmy: 20, castleTick: 75 * TICKS_PER_MINUTE, isSendingWholeArmy: false },
-  aggressive: { label: 'Aggressive', firstAttackTick: 0, attackArmy: 6, castleArmy: 12, castleTick: 0, isSendingWholeArmy: true }
+  calm: {
+    label: 'Calm', firstAttackMinutes: { small: 20, medium: 45, large: 60 }, attackArmy: 10,
+    castleArmy: 20, castleMinutes: { small: 35, medium: 75, large: 95 }, isSendingWholeArmy: false
+  },
+  aggressive: {
+    label: 'Aggressive', firstAttackMinutes: { small: 0, medium: 0, large: 0 }, attackArmy: 6,
+    castleArmy: 12, castleMinutes: { small: 0, medium: 0, large: 0 }, isSendingWholeArmy: true
+  }
 };
 
 /** One line of what a bot decided and why; collected for tests and for tuning. */
@@ -53,6 +59,8 @@ export type SpotNeed = 'trees' | 'rocks' | 'water' | 'deposit_coal' | 'deposit_i
  */
 export interface BotSpotFinder {
   findSpot(typeId: BuildingTypeId, need: SpotNeed, towardX: number): { x: number; y: number } | null;
+  /** Whether the bot's settlers can walk from the castle to this tile (or next to it). */
+  canReach(x: number, y: number): boolean;
   /** The explored, walkable tile closest to the given side of the map, for scouting with the army. */
   frontTile(towardX: number): { x: number; y: number } | null;
 }
@@ -133,7 +141,9 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   // 1. Build: at most a few sites at once; settlers, then land, then the economy plan.
   const workingStonecutters = obs.ownBuildings.filter((b) => b.typeId === 'stonecutter' && b.isComplete && b.blockedReason === null).length;
   const isStoneShort = storedGood('stone') < STONE_RESERVE && workingStonecutters === 0;
-  const isTowerComing = sites.some((b) => BUILDING_TYPES[b.typeId].territoryRadius > 0);
+  // A tower still being built or still without a soldier has not claimed its land yet.
+  const isTowerComing = obs.ownBuildings.some((b) => b.typeId !== 'castle' && BUILDING_TYPES[b.typeId].territoryRadius > 0
+    && (!b.isComplete || b.garrisonCount === 0));
   if (isStoneShort && sites.length <= PARALLEL_SITES) {
     // Low on stone with no stonecutter at work: the remaining stone goes to a stonecutter, or a tower toward rocks.
     const isDone = sites.some((b) => b.typeId === 'stonecutter') || place('stonecutter', 'rocks')
@@ -148,7 +158,9 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     if (workingStonecutters < 2 && !isTowerComing && !spots.findSpot('stonecutter', 'rocks', towardX)) {
       isDone = place('guard_tower_small', 'distant_rocks');
     }
-    if (!isDone && obs.freeCarriers < MIN_FREE_CARRIERS && !isBuildingResidence) isDone = place('residence_small', 'castle');
+    // Weapons waiting at the barracks need settlers to become soldiers.
+    const isBarracksShort = obs.ownBuildings.some((b) => b.typeId === 'barracks' && b.blockedReason === 'Waiting for a free settler');
+    if (!isDone && (obs.freeCarriers < MIN_FREE_CARRIERS || isBarracksShort) && !isBuildingResidence) isDone = place('residence_small', 'castle');
     if (!isDone && areTowersSettled && wantsMoreLand(obs, towers.length, spots)) {
       const tower = towers.length % 3 === 2 ? 'guard_tower_large' : 'guard_tower_small';
       // Without ore of its own, the bot expands toward the mountains it has seen.
@@ -186,11 +198,12 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   }
 
   // Then attack the nearest weakly held building in sight once the army is big enough; otherwise gather at the front.
-  const mayAttack = obs.tick >= settings.firstAttackTick;
+  const mapSize = mapSizeTypeOf(obs.width);
+  const mayAttack = obs.tick >= settings.firstAttackMinutes[mapSize] * TICKS_PER_MINUTE;
   const attacking = obs.ownSoldiers.filter((s) => s.phase === 'attacking').length;
   const army = free.length + attacking;
-  const mayTakeCastle = army >= settings.castleArmy && obs.tick >= settings.castleTick;
-  const targets = obs.otherBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0
+  const mayTakeCastle = army >= settings.castleArmy && obs.tick >= settings.castleMinutes[mapSize] * TICKS_PER_MINUTE;
+  const targets = obs.otherBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0 && spots.canReach(b.doorX, b.doorY)
     && (b.typeId !== 'castle' || mayTakeCastle || obs.otherBuildings.every((o) => o.typeId === 'castle' || BUILDING_TYPES[o.typeId].garrisonCapacity === 0)));
   if (mayAttack && targets.length > 0 && army >= settings.attackArmy && free.length > 0) {
     const cx = free.reduce((sum, s) => sum + s.x, 0) / free.length;

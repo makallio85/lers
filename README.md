@@ -38,9 +38,9 @@ Controls:
 - Map: arrow keys, right- or middle-drag to scroll (one finger on touch screens); mouse wheel or pinch to zoom; click the minimap to jump.
 - Build: Q/W/E/R open the build groups (Resources, Food, Military, Misc.), A/S/D/F the goods views, as in The Settlers III. Choose a building, then click a green marker (touch: tap to position, then press Place). Esc or right-click cancels.
 - Soldiers: left-drag a box (touch: Select, then drag), click one soldier, or use All in view. Right-click moves them, or attacks when you right-click an enemy tower or castle; the Move and Attack buttons do the same by touch. Ctrl+1–9 saves a group, 1–9 selects it.
-- Space pauses. Menu saves, loads, starts a new match or sandbox, and surrenders.
+- Space pauses; 1×, 2× and 4× set the speed (1× is the pace of The Settlers III). Menu saves, loads, starts a new match (map size: small, medium or large; opponent: calm or aggressive) or a sandbox, and surrenders.
 
-Add `?seed=<number>` to the address to replay the same map, and `&mode=sandbox` for a game without an opponent.
+Add `?seed=<number>` to the address to replay the same map, `&mode=sandbox` for a game without an opponent, and `&size=small` / `&bot=calm` (or `#small-calm` where only the hash reaches the page) to pick the map size and opponent.
 
 The benchmark measures only movement of 10,000 units on an empty map. It does not measure rendering, collision avoidance, pathfinding, combat, networking or device performance. It cannot establish that the finished game meets its scale targets.
 

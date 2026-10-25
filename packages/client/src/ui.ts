@@ -1,10 +1,10 @@
 import {
-  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
+  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
   TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, castleOf, consumersOf, costTotal, distributedGoods, goodCount,
   isMilitaryBuilding, isSoldierType, isStorageBuilding, settlerById
 } from '../../simulation/src/index.ts';
 import type {
-  BotType, Building, BuildingGroupType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, World
+  BotType, Building, BuildingGroupType, MapSizeType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, World
 } from '../../simulation/src/index.ts';
 
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
@@ -277,12 +277,21 @@ export interface MenuState {
   isConfirmingSurrender: boolean;
   /** The opponent type used last; its choice is highlighted. */
   botType: BotType;
+  /** The map size selected for the next match. */
+  mapSize: MapSizeType;
 }
 
-const OPPONENT_TEXTS: Record<BotType, string> = {
-  calm: 'Builds up first and attacks after about 45 minutes. A match lasts an hour or more.',
-  aggressive: 'Attacks as soon as it has soldiers. A match lasts about 20 minutes.'
+/** Typical match length in bot-vs-bot runs, per opponent and map size; shown so players can pick a game that fits their time. */
+const MATCH_LENGTHS: Record<BotType, Record<MapSizeType, string>> = {
+  calm: { small: 'one to two hours', medium: 'two hours or more', large: 'two hours or more' },
+  aggressive: { small: 'about 40–65 minutes (10–16 at 4×)', medium: 'about 50–90 minutes', large: 'well over an hour' }
 };
+
+function opponentText(botType: BotType, mapSize: MapSizeType): string {
+  const firstAttack = BOT_TYPE_SETTINGS[botType].firstAttackMinutes[mapSize];
+  const start = firstAttack > 0 ? `Builds up first and attacks after about ${firstAttack} minutes.` : 'Attacks as soon as it has soldiers.';
+  return `${start} A match lasts ${MATCH_LENGTHS[botType][mapSize]}.`;
+}
 
 export function renderGameMenu(state: MenuState): string {
   return `
@@ -291,10 +300,19 @@ export function renderGameMenu(state: MenuState): string {
     <button type="button" class="menu-item" data-action="load-autosave" ${state.autosavedAt ? '' : 'disabled'}>Load autosave${state.autosavedAt ? `<span class="muted">${state.autosavedAt}</span>` : ''}</button>
     <div class="menu-section" role="group" aria-labelledby="menu-new-match">
       <span class="menu-label" id="menu-new-match">New match against the computer</span>
+      <span class="menu-hint" id="menu-map-size">Map size</span>
+      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-map-size">
+        ${MAP_SIZE_TYPES.map((m) => `
+          <button type="button" class="map-size-choice ${m === state.mapSize ? 'is-on' : ''}" role="radio" aria-checked="${m === state.mapSize}" data-action="map-size" data-size="${m}">
+            <span class="opponent-name">${MAP_SIZE_SETTINGS[m].label}</span>
+            <span class="muted">${MAP_SIZE_SETTINGS[m].width} × ${MAP_SIZE_SETTINGS[m].height}</span>
+          </button>`).join('')}
+      </div>
+      <span class="menu-hint">Opponent — starts the match</span>
       ${BOT_TYPES.map((t) => `
         <button type="button" class="opponent-choice ${t === state.botType ? 'is-on' : ''}" data-action="new-match" data-bot="${t}">
           <span class="opponent-name">${BOT_TYPE_SETTINGS[t].label}</span>
-          <span class="muted">${OPPONENT_TEXTS[t]}</span>
+          <span class="muted">${opponentText(t, state.mapSize)}</span>
         </button>`).join('')}
     </div>
     <button type="button" class="menu-item" data-action="new-sandbox">New sandbox (no opponent)</button>

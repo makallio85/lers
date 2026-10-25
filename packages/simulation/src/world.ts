@@ -12,7 +12,7 @@ export const TERRAIN_GRASS = 0;
 export const TERRAIN_WATER = 1;
 export const TERRAIN_MOUNTAIN = 2;
 
-/** Tree growth runs from 0 (sapling) to TREE_MATURE; -1 means no tree. Growth advances every 10 ticks. */
+/** Tree growth runs from 0 (sapling) to TREE_MATURE; -1 means no tree. Growth advances one step every GROWTH_TICKS (step.ts). */
 export const NO_TREE = -1;
 export const TREE_MATURE = 60;
 /** Grain field growth, same scale as trees. */
@@ -466,10 +466,21 @@ function prepareStart(world: World, x: number, y: number): void {
   const radius = BUILDING_TYPES.castle.territoryRadius;
   const centreX = x + size / 2, centreY = y + size / 2;
   const random = createRandom(world.seed ^ 0x165667b1);
-  const angle = random.next() * Math.PI * 2;
   const at = (a: number, d: number) => ({ x: centreX + Math.cos(a) * d, y: centreY + Math.sin(a) * d });
-  const grove = at(angle, 11), quarry = at(angle + Math.PI, 11), pond = at(angle + Math.PI / 2, 10);
-  const mountain = at(angle - Math.PI / 2, radius + 6);
+  // The ore mountain straddles the starting border, so mines fit on the player's own land from the start.
+  const layout = (a: number) => ({
+    grove: at(a, 11), quarry: at(a + Math.PI, 11), pond: at(a + Math.PI / 2, 10), mountain: at(a - Math.PI / 2, radius - 1)
+  });
+  // Every guaranteed resource must lie on the map and on this player's half, so mirroring keeps it.
+  const fits = (p: { x: number; y: number }, r: number) => p.x - r >= 1 && p.y - r >= 1 && p.y + r <= world.height - 2
+    && p.x + r <= (world.players.length > 1 ? world.width / 2 - 2 : world.width - 2);
+  const first = random.next() * Math.PI * 2;
+  let angle = first;
+  for (let k = 0; k < 16; k++) {
+    const a = first + (k * Math.PI) / 8, l = layout(a);
+    if (fits(l.mountain, 5) && fits(l.grove, 4) && fits(l.quarry, 3) && fits(l.pond, 3)) { angle = a; break; }
+  }
+  const { grove, quarry, pond, mountain } = layout(angle);
   const forEachNear = (p: { x: number; y: number }, r: number, fn: (i: number, d: number) => void) => {
     for (let ty = Math.floor(p.y - r); ty <= Math.ceil(p.y + r); ty++) {
       for (let tx = Math.floor(p.x - r); tx <= Math.ceil(p.x + r); tx++) {

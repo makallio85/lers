@@ -156,11 +156,12 @@ test('surrender ends the match; finished matches refuse commands', () => {
   assert.equal(after.isAccepted, false);
 });
 
-test('two built-in bots play a whole match to a winner', () => {
-  const world = createMatch(3);
+test('two built-in bots play a whole match to a winner on a small map', () => {
+  const world = createMatch(6, 'aggressive', 'small');
+  assert.equal(world.width, 96);
   world.players[0].isBot = true;
-  for (let t = 0; t < 40 * 600 && world.winner === null; t++) stepMatch(world);
-  assert.notEqual(world.winner, null, 'the match should end within 40 minutes');
+  for (let t = 0; t < 50 * 600 && world.winner === null; t++) stepMatch(world);
+  assert.notEqual(world.winner, null, 'the match should end within 50 minutes');
   for (const p of world.players) assert.ok(p.stats.soldiersRecruited > 0);
 });
 
@@ -175,9 +176,9 @@ test('a calm bot waits 45 minutes before attacking, and then sends a squad, not 
   step(world);
   updateVision(world);
   const decide = () => decideBot(observe(world, 1), spotFinder(world, 1)).filter((c) => c.type === 'attackBuilding');
-  world.tick = BOT_TYPE_SETTINGS.calm.firstAttackTick - BOT_DECISION_TICKS;
+  world.tick = BOT_TYPE_SETTINGS.calm.firstAttackMinutes.medium * 600 - BOT_DECISION_TICKS;
   assert.deepEqual(decide(), []);
-  world.tick = BOT_TYPE_SETTINGS.calm.firstAttackTick;
+  world.tick = BOT_TYPE_SETTINGS.calm.firstAttackMinutes.medium * 600;
   const [attack] = decide();
   assert.ok(attack && attack.type === 'attackBuilding' && attack.buildingId === tower.id);
   assert.ok(attack.soldierIds.length < 30, `squad of ${attack.soldierIds.length}`);

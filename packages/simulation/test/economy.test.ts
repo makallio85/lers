@@ -212,6 +212,14 @@ test('goods marked as not stored stay at the producer until it is full', () => {
   const world = createWorld({ seed: 11 });
   assert.equal(command(world, { type: 'setGoodStored', playerId: 0, good: 'log', isStored: false }).isAccepted, true);
   const id = place(world, 'woodcutter');
+  // Enough grown trees in reach to fill the hut, whatever this map grew there.
+  const hut = building(world, id);
+  for (let y = hut.doorY - 6; y <= hut.doorY + 6; y++) {
+    for (let x = hut.doorX - 6; x <= hut.doorX + 6; x++) {
+      const i = tileIndex(world, x, y);
+      if (world.territory[i] === 1 && world.footprint[i] === 0 && world.door[i] === 0 && world.tree[i] === NO_TREE && (x + y) % 3 === 0) world.tree[i] = TREE_MATURE;
+    }
+  }
   runUntil(world, () => building(world, id).blockedReason === 'Output full: waiting for carriers', 8000);
   assert.equal(building(world, id).stock.log, 8);
 });

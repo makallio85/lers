@@ -1,8 +1,9 @@
 import {
-  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAX_ORDER, applyCommand, buildingById, castleOf, createMatch, createWorld,
-  groundProblem, isMilitaryBuilding, isSoldierType, loadGame, placementProblem, saveGame, stepMatch, tileIndex, updateVision
+  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, applyCommand,
+  buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, loadGame, mapSizeTypeOf,
+  placementProblem, saveGame, stepMatch, tileIndex, updateVision
 } from '../../simulation/src/index.ts';
-import type { BotType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotType, MapSizeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import {
@@ -32,25 +33,33 @@ function randomSeed(): number {
 
 const params = new URLSearchParams(location.search);
 const BOT_TYPE_KEY = 'lers.botType';
-/** The opponent chosen last: `?bot=` or `#calm` / `#aggressive` (for hosts that pass only the hash), else the remembered one. */
-let lastBotType: BotType = (() => {
-  const asked = params.get('bot') ?? location.hash.slice(1);
-  if ((BOT_TYPES as readonly string[]).includes(asked)) return asked as BotType;
+const MAP_SIZE_KEY = 'lers.mapSize';
+/** Hash words such as `#calm`, `#small` or `#calm-small`, for hosts that pass only the hash to the page. */
+const hashWords = location.hash.slice(1).split('-');
+
+/** A choice made last time: from the address first, else remembered in this browser, else the default. */
+function chosen<T extends string>(values: readonly T[], key: string, param: string, fallback: T): T {
+  const asked = [params.get(param), ...hashWords].find((w) => w !== null && (values as readonly string[]).includes(w));
+  if (asked) return asked as T;
   try {
-    const kept = localStorage.getItem(BOT_TYPE_KEY);
-    if (kept && (BOT_TYPES as readonly string[]).includes(kept)) return kept as BotType;
+    const kept = localStorage.getItem(key);
+    if (kept && (values as readonly string[]).includes(kept)) return kept as T;
   } catch { /* storage blocked: use the default */ }
-  return 'aggressive';
-})();
-function rememberBotType(type: BotType): void {
-  lastBotType = type;
-  try { localStorage.setItem(BOT_TYPE_KEY, type); } catch { /* storage blocked */ }
+  return fallback;
 }
+function remember(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* storage blocked */ }
+}
+
+/** The opponent and map size chosen last; the menu highlights them and "Play again" keeps them. */
+let lastBotType: BotType = chosen(BOT_TYPES, BOT_TYPE_KEY, 'bot', 'aggressive');
+let lastMapSize: MapSizeType = chosen(MAP_SIZE_TYPES, MAP_SIZE_KEY, 'size', 'medium');
 const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
+const mapSize = (): MapSizeType => (isMatch() ? mapSizeTypeOf(world.width) : lastMapSize);
 const seedParam = Number(params.get('seed'));
 let world: World = params.get('mode') === 'sandbox'
   ? createWorld({ seed: Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed() })
-  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType);
+  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType, lastMapSize);
 
 const ui = {
   tab: 'build' as TabId,
@@ -88,7 +97,7 @@ const isMatch = () => world.players.length > 1;
 
 function showWorld(): void {
   els.mapName.textContent = isMatch()
-    ? `Match · map ${world.seed} · ${BOT_TYPE_SETTINGS[world.players[1].botType].label} computer`
+    ? `Match · ${MAP_SIZE_SETTINGS[mapSizeTypeOf(world.width)].label.toLowerCase()} map ${world.seed} · ${BOT_TYPE_SETTINGS[world.players[1].botType].label} computer`
     : `Sandbox · map ${world.seed}`;
   // Work out the fog of war before the first frame, so the start is not drawn as unexplored.
   updateVision(world);
@@ -161,7 +170,7 @@ function renderMenu(): void {
     els.menu.innerHTML = renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
       isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
-      botType: botType()
+      botType: botType(), mapSize: lastMapSize
     });
   }
 }
@@ -673,12 +682,17 @@ document.addEventListener('click', (e) => {
     case 'load-autosave': load(AUTOSAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
     case 'new-match': {
       const type = (BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '') ? target.dataset.bot as BotType : botType();
-      rememberBotType(type);
-      startNew(createMatch(randomSeed(), type));
+      lastBotType = type; remember(BOT_TYPE_KEY, type);
+      startNew(createMatch(randomSeed(), type, lastMapSize));
       break;
     }
+    case 'map-size':
+      if ((MAP_SIZE_TYPES as readonly string[]).includes(target.dataset.size ?? '')) {
+        lastMapSize = target.dataset.size as MapSizeType; remember(MAP_SIZE_KEY, lastMapSize);
+      }
+      renderMenu(); break;
     case 'new-sandbox': startNew(createWorld({ seed: randomSeed() })); break;
-    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType()) : createWorld({ seed: world.seed })); break;
+    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize()) : createWorld({ seed: world.seed })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;
     case 'surrender': ui.isConfirmingSurrender = true; renderMenu(); break;
     case 'cancel-surrender': ui.isConfirmingSurrender = false; renderMenu(); break;

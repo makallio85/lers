@@ -24,8 +24,12 @@ export const MAX_FIELDS_PER_FARM = 12;
 /** A mine digs from deposits this far around its footprint. */
 export const MINE_REACH = 2;
 
-const BUILD_TICKS_PER_GOOD = 60;
-const LEVEL_TICKS_PER_TILE = 15;
+// Pace follows The Settlers III at normal speed (see docs/game-design.md, "Pace"): a small hut takes about
+// a minute of levelling and 40 seconds of building.
+const BUILD_TICKS_PER_GOOD = 100;
+const LEVEL_TICKS_PER_TILE = 150;
+/** A tree grows one step per this many ticks: sapling to full size in about 4.5 minutes. */
+export const GROWTH_TICKS = 45;
 const IDLE_BEFORE_GOING_HOME = 30;
 
 type GatherType = 'woodcutter' | 'stonecutter' | 'forester' | 'fisher' | 'farmer';
@@ -39,11 +43,11 @@ interface GatherRule {
 }
 
 const GATHER_RULES: Record<GatherType, GatherRule> = {
-  woodcutter: { radius: 10, workTicks: 30, restTicks: 10, output: 'log', blockedText: 'No grown trees nearby' },
-  stonecutter: { radius: 10, workTicks: 40, restTicks: 10, output: 'stone', blockedText: 'No rocks nearby' },
-  forester: { radius: 6, workTicks: 20, restTicks: 50, output: null, blockedText: 'No free land nearby' },
-  fisher: { radius: 8, workTicks: 60, restTicks: 20, output: 'fish', blockedText: 'No water nearby' },
-  farmer: { radius: 5, workTicks: 30, restTicks: 20, output: 'grain', blockedText: 'No free land for fields' }
+  woodcutter: { radius: 10, workTicks: 220, restTicks: 30, output: 'log', blockedText: 'No grown trees nearby' },
+  stonecutter: { radius: 10, workTicks: 200, restTicks: 30, output: 'stone', blockedText: 'No rocks nearby' },
+  forester: { radius: 6, workTicks: 40, restTicks: 160, output: null, blockedText: 'No free land nearby' },
+  fisher: { radius: 8, workTicks: 180, restTicks: 60, output: 'fish', blockedText: 'No water nearby' },
+  farmer: { radius: 5, workTicks: 90, restTicks: 60, output: 'grain', blockedText: 'No free land for fields' }
 };
 
 function isGatherType(value: SettlerType): value is GatherType {
@@ -55,7 +59,8 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   const results = commands.map((command) => applyCommand(world, command));
   if (world.winner !== null) { world.tick++; return results; }
   for (const s of world.settlers) { s.prevX = s.x; s.prevY = s.y; }
-  if (world.tick % 10 === 0) { grow(world); updateVision(world); }
+  if (world.tick % GROWTH_TICKS === 0) grow(world);
+  if (world.tick % 10 === 0) updateVision(world);
   if (world.tick % RESIDENT_INTERVAL_TICKS === 0) releaseResidents(world);
   if (world.tick % 5 === 0) runLogistics(world);
   if (world.tick % 5 === 0) { assignConstructionCrews(world); assignWorkers(world); }

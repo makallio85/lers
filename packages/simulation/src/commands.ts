@@ -1,7 +1,7 @@
 import { BUILDING_TYPES, GOOD_TYPES, TOOL_TYPES, WEAPON_TYPES, consumersOf, isSoldierType } from './definitions.ts';
 import type { BuildingTypeId, GoodType, ToolType } from './definitions.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
-import { hasExplored } from './vision.ts';
+import { hasExplored, hasExploredBuilding } from './vision.ts';
 import {
   TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, buildingById, castleOf, inBounds, isMilitaryBuilding, isWalkable,
   newBuilding, playerOf, pushMessage, recomputeTerritory, removeBuilding, tileIndex
@@ -250,7 +250,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
       const soldiers = ownFieldSoldiers(world, command.playerId, command.soldierIds);
       if (!soldiers) return refuse('Choose your own soldiers outside buildings');
       const target = Number.isInteger(command.buildingId) ? buildingById(world, command.buildingId) : undefined;
-      if (!target || target.owner === command.playerId || !hasExplored(world, command.playerId, target.doorX, target.doorY)) {
+      if (!target || target.owner === command.playerId || !hasExploredBuilding(world, command.playerId, target)) {
         return refuse('Choose an enemy building you can see');
       }
       if (!isMilitaryBuilding(target) || !target.isComplete) return refuse('Only towers and castles can be attacked');

@@ -3,7 +3,8 @@ import { tileIndex } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
 
 /** Tiles per tick (2.5 tiles per second). */
-export const WALK_SPEED = 0.25;
+/** Tiles per tick: 2.2 tiles a second, as settlers walk in The Settlers III. */
+export const WALK_SPEED = 0.22;
 
 export function tileOf(world: World, s: Settler): number {
   return tileIndex(world, Math.round(s.x), Math.round(s.y));

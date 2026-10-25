@@ -44,6 +44,11 @@ export function hasExplored(world: World, playerId: number, x: number, y: number
   return inBounds(world, tx, ty) && world.vision[playerId][tileIndex(world, tx, ty)] !== VISION_NONE;
 }
 
+/** A building counts as found once its door or its middle has been explored, the same test the observation uses. */
+export function hasExploredBuilding(world: World, playerId: number, b: { x: number; y: number; size: number; doorX: number; doorY: number }): boolean {
+  return hasExplored(world, playerId, b.doorX, b.doorY) || hasExplored(world, playerId, b.x + b.size / 2, b.y + b.size / 2);
+}
+
 export interface ObservedBuilding {
   id: number;
   typeId: BuildingTypeId;

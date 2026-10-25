@@ -48,6 +48,21 @@ Deliver a small complete match before tuning the 3–4 hour format. The player m
 
 The slice must surface stock, missing inputs and transport priorities clearly. Test it with returning Settlers III players and new players. Record whether unfamiliar controls, idle waiting or an unclear objective prevent completion.
 
+## Pace
+
+At 1× the game runs at the pace of The Settlers III at normal speed, which has no speed setting of its own. These values were timed by watching the original run (screenshots and a stopwatch, nothing decompiled), on 2026-10-25:
+
+| Action | The Settlers III | Lers |
+|---|---|---|
+| Walking | about 2.2 tiles a second | 2.2 tiles a second |
+| Woodcutter at the tree (felling and cutting) | about 22 s | 22 s |
+| Sawmill, one plank | about 15 s | 15.5 s |
+| Small hut: levelling, then building | about 60 s + 40 s | 60 s + 40 s with one digger and one builder |
+| Tree, sapling to full size | about 4.5 min | 4.5 min |
+| Forester planting one sapling | about 4 s | 4 s |
+
+Workshops and mines were not timed. Their times are three times the earlier values, the same factor the sawmill needed. The 2× and 4× speeds stay for test games.
+
 ## Match pacing and victory
 
 Long matches need meaningful early, middle and late decisions. Travel distance alone must not determine duration. Prototype territorial victory and an optional objective-based victory mode; select and tune exact conditions through playtesting. Include individual surrender and team surrender with an explicit voting policy. Record when a match becomes effectively decided versus when it ends, and reduce drawn-out cleanup.
@@ -72,8 +87,10 @@ Default bots receive the same visibility and resource constraints as humans. Pub
 
 The built-in bot has two types, and neither gets extra information or resources:
 
-- **Calm** follows how the Settlers III computer players were observed to play: expand within the first minutes, build the economy with 2–4 sites open, drive intruders off at once, and attack no earlier than 45 minutes. It attacks the nearest weakly held tower with a squad sized to its garrison, keeps the rest of the army at home, and goes for the castle only after 75 minutes with 20 soldiers or more. Bot-vs-bot matches end after about 55–85 minutes.
-- **Aggressive** attacks as soon as it has 6 soldiers and something to attack, with its whole army, for the 20–30 minute first match. Bot-vs-bot matches end after about 18–21 minutes.
+- **Calm** follows how the Settlers III computer players were observed to play: expand within the first minutes, build the economy with 2–4 sites open, drive intruders off at once, and attack no earlier than 20, 45 or 60 minutes on a small, medium or large map. It attacks the nearest weakly held tower with a squad sized to its garrison, keeps the rest of the army at home, and goes for the castle only later (35, 75 or 95 minutes) with 20 soldiers or more. At the original pace, bot-vs-bot matches on a small map take one to two hours, and on a medium map often more than 2.5 hours.
+- **Aggressive** attacks as soon as it has 6 soldiers and something to attack, with its whole army. Bot-vs-bot matches take about 40–65 minutes on a small map and 50–90 minutes on a medium map, so a small-map test game at 4× takes 10–16 minutes.
+
+Match maps come in three sizes: small (96 × 64 tiles) for test games, medium (144 × 96) and large (192 × 128). Every start gets trees, rocks, water and an ore mountain that reaches into the starting land, on the player's own half of the mirrored map.
 
 Both types start only buildings whose planks and stone they already have, and save their stone for a stonecutter or a tower toward rocks when stone runs short. `stepMatch` can collect a log of each bot decision, with the tick and the reason, for tests and tuning.
 

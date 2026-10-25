@@ -1,5 +1,5 @@
-import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_IRON } from './definitions.ts';
-import type { BuildingTypeId } from './definitions.ts';
+import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_IRON, MAP_SIZE_SETTINGS } from './definitions.ts';
+import type { BuildingTypeId, MapSizeType } from './definitions.ts';
 import { BOT_DECISION_TICKS, decideBot } from './bot.ts';
 import type { BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
@@ -16,8 +16,9 @@ import type { World } from './world.ts';
 const GATHER_REACH = 10;
 
 /** A match: you (player 0) against one built-in computer player on a mirrored map. */
-export function createMatch(seed: number, botType: BotType = 'aggressive'): World {
-  return createWorld({ seed, playerCount: 2, botType });
+export function createMatch(seed: number, botType: BotType = 'aggressive', mapSize: MapSizeType = 'medium'): World {
+  const { width, height } = MAP_SIZE_SETTINGS[mapSize];
+  return createWorld({ seed, playerCount: 2, botType, width, height });
 }
 
 /**
@@ -54,11 +55,29 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
       }
     }
   };
+  // Tiles the player's settlers can walk to from the castle, worked out once per decision.
+  let reachable: ((tile: number) => boolean) | null = null;
+  const isNearReachable = (x: number, y: number) => {
+    if (!castle) return false;
+    reachable ??= reachableFrom(world, tileIndex(world, castle.doorX, castle.doorY));
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) if (inBounds(world, x + dx, y + dy) && reachable(tileIndex(world, x + dx, y + dy))) return true;
+    }
+    return false;
+  };
+  /** What a gatherer at this door could work: unclaimed, on own land, within reach and walkable to. */
+  const isWorkable = (i: number, doorX: number, doorY: number) => {
+    const x = i % world.width, y = Math.floor(i / world.width);
+    return world.territory[i] === owned && world.claim[i] === 0 && Math.hypot(x - doorX, y - doorY) <= GATHER_REACH && isNearReachable(x, y);
+  };
   const militaryDoors = () => world.buildings
     .filter((b) => b.owner === playerId && BUILDING_TYPES[b.typeId].territoryRadius > 0)
     .map((b) => ({ x: b.doorX, y: b.doorY }));
 
   return {
+    canReach(x: number, y: number) {
+      return isNearReachable(x, y);
+    },
     frontTile(towardX: number) {
       if (!castle) return null;
       const isReachable = reachableFrom(world, tileIndex(world, castle.doorX, castle.doorY));
@@ -90,14 +109,14 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
             case 'trees':
               // Only trees the woodcutter may fell: on own land, within its reach. A forester plants its own.
               around(doorX, doorY, GATHER_REACH, (i) => {
-                if (world.territory[i] !== owned) return;
-                if (world.tree[i] === TREE_MATURE) score += 3; else if (world.tree[i] >= 0) score += 1;
+                if (world.tree[i] === NO_TREE || !isWorkable(i, doorX, doorY)) return;
+                score += world.tree[i] === TREE_MATURE ? 3 : 1;
               });
               if (score === 0 && typeId !== 'forester') continue;
               score -= toCastle * 0.3;
               break;
             case 'rocks':
-              around(doorX, doorY, GATHER_REACH, (i) => { if (world.territory[i] === owned) score += world.rock[i]; });
+              around(doorX, doorY, GATHER_REACH, (i) => { if (world.rock[i] > 0 && isWorkable(i, doorX, doorY)) score += world.rock[i]; });
               if (score === 0) continue;
               score -= toCastle * 0.3;
               break;
