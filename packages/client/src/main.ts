@@ -2,7 +2,7 @@ import {
   BUILDING_GROUP_TYPES, BUILDING_TYPES, MAX_ORDER, applyCommand, buildingById, castleOf, createMatch, createWorld,
   groundProblem, isMilitaryBuilding, isSoldierType, loadGame, placementProblem, saveGame, stepMatch, tileIndex, updateVision
 } from '../../simulation/src/index.ts';
-import type { BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import {
@@ -13,8 +13,8 @@ import type { GoodsViewId, MilitaryViewId, OrderMode, TabId } from './ui.ts';
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v2';
-const AUTOSAVE_KEY = 'lers.autosave.v2';
+const SAVE_KEY = 'lers.save.v3';
+const AUTOSAVE_KEY = 'lers.autosave.v3';
 const AUTOSAVE_MS = 5 * 60 * 1000;
 const DRAG_THRESHOLD = 6;
 
@@ -31,10 +31,12 @@ function randomSeed(): number {
 }
 
 const params = new URLSearchParams(location.search);
+/** The opponent type of the current match, kept for the next one; `?bot=calm` picks the calm bot. */
+const botType = (): BotType => world.players[1]?.botType ?? (params.get('bot') === 'calm' ? 'calm' : 'aggressive');
 const seedParam = Number(params.get('seed'));
 let world: World = params.get('mode') === 'sandbox'
   ? createWorld({ seed: Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed() })
-  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed());
+  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), params.get('bot') === 'calm' ? 'calm' : 'aggressive');
 
 const ui = {
   tab: 'build' as TabId,
@@ -652,9 +654,9 @@ document.addEventListener('click', (e) => {
       renderMenu(); break;
     case 'load': load(SAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
     case 'load-autosave': load(AUTOSAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
-    case 'new-match': startNew(createMatch(randomSeed())); break;
+    case 'new-match': startNew(createMatch(randomSeed(), botType())); break;
     case 'new-sandbox': startNew(createWorld({ seed: randomSeed() })); break;
-    case 'play-again': startNew(isMatch() ? createMatch(world.seed) : createWorld({ seed: world.seed })); break;
+    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType()) : createWorld({ seed: world.seed })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;
     case 'surrender': ui.isConfirmingSurrender = true; renderMenu(); break;
     case 'cancel-surrender': ui.isConfirmingSurrender = false; renderMenu(); break;

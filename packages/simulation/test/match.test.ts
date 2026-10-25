@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, FAVOURITE_FOOD_MEALS, SOLDIER_STATS, castleOf, createMatch, createWorld, loadGame,
-  newBuilding, newSettler, observe, placementProblem, recomputeTerritory, saveGame, step, stepMatch, tileIndex
+  BOT_DECISION_TICKS, BOT_TYPE_SETTINGS, decideBot, newBuilding, spotFinder, updateVision, newSettler, observe, placementProblem, recomputeTerritory, saveGame, step, stepMatch, tileIndex
 } from '../src/index.ts';
-import type { Building, BuildingTypeId, World } from '../src/index.ts';
+import type { BotLogEntry, Building, BuildingTypeId, World } from '../src/index.ts';
 
 function run(world: World, ticks: number): void {
   for (let i = 0; i < ticks; i++) step(world);
@@ -164,11 +164,60 @@ test('two built-in bots play a whole match to a winner', () => {
   for (const p of world.players) assert.ok(p.stats.soldiersRecruited > 0);
 });
 
+test('a calm bot waits 45 minutes before attacking, and then sends a squad, not its whole army', () => {
+  const world = createMatch(4, 'calm');
+  const castle = castleOf(world, 1)!;
+  // A weakly held tower of player 0 in plain sight of the bot, and a large free army.
+  const spot = freeSpot(world, 'guard_tower_small', 1);
+  const tower = finished(world, 'guard_tower_small', 0, spot.x, spot.y);
+  tower.garrisonWanted = 0;
+  for (let k = 0; k < 30; k++) { const s = newSettler(world, 1, 'swordsman', castle.doorX, castle.doorY + 1); s.isInside = false; }
+  step(world);
+  updateVision(world);
+  const decide = () => decideBot(observe(world, 1), spotFinder(world, 1)).filter((c) => c.type === 'attackBuilding');
+  world.tick = BOT_TYPE_SETTINGS.calm.firstAttackTick - BOT_DECISION_TICKS;
+  assert.deepEqual(decide(), []);
+  world.tick = BOT_TYPE_SETTINGS.calm.firstAttackTick;
+  const [attack] = decide();
+  assert.ok(attack && attack.type === 'attackBuilding' && attack.buildingId === tower.id);
+  assert.ok(attack.soldierIds.length < 30, `squad of ${attack.soldierIds.length}`);
+  world.players[1].botType = 'aggressive';
+  world.tick = BOT_DECISION_TICKS * 10;
+  const [all] = decide();
+  assert.ok(all && all.type === 'attackBuilding' && all.soldierIds.length >= 30);
+});
+
+test('a tower with a soldier inside stops asking for one', () => {
+  const world = createMatch(4);
+  const spot = freeSpot(world, 'guard_tower_small');
+  const tower = finished(world, 'guard_tower_small', 0, spot.x, spot.y);
+  runUntil(world, () => tower.garrison.length > 0, 600);
+  run(world, 10);
+  assert.equal(tower.blockedReason, null);
+});
+
+test('a bot drives an intruder off its land at once', () => {
+  const world = createMatch(4, 'calm');
+  const castle = castleOf(world, 1)!;
+  const log: BotLogEntry[] = [];
+  for (let t = 0; t < 20; t++) stepMatch(world, [], log);
+  const intruder = newSettler(world, 0, 'bowman', castle.doorX - 6, castle.doorY + 3);
+  intruder.isInside = false; intruder.phase = 'idle';
+  for (let t = 0; t < 2 * 600 && world.settlers.includes(intruder); t++) stepMatch(world, [], log);
+  assert.equal(world.settlers.includes(intruder), false, 'the intruder should be gone within 2 minutes');
+  assert.ok(log.some((e) => e.playerId === 1 && e.text.startsWith('defend')));
+});
+
 test('a saved match loads and continues exactly like the original', () => {
   const world = createMatch(9);
   world.players[0].isBot = true;
   for (let t = 0; t < 6000; t++) stepMatch(world);
+  world.players[1].botType = 'calm';
   const copy = loadGame(JSON.parse(JSON.stringify(saveGame(world))));
+  assert.equal(copy.players[1].botType, 'calm');
+  const corrupt = JSON.parse(JSON.stringify(saveGame(world)));
+  corrupt.players[1].botType = 'sneaky';
+  assert.throws(() => loadGame(corrupt), /bot type/);
   for (let t = 0; t < 3000; t++) { stepMatch(world); stepMatch(copy); }
   assert.deepEqual(saveGame(copy), saveGame(world));
 });

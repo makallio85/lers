@@ -1,3 +1,4 @@
+import type { BotType } from './bot.ts';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_IRON, DEPOSIT_NONE, GOOD_TYPES, SOLDIER_STATS, TOOL_TYPES, WEAPON_TYPES,
   consumersOf, distributedGoods, emptyGoods, isSoldierType
@@ -117,6 +118,8 @@ export interface PlayerStats {
 export interface PlayerState {
   id: number;
   isBot: boolean;
+  /** How this player's built-in bot plays; unused for human players. */
+  botType: BotType;
   isEliminated: boolean;
   /** All goods, carried first to last. */
   transportPriority: GoodType[];
@@ -319,7 +322,7 @@ export function recomputeTerritory(world: World): void {
   }
 }
 
-export function defaultPlayer(id: number, isBot: boolean): PlayerState {
+export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'aggressive'): PlayerState {
   const isStored = {} as Record<GoodType, boolean>;
   for (const good of GOOD_TYPES) isStored[good] = true;
   const productionShares: Partial<Record<GoodType, number>> = {};
@@ -331,7 +334,7 @@ export function defaultPlayer(id: number, isBot: boolean): PlayerState {
     for (const consumer of consumersOf(good)) distribution[good]![consumer] = 5;
   }
   return {
-    id, isBot, isEliminated: false,
+    id, isBot, botType, isEliminated: false,
     transportPriority: ['plank', 'stone', 'log', ...TOOL_TYPES, ...WEAPON_TYPES, 'coal', 'iron_ore', 'iron',
       'water', 'grain', 'flour', 'bread', 'fish', 'pig', 'meat'],
     isStored, productionOrders: {}, productionShares, productionCredit: {}, distribution, distributionCount: {},
@@ -346,6 +349,7 @@ export interface CreateWorldOptions {
   height?: number;
   /** 1: sandbox. 2: a match against a computer player on a mirrored map. */
   playerCount?: 1 | 2;
+  botType?: BotType;
 }
 
 export const STARTING_STOCK: Partial<GoodAmounts> = {
@@ -356,7 +360,7 @@ export const STARTING_SETTLERS: Partial<Record<SettlerType, number>> = {
 };
 
 /** Creates a seeded map: a sandbox for one player, or a mirrored two-player match. */
-export function createWorld({ seed = 1, width, height, playerCount = 1 }: CreateWorldOptions = {}): World {
+export function createWorld({ seed = 1, width, height, playerCount = 1, botType = 'aggressive' }: CreateWorldOptions = {}): World {
   const w = width ?? (playerCount === 2 ? 144 : 96);
   const h = height ?? 96;
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new RangeError('seed must be a uint32');
@@ -364,7 +368,7 @@ export function createWorld({ seed = 1, width, height, playerCount = 1 }: Create
     throw new RangeError('map size must be between 48 and 512 tiles');
   }
   const n = w * h;
-  const players = Array.from({ length: playerCount }, (_, k) => defaultPlayer(k, k > 0));
+  const players = Array.from({ length: playerCount }, (_, k) => defaultPlayer(k, k > 0, botType));
   const world: World = {
     seed, tick: 0, width: w, height: h,
     terrain: new Uint8Array(n), tree: new Int16Array(n).fill(NO_TREE), field: new Int16Array(n).fill(NO_FIELD),

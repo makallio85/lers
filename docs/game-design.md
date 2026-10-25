@@ -70,6 +70,13 @@ Prototype selecting, grouping and commanding large armies on a physical phone ea
 
 Default bots receive the same visibility and resource constraints as humans. Publish command-rate and decision-budget rules; explicitly label any difficulty mode that grants extra information or resources. Built-in opponents must work without paid external model calls. External MCP agents are optional and their runner must expose usage budgets and timeout policy.
 
+The built-in bot has two types, and neither gets extra information or resources:
+
+- **Calm** follows how the Settlers III computer players were observed to play: expand within the first minutes, build the economy with 2–4 sites open, drive intruders off at once, and attack no earlier than 45 minutes. It attacks the nearest weakly held tower with a squad sized to its garrison, keeps the rest of the army at home, and goes for the castle only after 75 minutes with 20 soldiers or more. Bot-vs-bot matches end after about 55–85 minutes.
+- **Aggressive** attacks as soon as it has 6 soldiers and something to attack, with its whole army, for the 20–30 minute first match. Bot-vs-bot matches end after about 18–21 minutes.
+
+Both types start only buildings whose planks and stone they already have, and save their stone for a stonecutter or a tower toward rocks when stone runs short. `stepMatch` can collect a log of each bot decision, with the tick and the reason, for tests and tuning.
+
 ## Sharing, spectators and community
 
 Plan private matches joined through invite links, spectator mode and later user-authored maps/rules. Spectator information must follow an explicit team/delay policy and must not leak hidden state to active players. Keep invitations separate from public matchmaking and authenticate player-slot claims.

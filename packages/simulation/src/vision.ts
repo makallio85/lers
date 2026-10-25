@@ -64,6 +64,8 @@ export interface OwnBuilding extends ObservedBuilding {
   workerId: number | null;
   garrisonWanted: number;
   residentsLeft: number;
+  /** Construction sites only: building materials still to be delivered. */
+  materialsOwed: { plank: number; stone: number };
 }
 
 export interface ObservedSoldier {
@@ -109,7 +111,11 @@ export function observe(world: World, playerId: number): Observation {
     if (b.owner === playerId) {
       ownBuildings.push({
         ...seen, stock: { ...b.stock }, input: { ...b.input }, blockedReason: b.blockedReason, workerId: b.workerId,
-        garrisonWanted: b.garrisonWanted, residentsLeft: b.residentsLeft
+        garrisonWanted: b.garrisonWanted, residentsLeft: b.residentsLeft,
+        materialsOwed: b.isComplete ? { plank: 0, stone: 0 } : {
+          plank: Math.max(0, (BUILDING_TYPES[b.typeId].cost.plank ?? 0) - b.delivered.plank - b.built.plank),
+          stone: Math.max(0, (BUILDING_TYPES[b.typeId].cost.stone ?? 0) - b.delivered.stone - b.built.stone)
+        }
       });
     } else if (canSee(world, playerId, b.doorX, b.doorY) || canSee(world, playerId, b.x + b.size / 2, b.y + b.size / 2)) {
       otherBuildings.push(seen);

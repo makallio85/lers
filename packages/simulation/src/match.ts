@@ -1,7 +1,7 @@
 import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_IRON } from './definitions.ts';
 import type { BuildingTypeId } from './definitions.ts';
 import { BOT_DECISION_TICKS, decideBot } from './bot.ts';
-import type { BotSpotFinder, SpotNeed } from './bot.ts';
+import type { BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
 import { reachableFrom } from './pathfinding.ts';
 import type { Command, CommandResult } from './commands.ts';
@@ -12,21 +12,26 @@ import {
 } from './world.ts';
 import type { World } from './world.ts';
 
+/** How far a woodcutter or stonecutter walks for its work; spot scores count only what lies within it. */
+const GATHER_REACH = 10;
+
 /** A match: you (player 0) against one built-in computer player on a mirrored map. */
-export function createMatch(seed: number): World {
-  return createWorld({ seed, playerCount: 2 });
+export function createMatch(seed: number, botType: BotType = 'aggressive'): World {
+  return createWorld({ seed, playerCount: 2, botType });
 }
 
 /**
  * One tick of a match. Bots decide every BOT_DECISION_TICKS from their own observation and submit commands
  * through the same validation as the human player. Returns the results of the human's commands.
+ * Pass `botLog` to collect what the bots decided and why.
  */
-export function stepMatch(world: World, commands: readonly Command[] = []): CommandResult[] {
+export function stepMatch(world: World, commands: readonly Command[] = [], botLog?: BotLogEntry[]): CommandResult[] {
   const botCommands: Command[] = [];
   if (world.tick % BOT_DECISION_TICKS === 0 && world.winner === null) {
     for (const player of world.players) {
       if (!player.isBot || player.isEliminated) continue;
-      botCommands.push(...decideBot(observe(world, player.id), spotFinder(world, player.id)));
+      const log = botLog && ((text: string) => { botLog.push({ tick: world.tick, playerId: player.id, text }); });
+      botCommands.push(...decideBot(observe(world, player.id), spotFinder(world, player.id), log));
     }
   }
   return step(world, [...commands, ...botCommands]).slice(0, commands.length);
@@ -82,8 +87,20 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
           const toCastle = Math.hypot(doorX - castle.doorX, doorY - castle.doorY);
           let score = 0;
           switch (need) {
-            case 'trees': around(doorX, doorY, 7, (i) => { if (world.tree[i] === TREE_MATURE) score += 3; else if (world.tree[i] >= 0) score += 1; }); score -= toCastle * 0.3; break;
-            case 'rocks': around(doorX, doorY, 8, (i) => { score += world.rock[i]; }); score -= toCastle * 0.3; break;
+            case 'trees':
+              // Only trees the woodcutter may fell: on own land, within its reach. A forester plants its own.
+              around(doorX, doorY, GATHER_REACH, (i) => {
+                if (world.territory[i] !== owned) return;
+                if (world.tree[i] === TREE_MATURE) score += 3; else if (world.tree[i] >= 0) score += 1;
+              });
+              if (score === 0 && typeId !== 'forester') continue;
+              score -= toCastle * 0.3;
+              break;
+            case 'rocks':
+              around(doorX, doorY, GATHER_REACH, (i) => { if (world.territory[i] === owned) score += world.rock[i]; });
+              if (score === 0) continue;
+              score -= toCastle * 0.3;
+              break;
             case 'water': score = -toCastle; break;
             case 'deposit_coal':
             case 'deposit_iron': {
@@ -101,11 +118,13 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
               score -= toCastle * 0.4;
               break;
             case 'castle': score = -toCastle; break;
-            case 'ore': {
-              // Closest to ore on land the player has seen but does not own yet.
+            case 'ore':
+            case 'distant_rocks': {
+              // Closest to ore (or rocks) on land the player has seen but does not own yet.
               let nearest = Infinity;
+              const isWanted = need === 'ore' ? (i: number) => world.deposit[i] !== 0 && world.depositAmount[i] > 0 : (i: number) => world.rock[i] > 0;
               around(doorX, doorY, 14, (i) => {
-                if (world.deposit[i] !== 0 && world.depositAmount[i] > 0 && world.territory[i] !== owned) {
+                if (isWanted(i) && world.territory[i] !== owned) {
                   nearest = Math.min(nearest, Math.hypot((i % world.width) - doorX, Math.floor(i / world.width) - doorY));
                 }
               });

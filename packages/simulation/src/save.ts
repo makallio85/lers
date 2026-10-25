@@ -1,10 +1,17 @@
 import { BUILDING_TYPES, GOOD_TYPES, SETTLER_LABELS, TOOL_TYPES, WEAPON_TYPES, consumersOf } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, GoodType } from './definitions.ts';
 import { FIELD_RIPE, TREE_MATURE, recomputeTerritory, tileIndex } from './world.ts';
+import { BOT_TYPES } from './bot.ts';
+import type { BotType } from './bot.ts';
 import type { Building, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+
+function botType(value: unknown): BotType {
+  if (typeof value !== 'string' || !(BOT_TYPES as readonly string[]).includes(value)) fail('a bot type is unknown');
+  return value as BotType;
+}
 
 const PHASES: readonly SettlerPhase[] = [
   'idle', 'toPickup', 'toDrop', 'toStore', 'toSite', 'leveling', 'building',
@@ -140,7 +147,7 @@ export function loadGame(data: unknown): World {
     const stats = {} as PlayerStats;
     for (const key of STAT_KEYS) stats[key] = int(raw.stats[key], 0, Number.MAX_SAFE_INTEGER, `statistic ${key}`);
     return {
-      id: int(raw.id, k, k, 'player id'), isBot: bool(raw.isBot, 'player type'), isEliminated: bool(raw.isEliminated, 'player state'),
+      id: int(raw.id, k, k, 'player id'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), isEliminated: bool(raw.isEliminated, 'player state'),
       transportPriority: order.map((g) => good(g, 'priority entry')), isStored,
       productionOrders: goodRecord(raw.productionOrders, MADE_GOODS, (v, w) => int(v, 0, 99, w), 'production orders'),
       productionShares: goodRecord(raw.productionShares, MADE_GOODS, (v, w) => int(v, 0, 10, w), 'production shares'),

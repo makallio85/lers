@@ -328,6 +328,7 @@ function fillGarrisons(world: World): void {
   // A garrison above what the player wants sends the extra soldiers outside.
   for (const b of world.buildings) {
     if (!isMilitaryBuilding(b)) continue;
+    if (b.garrison.length > 0 && b.blockedReason === 'Waiting for a soldier') setBlocked(world, b, null);
     while (b.garrison.length > b.garrisonWanted) {
       const s = world.settlers.find((settler) => settler.id === b.garrison[b.garrison.length - 1]);
       b.garrison.pop();
