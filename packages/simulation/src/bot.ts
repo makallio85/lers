@@ -113,6 +113,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const note = log ?? (() => {});
   const me = obs.playerId;
   const settings = BOT_TYPE_SETTINGS[obs.player.botType];
+  // Which decision this is; periodic actions count decisions, so bots on staggered ticks still run them.
+  const turn = Math.floor(obs.tick / BOT_DECISION_TICKS);
   const castle = obs.ownBuildings.find((b) => b.typeId === 'castle');
   if (!castle) return commands;
   const count = (t: BuildingTypeId) => obs.ownBuildings.filter((b) => b.typeId === t).length;
@@ -155,7 +157,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     // Low on stone with no stonecutter at work: the remaining stone goes to a stonecutter, or a tower toward rocks.
     const isDone = sites.some((b) => b.typeId === 'stonecutter') || place('stonecutter', 'rocks')
       || (!isTowerComing && place('guard_tower_small', 'distant_rocks'));
-    if (!isDone && obs.tick % (BOT_DECISION_TICKS * 15) === 0) note('short of stone and no rocks in reach');
+    if (!isDone && turn % 15 === 0) note('short of stone and no rocks in reach');
   } else if (sites.length < PARALLEL_SITES) {
     const isBuildingResidence = sites.some((b) => BUILDING_TYPES[b.typeId].residents > 0);
     const towers = obs.ownBuildings.filter((b) => b.typeId === 'guard_tower_small' || b.typeId === 'guard_tower_large');
@@ -196,11 +198,11 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
 
   // 2. Geologists: keep two, and send idle ones to mountains nobody has marked yet.
   const geologists = obs.ownSpecialists.filter((s) => s.settlerType === 'geologist');
-  if (geologists.length < GEOLOGISTS && obs.tick % (BOT_DECISION_TICKS * 10) === 0) {
+  if (geologists.length < GEOLOGISTS && turn % 10 === 0) {
     commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: GEOLOGISTS });
   }
   const idleGeologists = geologists.filter((s) => s.phase === 'idle');
-  if (idleGeologists.length > 0 && obs.tick % (BOT_DECISION_TICKS * 5) === 0) {
+  if (idleGeologists.length > 0 && turn % 5 === 0) {
     const tile = spots.prospectTile();
     if (tile) {
       commands.push({ type: 'moveSpecialists', playerId: me, settlerIds: idleGeologists.map((s) => s.id), x: tile.x, y: tile.y });
@@ -253,7 +255,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       commands.push({ type: 'attackBuilding', playerId: me, soldierIds: squad.map((s) => s.id), buildingId: target.id });
       note(`attack ${target.typeId} #${target.id} with ${squad.length} (army ${army})`);
     }
-  } else if (mayAttack && targets.length === 0 && free.length >= settings.attackArmy * 2 && obs.tick % (BOT_DECISION_TICKS * 5) === 0) {
+  } else if (mayAttack && targets.length === 0 && free.length >= settings.attackArmy * 2 && turn % 5 === 0) {
     // A big army that sees nothing to attack advances into the unknown, toward the enemy side.
     const front = spots.frontTile(towardX);
     if (front) {
@@ -261,7 +263,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       commands.push({ type: 'moveSoldiers', playerId: me, soldierIds: party.map((s) => s.id), x: front.x, y: front.y });
       note(`scout toward ${front.x},${front.y} with ${party.length}`);
     }
-  } else if (free.length >= 3 && obs.tick % (BOT_DECISION_TICKS * 15) === 0) {
+  } else if (free.length >= 3 && turn % 15 === 0) {
     // An aggressive bot gathers at its front tower; a calm one at home, so its army does not provoke a border battle.
     const front = !settings.isSendingWholeArmy ? castle : obs.ownBuildings
       .filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0)

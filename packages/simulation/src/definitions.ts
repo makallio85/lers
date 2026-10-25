@@ -3,6 +3,10 @@
 /** Gatherers whose work area the player can move; it must stay this close to the building. */
 export const WORK_AREA_BUILDINGS = ['woodcutter', 'stonecutter', 'forester', 'fisher', 'farm'] as const;
 export const WORK_AREA_REACH = 14;
+/** How far around its work area each gatherer works. */
+export const WORK_AREA_RADIUS: Record<(typeof WORK_AREA_BUILDINGS)[number], number> = {
+  woodcutter: 10, stonecutter: 10, forester: 6, fisher: 8, farm: 5
+};
 
 export const GOOD_TYPES = [
   'log', 'plank', 'stone',

@@ -22,15 +22,18 @@ export function createMatch(seed: number, botType: BotType = 'aggressive', mapSi
 }
 
 /**
- * One tick of a match. Bots decide every BOT_DECISION_TICKS from their own observation and submit commands
+ * One tick of a match. Each bot decides every BOT_DECISION_TICKS, on its own tick, from its own observation and submit commands
  * through the same validation as the human player. Returns the results of the human's commands.
  * Pass `botLog` to collect what the bots decided and why.
  */
 export function stepMatch(world: World, commands: readonly Command[] = [], botLog?: BotLogEntry[]): CommandResult[] {
   const botCommands: Command[] = [];
-  if (world.tick % BOT_DECISION_TICKS === 0 && world.winner === null) {
+  if (world.winner === null) {
     for (const player of world.players) {
       if (!player.isBot || player.isEliminated) continue;
+      // Each bot thinks on its own tick, so two bots never add up in one frame.
+      const offset = Math.floor((player.id * BOT_DECISION_TICKS) / world.players.length);
+      if ((world.tick + BOT_DECISION_TICKS - offset) % BOT_DECISION_TICKS !== 0) continue;
       const log = botLog && ((text: string) => { botLog.push({ tick: world.tick, playerId: player.id, text }); });
       botCommands.push(...decideBot(observe(world, player.id), spotFinder(world, player.id), log));
     }

@@ -1,16 +1,17 @@
 import {
-  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, applyCommand,
+  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
+  SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision
 } from '../../simulation/src/index.ts';
-import type { BotType, MapSizeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotType, MapSizeType, SpecialistType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import {
-  GOODS_VIEWS, formatClock, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
+  GOODS_VIEWS, SETTLERS_VIEWS, formatClock, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
   renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs
 } from './ui.ts';
-import type { GoodsViewId, MilitaryViewId, OrderMode, TabId } from './ui.ts';
+import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } from './ui.ts';
 
 const TICK_MS = 100;
 const PLAYER = 0;
@@ -66,6 +67,9 @@ const ui = {
   groupType: 'resources' as BuildingGroupType,
   goodsView: 'inventory' as GoodsViewId,
   militaryView: 'recruiting' as MilitaryViewId,
+  settlersView: 'counts' as SettlersViewId,
+  /** A gatherer whose new work area the next map click sets. */
+  workAreaFor: null as number | null,
   selectedType: 'woodcutter' as BuildingTypeId,
   placing: null as BuildingTypeId | null,
   ghost: null as Ghost | null,
@@ -106,7 +110,7 @@ function showWorld(): void {
   view.centreOn(castle.x + 2, castle.y + 2);
   minimapVersion = -1;
   ui.selectedId = null; ui.placing = null; ui.ghost = null; ui.markers = []; ui.markersKey = '';
-  ui.selectedSoldiers.clear(); ui.groups.clear(); ui.orderMode = null; ui.isEndHidden = false;
+  ui.selectedSoldiers.clear(); ui.groups.clear(); ui.orderMode = null; ui.isEndHidden = false; ui.workAreaFor = null;
   queue.length = 0;
 }
 
@@ -158,7 +162,7 @@ function renderPanel(): void {
   els.panel.innerHTML =
     ui.tab === 'build' ? renderBuildPanel(ui.groupType, ui.selectedType, ui.placing)
     : ui.tab === 'goods' ? renderGoodsPanel(world, ui.goodsView, PLAYER)
-    : ui.tab === 'settlers' ? renderSettlersPanel(world, PLAYER)
+    : ui.tab === 'settlers' ? renderSettlersPanel(world, ui.settlersView, PLAYER)
     : ui.tab === 'military' ? renderMilitaryPanel(world, ui.militaryView, PLAYER, ui.groups)
     : renderStatsPanel(world, PLAYER);
 }
@@ -176,6 +180,13 @@ function renderMenu(): void {
 }
 
 function renderHint(): void {
+  const workSite = buildingById(world, ui.workAreaFor);
+  if (!ui.placing && workSite) {
+    els.hint.hidden = false;
+    els.hint.innerHTML = `<span>Work area of the ${BUILDING_TYPES[workSite.typeId].label.toLowerCase()}</span><span>Tap or click where it should work, on your land.</span>
+      <button type="button" class="secondary" data-action="cancel-work-area">Cancel</button>`;
+    return;
+  }
   if (!ui.placing) { els.hint.hidden = true; return; }
   const label = BUILDING_TYPES[ui.placing].label;
   const problem = performance.now() < ui.problemUntil ? ui.problem : ui.ghost && !ui.ghost.isValid ? ui.ghostProblem : null;
@@ -189,10 +200,15 @@ function renderHint(): void {
     <button type="button" class="secondary" data-action="cancel-placing">Cancel</button>`;
 }
 
+/** Settlers the player can select and send: soldiers and specialists outside buildings. */
+function isOwnUnit(s: Settler): boolean {
+  return s.owner === PLAYER && !s.isInside && (isSoldierType(s.settlerType) ? s.health > 0 : isSpecialistType(s.settlerType));
+}
+
 function selectedSoldierList(): Settler[] {
   const out: Settler[] = [];
   for (const s of world.settlers) {
-    if (ui.selectedSoldiers.has(s.id) && s.owner === PLAYER && !s.isInside && s.health > 0) out.push(s);
+    if (ui.selectedSoldiers.has(s.id) && isOwnUnit(s)) out.push(s);
   }
   // Fallen or garrisoned soldiers drop out of the selection.
   if (out.length !== ui.selectedSoldiers.size) ui.selectedSoldiers = new Set(out.map((s) => s.id));
@@ -202,13 +218,14 @@ function selectedSoldierList(): Settler[] {
 function renderSelectionCard(): void {
   const b = buildingById(world, ui.selectedId);
   if (!b || !view.isBuildingVisible(b)) { ui.selectedId = null; ui.isConfirmingDemolish = false; els.selection.hidden = true; return; }
+  if (ui.workAreaFor !== null) { els.selection.hidden = true; return; }
   els.selection.hidden = false;
   els.selection.innerHTML = renderSelection(world, b, PLAYER, ui.isConfirmingDemolish, ui.selectedSoldiers.size);
 }
 
 function renderOrders(): void {
   const soldiers = selectedSoldierList();
-  const isShown = isMatch() && world.winner === null && !ui.placing && (soldiers.length > 0 || ui.orderMode !== null || ui.tab === 'military');
+  const isShown = world.winner === null && !ui.placing && (soldiers.length > 0 || ui.orderMode !== null || (isMatch() && ui.tab === 'military'));
   els.orders.hidden = !isShown;
   if (isShown) els.orders.innerHTML = renderOrderBar(soldiers, ui.orderMode, isTouchDevice());
 }
@@ -313,7 +330,7 @@ function handleResults(results: CommandResult[], commands: Command[]): void {
     const command = commands[k];
     if (!result.isAccepted) showProblem(result.reason);
     else if (command.type === 'placeBuilding') ui.selectedId = result.buildingId ?? null;
-    else if (command.type !== 'moveSoldiers' && command.type !== 'attackBuilding') isPanelStale = true;
+    else if (command.type !== 'moveSoldiers' && command.type !== 'attackBuilding' && command.type !== 'moveSpecialists') isPanelStale = true;
   });
   if (isPanelStale) renderPanel();
 }
@@ -386,7 +403,7 @@ function soldierAt(clientX: number, clientY: number): Settler | undefined {
   const p = view.screenToWorld(clientX, clientY);
   let best: Settler | undefined, bestDistance = 0.9;
   for (const s of world.settlers) {
-    if (s.owner !== PLAYER || !isSoldierType(s.settlerType) || s.isInside) continue;
+    if (!isOwnUnit(s)) continue;
     const d = Math.hypot(s.x + 0.5 - p.x, s.y + 0.5 - p.y);
     if (d < bestDistance) { bestDistance = d; best = s; }
   }
@@ -395,6 +412,13 @@ function soldierAt(clientX: number, clientY: number): Settler | undefined {
 
 function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
   ui.isConfirmingDemolish = false;
+  if (ui.workAreaFor !== null) {
+    const tile = view.screenToTile(clientX, clientY);
+    submit({ type: 'setWorkArea', playerId: PLAYER, buildingId: ui.workAreaFor, x: tile.x, y: tile.y });
+    ui.selectedId = ui.workAreaFor; ui.workAreaFor = null;
+    renderHint(); renderSelectionCard();
+    return;
+  }
   const soldier = soldierAt(clientX, clientY);
   if (soldier) {
     if (!isAdding) ui.selectedSoldiers.clear();
@@ -410,17 +434,28 @@ function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
 }
 
 function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'auto'): void {
-  const soldierIds = selectedSoldierList().map((s) => s.id);
-  if (soldierIds.length === 0) return;
+  const units = selectedSoldierList();
+  const soldierIds = units.filter((s) => isSoldierType(s.settlerType)).map((s) => s.id);
+  const specialistIds = units.filter((s) => isSpecialistType(s.settlerType)).map((s) => s.id);
+  if (units.length === 0) return;
   const b = buildingAt(clientX, clientY);
-  if (b && b.owner !== PLAYER && mode !== 'move') {
-    submit({ type: 'attackBuilding', playerId: PLAYER, soldierIds, buildingId: b.id });
+  const tile = view.screenToTile(clientX, clientY);
+  // Specialists only ever walk to a spot and work there; soldiers may attack.
+  if (specialistIds.length > 0 && mode !== 'attack') {
+    submit({ type: 'moveSpecialists', playerId: PLAYER, settlerIds: specialistIds, x: tile.x, y: tile.y });
+  }
+  if (soldierIds.length > 0) {
+    if (b && b.owner !== PLAYER && mode !== 'move') {
+      submit({ type: 'attackBuilding', playerId: PLAYER, soldierIds, buildingId: b.id });
+    } else if (mode === 'attack') {
+      showProblem('Choose an enemy tower or castle to attack');
+      return;
+    } else {
+      submit({ type: 'moveSoldiers', playerId: PLAYER, soldierIds, x: tile.x, y: tile.y });
+    }
   } else if (mode === 'attack') {
-    showProblem('Choose an enemy tower or castle to attack');
+    showProblem('Only soldiers can attack');
     return;
-  } else {
-    const tile = view.screenToTile(clientX, clientY);
-    submit({ type: 'moveSoldiers', playerId: PLAYER, soldierIds, x: tile.x, y: tile.y });
   }
   ui.orderMode = null;
   renderOrders();
@@ -430,7 +465,7 @@ function selectInBox(x0: number, y0: number, x1: number, y1: number, isAdding: b
   const left = Math.min(x0, x1), right = Math.max(x0, x1), top = Math.min(y0, y1), bottom = Math.max(y0, y1);
   if (!isAdding) ui.selectedSoldiers.clear();
   for (const s of world.settlers) {
-    if (s.owner !== PLAYER || !isSoldierType(s.settlerType) || s.isInside) continue;
+    if (!isOwnUnit(s)) continue;
     const p = view.tileToCanvas(s.x, s.y);
     if (p.x >= left && p.x <= right && p.y >= top && p.y <= bottom) ui.selectedSoldiers.add(s.id);
   }
@@ -546,8 +581,10 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const group = BUILDING_GROUP_TYPES.find((g) => g.key === key);
   const goodsView = GOODS_VIEWS.find((v) => v.key === key);
+  const settlersView = SETTLERS_VIEWS.find((v) => v.key === key);
   if (e.key === 'Escape') {
     if (ui.isMenuOpen) { ui.isMenuOpen = false; renderMenu(); }
+    else if (ui.workAreaFor !== null) { ui.workAreaFor = null; renderHint(); }
     else if (ui.placing) stopPlacing();
     else if (ui.orderMode) { ui.orderMode = null; renderOrders(); }
     else { ui.selectedId = null; ui.selectedSoldiers.clear(); renderSelectionCard(); renderOrders(); }
@@ -558,6 +595,8 @@ window.addEventListener('keydown', (e) => {
     selectFirstOfGroup(); renderPanel();
   } else if (goodsView) {
     ui.tab = 'goods'; ui.goodsView = goodsView.id; ui.isDrawerOpen = true; renderPanel();
+  } else if (settlersView) {
+    ui.tab = 'settlers'; ui.settlersView = settlersView.id; ui.isDrawerOpen = true; renderPanel();
   } else if (key.startsWith('arrow')) {
     e.preventDefault(); keys.add(key);
   }
@@ -599,6 +638,29 @@ document.addEventListener('click', (e) => {
     case 'group': ui.groupType = target.dataset.group as BuildingGroupType; selectFirstOfGroup(); renderPanel(); break;
     case 'goods-view': ui.goodsView = target.dataset.view as GoodsViewId; renderPanel(); break;
     case 'military-view': ui.militaryView = target.dataset.view as MilitaryViewId; renderPanel(); break;
+    case 'settlers-view': ui.settlersView = target.dataset.view as SettlersViewId; renderPanel(); break;
+    case 'specialists': {
+      const type = target.dataset.type as SpecialistType;
+      if (!(SPECIALIST_TYPES as readonly string[]).includes(type)) break;
+      const have = world.settlers.filter((s) => s.owner === PLAYER && s.settlerType === type).length;
+      submit({ type: 'setSpecialists', playerId: PLAYER, specialistType: type, count: Math.max(0, Math.min(MAX_SPECIALISTS, have + delta)) });
+      break;
+    }
+    case 'select-specialists':
+      ui.selectedSoldiers = new Set(world.settlers.filter((s) => s.owner === PLAYER && s.settlerType === target.dataset.type && !s.isInside).map((s) => s.id));
+      ui.selectedId = null; renderSelectionCard(); renderOrders(); break;
+    case 'work-area':
+      if (selected) {
+        ui.workAreaFor = selected.id; ui.orderMode = null;
+        // On small screens the drawer and the card would cover the map you need to tap.
+        if (window.matchMedia('(max-height: 520px), (max-width: 760px)').matches) ui.isDrawerOpen = false;
+        renderPanel(); renderHint(); renderOrders(); renderSelectionCard();
+      }
+      break;
+    case 'cancel-work-area': ui.workAreaFor = null; renderHint(); break;
+    case 'toggle-priority':
+      if (selected) submit({ type: 'setSitePriority', playerId: PLAYER, buildingId: selected.id, isPriority: !selected.isPriority });
+      break;
     case 'select-type': ui.selectedType = target.dataset.type as BuildingTypeId; renderPanel(); break;
     case 'start-placing': startPlacing(ui.selectedType, isTouch); break;
     case 'cancel-placing': stopPlacing(); break;
@@ -708,7 +770,11 @@ document.addEventListener('change', (e) => {
   const input = e.target;
   if (!(input instanceof HTMLInputElement) || input.type !== 'range') return;
   const share = Number(input.value);
-  if (input.dataset.shareGood) {
+  if (input.dataset.occupation) {
+    const player = world.players[PLAYER];
+    const isCarrier = input.dataset.occupation === 'minCarrier';
+    submit({ type: 'setOccupations', playerId: PLAYER, minCarrierPercent: isCarrier ? share : player.minCarrierPercent, maxCrewPercent: isCarrier ? player.maxCrewPercent : share });
+  } else if (input.dataset.shareGood) {
     submit({ type: 'setProductionShare', playerId: PLAYER, good: input.dataset.shareGood as GoodType, share });
   } else if (input.dataset.distributionGood) {
     submit({ type: 'setDistribution', playerId: PLAYER, good: input.dataset.distributionGood as GoodType, buildingType: input.dataset.buildingType as BuildingTypeId, share });
@@ -752,10 +818,18 @@ function frame(now: number): void {
   }
   view.render(ui.speed > 0 && world.winner === null ? accumulator / TICK_MS : 1, {
     ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId,
-    selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox
+    selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown()
   });
   if (now - lastLive > 250) { lastLive = now; refreshLive(); }
   requestAnimationFrame(frame);
+}
+
+/** The selected gatherer's work area, or the one being set. */
+function workAreaShown(): { x: number; y: number; radius: number } | null {
+  const b = buildingById(world, ui.workAreaFor ?? ui.selectedId);
+  if (!b || b.owner !== PLAYER || !b.isComplete || !(WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId)) return null;
+  const radius = WORK_AREA_RADIUS[b.typeId as (typeof WORK_AREA_BUILDINGS)[number]];
+  return { x: b.workX ?? b.doorX, y: b.workY ?? b.doorY, radius };
 }
 
 showWorld();

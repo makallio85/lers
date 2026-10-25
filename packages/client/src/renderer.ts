@@ -1,14 +1,17 @@
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import {
-  BUILDING_TYPES, DEPOSIT_COAL, FIELD_RIPE, SOLDIER_STATS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE, VISION_NONE,
-  VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, tileIndex
+  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, SOLDIER_STATS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
+  VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, tileIndex
 } from '../../simulation/src/index.ts';
 import type { Building, BuildingTypeId, GoodType, World } from '../../simulation/src/index.ts';
 
 export const TILE = 20;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 3;
+
+/** Geologist sign colours: black for coal, silver for iron, gold for gold; an empty ring means nothing found. */
+const SIGN_COLORS: Record<number, number> = { [DEPOSIT_COAL]: 0x1e1e1e, [DEPOSIT_IRON]: 0xc9ccd1, [DEPOSIT_GOLD]: 0xe8c547 };
 
 /** Border and banner colour per player: you, then the computer. */
 const OWNER_COLORS = [0xe3a33b, 0xd05a5a, 0x8fb3d9, 0x9b7fbf];
@@ -27,7 +30,8 @@ const GOOD_COLORS: Record<GoodType, number> = {
 };
 const SETTLER_COLORS: Partial<Record<string, number>> = {
   carrier: 0xece6d6, builder: 0xe3a33b, digger: 0xb07a45,
-  swordsman: 0xd05a5a, spearman: 0xe3a33b, bowman: 0x8fb3d9
+  swordsman: 0xd05a5a, spearman: 0xe3a33b, bowman: 0x8fb3d9,
+  geologist: 0x9b7fbf, pioneer: 0x6fb08a
 };
 
 export interface Ghost {
@@ -46,6 +50,8 @@ export interface ViewState {
   selectedSoldiers: ReadonlySet<number>;
   /** Drag-selection rectangle in screen pixels relative to the map canvas. */
   selectionBox: { x0: number; y0: number; x1: number; y1: number } | null;
+  /** The work area of the selected gatherer, drawn as a dashed circle. */
+  workArea: { x: number; y: number; radius: number } | null;
 }
 
 function hash(i: number): number {
@@ -161,6 +167,13 @@ export class MapView {
       }
       g.stroke({ width: 3, color: OWNER_COLORS[owner - 1], alpha: 0.9 });
     }
+    // Pioneer posts on land claimed by pioneers, one post per 3×3 tiles where military land does not cover it.
+    for (let i = 0; i < world.pioneerLand.length; i++) {
+      const owner = world.pioneerLand[i];
+      const x = i % world.width, y = Math.floor(i / world.width);
+      if (owner === 0 || world.militaryLand[i] !== 0 || world.territory[i] !== owner || x % 3 !== 1 || y % 3 !== 1) continue;
+      g.rect(x * TILE + TILE / 2 - 2, y * TILE + 2, 4, TILE - 4).fill(OWNER_COLORS[owner - 1]).stroke({ width: 1, color: 0x1b2420 });
+    }
   }
 
   private drawObjects(): void {
@@ -177,9 +190,14 @@ export class MapView {
         continue;
       }
       const cx = px + TILE / 2, cy = py + TILE / 2;
-      if (world.deposit[i] !== 0 && world.depositAmount[i] > 0 && world.rock[i] === 0) {
-        // Ore is marked on the mountain until geologists arrive: black for coal, rust for iron.
-        g.circle(cx - 3, cy + 2, 2.4).circle(cx + 3, cy - 1, 2).fill(world.deposit[i] === DEPOSIT_COAL ? 0x1e1e1e : 0xa0522d);
+      // Geologist signs: only where the viewer's own geologists have looked, one sign per 2×2 tiles.
+      const prospect = world.prospect[this.viewer];
+      const tx = i % world.width, ty = Math.floor(i / world.width);
+      if (prospect && prospect[i] === 1 && world.rock[i] === 0 && tx % 2 === 0 && ty % 2 === 0) {
+        const hasOre = world.deposit[i] !== 0 && world.depositAmount[i] > 0;
+        g.rect(cx - 0.75, cy - 2, 1.5, 8).fill(0x3b2f22);
+        if (hasOre) g.circle(cx, cy - 4, 3.2).fill(SIGN_COLORS[world.deposit[i]] ?? 0xffffff).stroke({ width: 1, color: 0x1b2420 });
+        else g.circle(cx, cy - 4, 3).stroke({ width: 1.2, color: 0xece6d6 });
       }
       if (growth < 0 && world.rock[i] === 0) continue;
       if (world.rock[i] > 0) {
@@ -295,6 +313,13 @@ export class MapView {
       const x = (s.prevX + (s.x - s.prevX) * alpha) * TILE + TILE / 2;
       const y = (s.prevY + (s.y - s.prevY) * alpha) * TILE + TILE / 2;
       const color = SETTLER_COLORS[s.settlerType] ?? 0x8fb3d9;
+      if (isSpecialistType(s.settlerType) && s.owner === this.viewer) {
+        // Geologists and pioneers can be selected and sent, so they get a ring like soldiers.
+        if (selected.has(s.id)) g.circle(x, y, TILE * 0.26 + 4).stroke({ width: 2, color: 0xffffff });
+        g.circle(x, y, TILE * 0.26).fill(color).stroke({ width: 2, color: 0x1b2420 });
+        g.rect(x - 1, y - TILE * 0.6, 2, TILE * 0.34).fill(0x3b2f22);
+        continue;
+      }
       if (isSoldierType(s.settlerType)) {
         const r = TILE * 0.32;
         if (s.owner === this.viewer) {
@@ -334,6 +359,16 @@ export class MapView {
       g.rect(ghost.x * TILE, ghost.y * TILE, size * TILE, size * TILE).fill({ color, alpha: 0.4 }).stroke({ width: 2, color });
       const doorX = ghost.x + Math.floor(size / 2), doorY = ghost.y + size;
       g.rect(doorX * TILE + 3, doorY * TILE + 3, TILE - 6, TILE - 6).stroke({ width: 2, color });
+    }
+    if (state.workArea) {
+      const { x, y, radius } = state.workArea;
+      const cx = x * TILE + TILE / 2, cy = y * TILE + TILE / 2, r = radius * TILE;
+      g.circle(cx, cy, r).fill({ color: 0xe3a33b, alpha: 0.08 });
+      for (let k = 0; k < 48; k += 2) {
+        const a0 = (k / 48) * Math.PI * 2, a1 = ((k + 1) / 48) * Math.PI * 2;
+        g.moveTo(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r).lineTo(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
+      }
+      g.stroke({ width: 2, color: 0xe3a33b });
     }
     const box = this.screenOverlay.clear();
     if (state.selectionBox) {

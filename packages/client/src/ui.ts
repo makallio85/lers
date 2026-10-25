@@ -1,7 +1,7 @@
 import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
-  TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, castleOf, consumersOf, costTotal, distributedGoods, goodCount,
-  isMilitaryBuilding, isSoldierType, isStorageBuilding, settlerById
+  GOOD_NAMES, SPECIALIST_TOOLS, SPECIALIST_TYPES, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
+  costTotal, distributedGoods, goodCount, isMilitaryBuilding, isSoldierType, isStorageBuilding, settlerById
 } from '../../simulation/src/index.ts';
 import type {
   BotType, Building, BuildingGroupType, MapSizeType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, World
@@ -10,6 +10,7 @@ import type {
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
 export type GoodsViewId = 'inventory' | 'tools' | 'distribution' | 'transport';
 export type MilitaryViewId = 'recruiting' | 'soldiers' | 'garrisons';
+export type SettlersViewId = 'counts' | 'occupations' | 'specialists';
 export type OrderMode = 'select' | 'move' | 'attack' | null;
 
 const ICONS: Record<TabId | 'warning' | 'info', string> = {
@@ -35,6 +36,11 @@ export const TABS: { id: TabId; label: string }[] = [
 export const GOODS_VIEWS: { id: GoodsViewId; label: string; key: string }[] = [
   { id: 'inventory', label: 'Inventory', key: 'a' }, { id: 'tools', label: 'Tools', key: 's' },
   { id: 'distribution', label: 'Distribution', key: 'd' }, { id: 'transport', label: 'Transport', key: 'f' }
+];
+
+/** The Settlers views and their keys follow the original game's Z X C order. */
+export const SETTLERS_VIEWS: { id: SettlersViewId; label: string; key: string }[] = [
+  { id: 'counts', label: 'Counts', key: 'z' }, { id: 'occupations', label: 'Occupations', key: 'x' }, { id: 'specialists', label: 'Specialists', key: 'c' }
 ];
 
 const MILITARY_VIEWS: { id: MilitaryViewId; label: string }[] = [
@@ -163,7 +169,41 @@ export function renderGoodsPanel(world: World, view: GoodsViewId, owner: number)
   return `${tabs}<p class="empty">Carriers move goods higher in the list first. Construction sites are always served before anything else.</p><ul class="list">${rows}</ul>`;
 }
 
-export function renderSettlersPanel(world: World, owner: number): string {
+export function renderSettlersPanel(world: World, view: SettlersViewId, owner: number): string {
+  const tabs = pills(SETTLERS_VIEWS, view, 'settlers-view', 'Settlers views');
+  const player = world.players[owner];
+  if (view === 'occupations') {
+    const own = world.settlers.filter((s) => s.owner === owner && !isSoldierType(s.settlerType));
+    const carriers = own.filter((s) => s.settlerType === 'carrier').length;
+    const crew = own.filter((s) => s.settlerType === 'digger' || s.settlerType === 'builder').length;
+    const pct = (n: number) => (own.length > 0 ? Math.round((n * 100) / own.length) : 0);
+    const slider = (key: string, value: number, label: string) =>
+      `<input type="range" class="share" min="0" max="100" step="5" value="${value}" data-occupation="${key}" aria-label="${label}">`;
+    return `${tabs}
+      <div class="share-block">
+        <div class="share-row"><span>Carriers, at least</span>${slider('minCarrier', player.minCarrierPercent, 'Carriers, at least')}<span class="num">${player.minCarrierPercent}%</span></div>
+        <p class="empty">Now ${pct(carriers)}%. New diggers and builders are only made from carriers while this share stays.</p>
+        <div class="share-row"><span>Diggers and builders, at most</span>${slider('maxCrew', player.maxCrewPercent, 'Diggers and builders, at most')}<span class="num">${player.maxCrewPercent}%</span></div>
+        <p class="empty">Now ${pct(crew)}%. Above it, idle diggers and builders go back to carrying. Lower it once the settlement stands.</p>
+      </div>`;
+  }
+  if (view === 'specialists') {
+    const rows = SPECIALIST_TYPES.map((t) => {
+      const all = world.settlers.filter((s) => s.owner === owner && s.settlerType === t);
+      const busy = all.filter((s) => s.phase !== 'idle').length;
+      return `<div class="specialist-row">
+        <span class="specialist-name">${SETTLER_PLURALS[t]}</span>
+        <span class="muted">${busy} at work · each needs a ${GOOD_NAMES[SPECIALIST_TOOLS[t]][0]}</span>
+        <div class="specialist-actions">
+          ${stepper('specialists', `data-type="${t}"`, all.length, SETTLER_PLURALS[t])}
+          <button type="button" class="secondary" data-action="select-specialists" data-type="${t}" ${all.length === 0 ? 'disabled' : ''}>Select</button>
+        </div>
+      </div>`;
+    }).join('');
+    return `${tabs}${rows}
+      <p class="empty">+ turns a free carrier into a specialist, taking the tool from storage; − turns one back. Select specialists, then right-click or use Move to send them.</p>
+      <p class="empty">Geologists put up signs on mountains: black for coal, silver for iron, gold for gold, an empty ring for nothing. Pioneers put up posts that claim land no enemy tower holds.</p>`;
+  }
   const counts = new Map<SettlerType, number>();
   let idle = 0;
   for (const s of world.settlers) {
@@ -175,7 +215,7 @@ export function renderSettlersPanel(world: World, owner: number): string {
     .filter((t) => counts.has(t))
     .map((t) => `<li><span>${SETTLER_PLURALS[t]}</span><span class="num">${counts.get(t)}</span></li>`).join('');
   const arriving = world.buildings.reduce((sum, b) => sum + (b.owner === owner ? b.residentsLeft : 0), 0);
-  return `<h2 class="section-title">Settlers</h2><ul class="list">${rows}<li><span>Free carriers</span><span class="num">${idle}</span></li>
+  return `${tabs}<ul class="list">${rows}<li><span>Free carriers</span><span class="num">${idle}</span></li>
     ${arriving ? `<li><span>Moving in</span><span class="num">${arriving}</span></li>` : ''}</ul>
     <p class="empty">New settlers come from residences (Build › Misc.). A finished workplace turns a free carrier into its worker when its tool is in storage.</p>`;
 }
@@ -395,12 +435,16 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
   }
   const garrison = b.isComplete && isMilitaryBuilding(b)
     ? `<div class="made-row"><span>Soldiers wanted</span>${stepper('garrison', `data-id="${b.id}"`, b.garrisonWanted, 'Soldiers wanted')}<span class="muted">of ${type.garrisonCapacity}</span></div>` : '';
-  const canPause = b.isComplete && type.worker !== null;
+  const canPause = (b.isComplete && type.worker !== null) || !b.isComplete;
+  const hasWorkArea = b.isComplete && (WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId);
+  const pauseLabel = b.isComplete ? (b.isPaused ? 'Resume' : 'Pause') : (b.isPaused ? 'Resume' : 'Suspend');
   const actions = b.typeId === 'castle' ? '' : isConfirmingDemolish
     ? `<div class="actions"><button type="button" class="danger" data-action="confirm-demolish">Demolish now</button><button type="button" class="secondary" data-action="cancel-demolish">Keep it</button></div>
        <span class="muted">Half of its materials go back to the castle.</span>`
     : `<div class="actions">
-        ${canPause ? `<button type="button" class="secondary" data-action="toggle-pause">${b.isPaused ? 'Resume' : 'Pause'}</button>` : ''}
+        ${!b.isComplete ? `<button type="button" class="${b.isPriority ? 'primary' : 'secondary'}" data-action="toggle-priority" aria-pressed="${b.isPriority}">Build first</button>` : ''}
+        ${hasWorkArea ? `<button type="button" class="secondary" data-action="work-area">Set work area</button>` : ''}
+        ${canPause ? `<button type="button" class="secondary" data-action="toggle-pause">${pauseLabel}</button>` : ''}
         <button type="button" class="secondary" data-action="demolish">${b.isComplete ? 'Demolish' : 'Cancel construction'}</button>
       </div>`;
   return `
@@ -412,11 +456,13 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
 }
 
 /** The order bar: what is selected and what to do with it. Order modes make every order reachable by touch. */
-export function renderOrderBar(soldiers: Settler[], mode: OrderMode, isTouch: boolean): string {
-  const byType = SOLDIER_TYPES.map((t) => ({ t, n: soldiers.filter((s) => s.settlerType === t).length })).filter((x) => x.n > 0);
-  const summary = soldiers.length === 0 ? 'No soldiers selected'
-    : `${soldiers.length} ${soldiers.length === 1 ? 'soldier' : 'soldiers'} selected`;
-  const detail = byType.map((x) => `${x.n} ${(x.n === 1 ? SETTLER_PLURALS[x.t].replace(/men$/, 'man') : SETTLER_PLURALS[x.t]).toLowerCase()}`).join(' · ');
+export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boolean): string {
+  const soldiers = units.filter((s) => isSoldierType(s.settlerType));
+  const types: SettlerType[] = [...SOLDIER_TYPES, ...SPECIALIST_TYPES];
+  const byType = types.map((t) => ({ t, n: units.filter((s) => s.settlerType === t).length })).filter((x) => x.n > 0);
+  const summary = units.length === 0 ? 'Nobody selected'
+    : soldiers.length === units.length ? `${units.length} ${units.length === 1 ? 'soldier' : 'soldiers'} selected` : `${units.length} selected`;
+  const detail = byType.map((x) => `${x.n} ${(x.n === 1 ? SETTLER_LABELS[x.t] : SETTLER_PLURALS[x.t]).toLowerCase()}`).join(' · ');
   const hint = mode === 'select' ? (isTouch ? 'Drag over soldiers to select them' : 'Drag a box around soldiers')
     : mode === 'move' ? 'Tap or click where they should go'
     : mode === 'attack' ? 'Tap or click an enemy tower or castle'
@@ -428,10 +474,10 @@ export function renderOrderBar(soldiers: Settler[], mode: OrderMode, isTouch: bo
     <div class="order-buttons" role="toolbar" aria-label="Soldier orders">
       ${modeButton('select', 'Select')}
       <button type="button" class="order-mode" data-action="select-in-view">All in view</button>
-      ${modeButton('move', 'Move', soldiers.length === 0)}
+      ${modeButton('move', 'Move', units.length === 0)}
       ${modeButton('attack', 'Attack', soldiers.length === 0)}
       <button type="button" class="order-mode" data-action="back-to-towers" ${soldiers.length === 0 ? 'disabled' : ''} title="Back to the castle">Retreat</button>
-      <button type="button" class="order-mode" data-action="clear-selection" ${soldiers.length === 0 && mode === null ? 'disabled' : ''}>Clear</button>
+      <button type="button" class="order-mode" data-action="clear-selection" ${units.length === 0 && mode === null ? 'disabled' : ''}>Clear</button>
     </div>
     ${hint ? `<span class="order-hint muted">${hint}</span>` : ''}`;
 }

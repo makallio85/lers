@@ -1,6 +1,6 @@
 import {
   BUILDING_TYPES, FAVOURITE_FOOD_MEALS, FOOD_TYPES, GOOD_NAMES, GOOD_TYPES, OTHER_FOOD_MEALS, SETTLER_LABELS,
-  SOLDIER_STATS, WEAPON_SOLDIERS, WEAPON_TYPES, costTotal, isSoldierType, isSpecialistType, totalGoods
+  SOLDIER_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, isSoldierType, isSpecialistType, totalGoods
 } from './definitions.ts';
 import type { BuildingTypeId, GoodType, SettlerType } from './definitions.ts';
 import { applyCommand } from './commands.ts';
@@ -50,11 +50,11 @@ interface GatherRule {
 }
 
 const GATHER_RULES: Record<GatherType, GatherRule> = {
-  woodcutter: { radius: 10, workTicks: 220, restTicks: 30, output: 'log', blockedText: 'No grown trees nearby' },
-  stonecutter: { radius: 10, workTicks: 200, restTicks: 30, output: 'stone', blockedText: 'No rocks nearby' },
-  forester: { radius: 6, workTicks: 40, restTicks: 160, output: null, blockedText: 'No free land nearby' },
-  fisher: { radius: 8, workTicks: 180, restTicks: 60, output: 'fish', blockedText: 'No water nearby' },
-  farmer: { radius: 5, workTicks: 90, restTicks: 60, output: 'grain', blockedText: 'No free land for fields' }
+  woodcutter: { radius: WORK_AREA_RADIUS.woodcutter, workTicks: 220, restTicks: 30, output: 'log', blockedText: 'No grown trees nearby' },
+  stonecutter: { radius: WORK_AREA_RADIUS.stonecutter, workTicks: 200, restTicks: 30, output: 'stone', blockedText: 'No rocks nearby' },
+  forester: { radius: WORK_AREA_RADIUS.forester, workTicks: 40, restTicks: 160, output: null, blockedText: 'No free land nearby' },
+  fisher: { radius: WORK_AREA_RADIUS.fisher, workTicks: 180, restTicks: 60, output: 'fish', blockedText: 'No water nearby' },
+  farmer: { radius: WORK_AREA_RADIUS.farm, workTicks: 90, restTicks: 60, output: 'grain', blockedText: 'No free land for fields' }
 };
 
 function isGatherType(value: SettlerType): value is GatherType {
