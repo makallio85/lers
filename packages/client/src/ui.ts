@@ -324,7 +324,7 @@ export interface MenuState {
 /** Typical match length in bot-vs-bot runs, per opponent and map size; shown so players can pick a game that fits their time. */
 const MATCH_LENGTHS: Record<BotType, Record<MapSizeType, string>> = {
   calm: { small: 'one to two hours', medium: 'two hours or more', large: 'two hours or more' },
-  aggressive: { small: 'about 40–65 minutes (10–16 at 4×)', medium: 'about 50–90 minutes', large: 'well over an hour' }
+  aggressive: { small: 'about an hour (about 15 minutes at 4×)', medium: 'about an hour or more', large: 'well over an hour' }
 };
 
 function opponentText(botType: BotType, mapSize: MapSizeType): string {

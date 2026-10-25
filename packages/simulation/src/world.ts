@@ -18,7 +18,8 @@ export const TREE_MATURE = 60;
 /** Grain field growth, same scale as trees. */
 export const NO_FIELD = -1;
 export const FIELD_RIPE = 90;
-export const ROCK_STONE = 6;
+/** Stone in one rock tile when the map is made; a stonecutter takes one at a time. */
+export const ROCK_STONE = 12;
 export const DEPOSIT_AMOUNT = 20;
 
 /** Fog of war per tile and player. */

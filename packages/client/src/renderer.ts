@@ -1,7 +1,7 @@
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import {
-  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, SOLDIER_STATS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
+  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
   VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, tileIndex
 } from '../../simulation/src/index.ts';
 import type { Building, BuildingTypeId, GoodType, World } from '../../simulation/src/index.ts';
@@ -201,7 +201,7 @@ export class MapView {
       }
       if (growth < 0 && world.rock[i] === 0) continue;
       if (world.rock[i] > 0) {
-        const r = TILE * (0.22 + 0.04 * world.rock[i]);
+        const r = TILE * (0.22 + 0.24 * Math.min(1, world.rock[i] / ROCK_STONE));
         g.roundRect(cx - r, cy - r * 0.8, r * 2, r * 1.6, 4).fill(0xa8a59a).stroke({ width: 1, color: 0x6f6d65 });
       } else if (growth >= TREE_MATURE) {
         g.circle(cx, cy, TILE * 0.46).fill(0x3d5a2e);

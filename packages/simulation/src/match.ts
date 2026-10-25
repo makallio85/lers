@@ -59,6 +59,10 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
       }
     }
   };
+  // A player on the right half scans the map mirrored, so both players of a mirrored map see the same spots in
+  // the same order and break ties the same way.
+  const isRightSide = !!castle && castle.x + castle.size / 2 > world.width / 2;
+  const mirrorX = (vx: number, size: number) => (isRightSide ? world.width - size - vx : vx);
   // Tiles the player's settlers can walk to from the castle, worked out once per decision.
   let reachable: ((tile: number) => boolean) | null = null;
   const isNearReachable = (x: number, y: number) => {
@@ -87,7 +91,8 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
       if (!castle) return null;
       let best: { x: number; y: number } | null = null, bestScore = Infinity;
       for (let y = 0; y < world.height; y++) {
-        for (let x = 0; x < world.width; x++) {
+        for (let vx = 0; vx < world.width; vx++) {
+          const x = mirrorX(vx, 1);
           const i = tileIndex(world, x, y);
           if (vision[i] === VISION_NONE || world.terrain[i] !== TERRAIN_MOUNTAIN || prospect[i] === 1 || !isWalkable(world, i)) continue;
           const score = Math.hypot(x - castle.doorX, y - castle.doorY) + (world.territory[i] === owned ? 0 : 25);
@@ -103,7 +108,8 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
       const isReachable = reachableFrom(world, tileIndex(world, castle.doorX, castle.doorY));
       let best: { x: number; y: number } | null = null, bestScore = Infinity;
       for (let y = 0; y < world.height; y += 2) {
-        for (let x = 0; x < world.width; x += 2) {
+        for (let vx = 0; vx < world.width; vx += 2) {
+          const x = mirrorX(vx, 1);
           const i = tileIndex(world, x, y);
           if (vision[i] === VISION_NONE || !isReachable(i)) continue;
           const score = Math.abs(x - towardX) + Math.abs(y - castle.doorY) * 0.3;
@@ -117,9 +123,11 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
       const size = BUILDING_TYPES[typeId].size;
       const stride = BUILDING_TYPES[typeId].placementType === 'mountain' ? 1 : 2;
       const military = need === 'border' ? militaryDoors() : [];
-      const scored: { x: number; y: number; score: number }[] = [];
+      const scored: { x: number; y: number; vx: number; score: number }[] = [];
       for (let y = 0; y < world.height; y += stride) {
-        for (let x = 0; x < world.width; x += stride) {
+        for (let vx = 0; vx < world.width; vx += stride) {
+          const x = mirrorX(vx, size);
+          if (x < 0) continue;
           if (world.territory[tileIndex(world, x, y)] !== owned) continue;
           if (groundProblem(world, playerId, typeId, x, y) !== null) continue;
           const doorX = x + Math.floor(size / 2), doorY = y + size;
@@ -184,10 +192,10 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
               break;
             }
           }
-          scored.push({ x, y, score });
+          scored.push({ x, y, vx, score });
         }
       }
-      scored.sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x);
+      scored.sort((a, b) => b.score - a.score || a.y - b.y || a.vx - b.vx);
       for (const spot of scored.slice(0, 6)) {
         if (placementProblem(world, playerId, typeId, spot.x, spot.y) === null) return { x: spot.x, y: spot.y };
       }

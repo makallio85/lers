@@ -69,11 +69,12 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   if (world.tick % GROWTH_TICKS === 0) grow(world);
   if (world.tick % 10 === 0) updateVision(world);
   if (world.tick % RESIDENT_INTERVAL_TICKS === 0) releaseResidents(world);
+  // Weapons waiting at a barracks get a free settler before transport takes them all.
+  recruitSoldiers(world);
   if (world.tick % 5 === 0) runLogistics(world);
   if (world.tick % 5 === 0) { assignConstructionCrews(world); assignWorkers(world); }
   if (world.tick % OCCUPATION_TICKS === 0) for (const p of world.players) applyOccupations(world, p);
   fillGarrisons(world);
-  recruitSoldiers(world);
   sendDefenders(world);
   for (const s of world.settlers) if (!isSoldierType(s.settlerType)) updateSettler(world, s);
   // Soldiers act in alternating order each tick, so no player always strikes first.
@@ -362,13 +363,18 @@ function recruitSoldiers(world: World): void {
     if (!b.isComplete || b.typeId !== 'barracks') continue;
     const player = playerOf(world, b.owner);
     if (!player) continue;
+    // Recruiting keeps the carrier share the player set in Occupations, so transport never stops entirely.
+    const civilians = world.settlers.filter((s) => s.owner === b.owner && !isSoldierType(s.settlerType));
+    let carriers = civilians.filter((s) => s.settlerType === 'carrier').length;
     for (const weapon of WEAPON_TYPES) {
       while (b.input[weapon] > 0 && (player.isRecruitingAutomatic || player.recruitsLeft > 0)) {
+        if ((carriers - 1) * 100 < (civilians.length - 1) * player.minCarrierPercent) { setBlocked(world, b, 'Waiting for a free settler'); return; }
         const carrier = nearestIdle(world, 'carrier', b.owner, b.doorX, b.doorY);
         if (!carrier || !walkTo(world, carrier, doorTile(world, b))) { setBlocked(world, b, 'Waiting for a free settler'); return; }
         b.input[weapon]--;
         if (!player.isRecruitingAutomatic) player.recruitsLeft--;
         carrier.phase = 'toRecruit'; carrier.homeId = b.id; carrier.good = weapon;
+        carriers--;
         setBlocked(world, b, null);
       }
     }
@@ -710,7 +716,10 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
       }
     }
   }
-  const byDistance = (a: { index: number; d: number }, b: { index: number; d: number }) => a.d - b.d || a.index - b.index;
+  // Ties go the same way for both players on a mirrored map: the right-hand player counts x from the right edge.
+  const isRightSide = (castleOf(world, home.owner)?.x ?? 0) > world.width / 2;
+  const tieKey = (i: number) => Math.floor(i / world.width) * world.width + (isRightSide ? world.width - 1 - (i % world.width) : i % world.width);
+  const byDistance = (a: { index: number; d: number }, b: { index: number; d: number }) => a.d - b.d || tieKey(a.index) - tieKey(b.index);
   // A farmer harvests ripe fields before sowing new ones.
   for (const list of [ripe, candidates]) {
     list.sort(byDistance);
