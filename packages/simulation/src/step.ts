@@ -1,7 +1,7 @@
 import {
-  BUILDING_TYPES, FAVOURITE_FOOD_MEALS, FOOD_TYPES, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OTHER_FOOD_MEALS,
+  BUILDING_TYPES, FAVOURITE_FOOD_MEALS, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OTHER_FOOD_MEALS,
   SETTLER_LABELS, SOLDIER_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, goodCount, isSoldierType,
-  isSpecialistType, totalGoods
+  favouriteFoodOf, isSpecialistType, totalGoods
 } from './definitions.ts';
 import type { BuildingTypeId, GoodType, SettlerType } from './definitions.ts';
 import { applyCommand } from './commands.ts';
@@ -12,7 +12,7 @@ import { updateVision } from './vision.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
   buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
-  recomputeTerritory, settlerById, storedTotal, tileIndex
+  recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
 
@@ -181,7 +181,7 @@ function runLogistics(world: World): void {
   for (const b of world.buildings) {
     if (!b.isComplete) {
       if (b.isPaused) continue;
-      const cost = BUILDING_TYPES[b.typeId].cost;
+      const cost = siteCost(world, b);
       for (const good of GOOD_TYPES) {
         const need = (cost[good] ?? 0) - b.delivered[good] - b.built[good] - b.incoming[good];
         for (let k = 0; k < need; k++) requests.push({ building: b, good, isConstruction: true, share: 1 });
@@ -481,7 +481,7 @@ function updateBuilding(world: World, s: Settler): void {
   const site = buildingById(world, s.homeId);
   if (!site || site.isComplete) { becomeIdle(s); return; }
   const type = BUILDING_TYPES[site.typeId];
-  const total = costTotal(type.cost);
+  const total = costTotal(siteCost(world, site));
   const builtCount = totalGoods(site.built);
   const onSite = GOOD_TYPES.find((good) => site.delivered[good] > 0);
   if (onSite) {
@@ -625,10 +625,11 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
       oreTile = mineTile(world, home, mine.deposit);
       if (oreTile === null) { setBlocked(world, home, 'The deposit is used up'); s.timer = 40; return; }
       if (home.meals <= 0) {
-        const food = home.input[mine.favouriteFood] > 0 ? mine.favouriteFood : FOOD_TYPES.find((f) => home.input[f] > 0);
+        const favourite = favouriteFoodOf(mine, player.raceType);
+        const food = home.input[favourite] > 0 ? favourite : mine.foods.find((f) => home.input[f] > 0);
         if (!food) { setBlocked(world, home, 'Waiting: no food'); s.timer = 10; return; }
         home.input[food]--;
-        home.meals += food === mine.favouriteFood ? FAVOURITE_FOOD_MEALS : OTHER_FOOD_MEALS;
+        home.meals += food === favourite ? FAVOURITE_FOOD_MEALS : OTHER_FOOD_MEALS;
       }
     }
     const missing = GOOD_TYPES.filter((g) => (recipe.inputs[g] ?? 0) > home.input[g]);

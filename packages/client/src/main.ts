@@ -1,10 +1,10 @@
 import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
-  SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
+  RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision
 } from '../../simulation/src/index.ts';
-import type { BotType, MapSizeType, SpecialistType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotType, MapSizeType, RaceType, SpecialistType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import {
@@ -15,8 +15,8 @@ import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } fr
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v5';
-const AUTOSAVE_KEY = 'lers.autosave.v5';
+const SAVE_KEY = 'lers.save.v6';
+const AUTOSAVE_KEY = 'lers.autosave.v6';
 const AUTOSAVE_MS = 5 * 60 * 1000;
 const DRAG_THRESHOLD = 6;
 
@@ -35,6 +35,7 @@ function randomSeed(): number {
 const params = new URLSearchParams(location.search);
 const BOT_TYPE_KEY = 'lers.botType';
 const MAP_SIZE_KEY = 'lers.mapSize';
+const RACE_KEY = 'lers.race';
 /** Hash words such as `#calm`, `#small` or `#calm-small`, for hosts that pass only the hash to the page. */
 const hashWords = location.hash.slice(1).split('-');
 
@@ -55,12 +56,13 @@ function remember(key: string, value: string): void {
 /** The opponent and map size chosen last; the menu highlights them and "Play again" keeps them. */
 let lastBotType: BotType = chosen(BOT_TYPES, BOT_TYPE_KEY, 'bot', 'aggressive');
 let lastMapSize: MapSizeType = chosen(MAP_SIZE_TYPES, MAP_SIZE_KEY, 'size', 'medium');
+let lastRace: RaceType = chosen(RACE_TYPES, RACE_KEY, 'race', 'romans');
 const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
 const mapSize = (): MapSizeType => (isMatch() ? mapSizeTypeOf(world.width) : lastMapSize);
 const seedParam = Number(params.get('seed'));
 let world: World = params.get('mode') === 'sandbox'
   ? createWorld({ seed: Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed() })
-  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType, lastMapSize);
+  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType, lastMapSize, lastRace);
 
 const ui = {
   tab: 'build' as TabId,
@@ -101,8 +103,8 @@ const isMatch = () => world.players.length > 1;
 
 function showWorld(): void {
   els.mapName.textContent = isMatch()
-    ? `Match · ${MAP_SIZE_SETTINGS[mapSizeTypeOf(world.width)].label.toLowerCase()} map ${world.seed} · ${BOT_TYPE_SETTINGS[world.players[1].botType].label} computer`
-    : `Sandbox · map ${world.seed}`;
+    ? `${RACE_SETTINGS[world.players[PLAYER].raceType].label} · ${MAP_SIZE_SETTINGS[mapSizeTypeOf(world.width)].label.toLowerCase()} map ${world.seed} · ${BOT_TYPE_SETTINGS[world.players[1].botType].label} computer (${RACE_SETTINGS[world.players[1].raceType].label})`
+    : `${RACE_SETTINGS[world.players[PLAYER].raceType].label} · sandbox · map ${world.seed}`;
   // Work out the fog of war before the first frame, so the start is not drawn as unexplored.
   updateVision(world);
   view.setWorld(world);
@@ -160,7 +162,7 @@ function renderPanel(): void {
   // Range inputs keep their position while being dragged; re-rendering under the pointer would reset them.
   if (document.activeElement instanceof HTMLInputElement && els.panel.contains(document.activeElement)) return;
   els.panel.innerHTML =
-    ui.tab === 'build' ? renderBuildPanel(ui.groupType, ui.selectedType, ui.placing)
+    ui.tab === 'build' ? renderBuildPanel(ui.groupType, ui.selectedType, ui.placing, world.players[PLAYER].raceType)
     : ui.tab === 'goods' ? renderGoodsPanel(world, ui.goodsView, PLAYER)
     : ui.tab === 'settlers' ? renderSettlersPanel(world, ui.settlersView, PLAYER)
     : ui.tab === 'military' ? renderMilitaryPanel(world, ui.militaryView, PLAYER, ui.groups)
@@ -174,7 +176,7 @@ function renderMenu(): void {
     els.menu.innerHTML = renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
       isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
-      botType: botType(), mapSize: lastMapSize
+      botType: botType(), mapSize: lastMapSize, raceType: lastRace
     });
   }
 }
@@ -772,16 +774,19 @@ document.addEventListener('click', (e) => {
     case 'new-match': {
       const type = (BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '') ? target.dataset.bot as BotType : botType();
       lastBotType = type; remember(BOT_TYPE_KEY, type);
-      startNew(createMatch(randomSeed(), type, lastMapSize));
+      startNew(createMatch(randomSeed(), type, lastMapSize, lastRace));
       break;
     }
+    case 'race':
+      if ((RACE_TYPES as readonly string[]).includes(target.dataset.race ?? '')) { lastRace = target.dataset.race as RaceType; remember(RACE_KEY, lastRace); }
+      renderMenu(); break;
     case 'map-size':
       if ((MAP_SIZE_TYPES as readonly string[]).includes(target.dataset.size ?? '')) {
         lastMapSize = target.dataset.size as MapSizeType; remember(MAP_SIZE_KEY, lastMapSize);
       }
       renderMenu(); break;
-    case 'new-sandbox': startNew(createWorld({ seed: randomSeed() })); break;
-    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize()) : createWorld({ seed: world.seed })); break;
+    case 'new-sandbox': startNew(createWorld({ seed: randomSeed(), raceTypes: [lastRace] })); break;
+    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, world.players[1].raceType) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;
     case 'surrender': ui.isConfirmingSurrender = true; renderMenu(); break;
     case 'cancel-surrender': ui.isConfirmingSurrender = false; renderMenu(); break;

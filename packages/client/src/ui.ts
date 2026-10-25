@@ -1,10 +1,10 @@
 import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
-  GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
+  GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
   costTotal, distributedGoods, goodCount, isMilitaryBuilding, isSoldierType, isStorageBuilding, settlerById
 } from '../../simulation/src/index.ts';
 import type {
-  BotType, Building, BuildingGroupType, MapSizeType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, World
+  BotType, Building, BuildingGroupType, MapSizeType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, World
 } from '../../simulation/src/index.ts';
 
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
@@ -74,16 +74,18 @@ export function renderTabs(active: TabId): string {
   return TABS.map((t) => `<button type="button" class="tab" data-action="tab" data-tab="${t.id}" aria-pressed="${t.id === active}">${icon(t.id)}${t.label}</button>`).join('');
 }
 
-export function renderBuildPanel(groupType: BuildingGroupType, selected: BuildingTypeId, placing: BuildingTypeId | null): string {
+export function renderBuildPanel(groupType: BuildingGroupType, selected: BuildingTypeId, placing: BuildingTypeId | null, race: RaceType): string {
   const groups = BUILDING_GROUP_TYPES.map((g) =>
     `<button type="button" role="tab" class="pill" data-action="group" data-group="${g.id}" aria-selected="${g.id === groupType}" title="Key ${g.key.toUpperCase()}">${g.label}</button>`).join('');
-  const types = Object.values(BUILDING_TYPES).filter((t) => t.groupType === groupType);
+  // Only the buildings this people can build; its own ones are marked.
+  const types = Object.values(BUILDING_TYPES).filter((t) => t.groupType === groupType && isBuildableBy(t.id, race));
   const cards = types.map((t) => `
-    <button type="button" class="building-card" data-action="select-type" data-type="${t.id}" aria-pressed="${t.id === selected}" ${t.isAvailable ? '' : 'disabled'}>
+    <button type="button" class="building-card ${t.races ? 'is-own' : ''}" data-action="select-type" data-type="${t.id}" aria-pressed="${t.id === selected}" ${t.isAvailable ? '' : 'disabled'}>
       <span class="name">${t.label}</span>
-      <span class="cost">${t.isAvailable ? costText(t.cost) : 'Coming later'}</span>
+      <span class="cost">${t.isAvailable ? costText(buildingCost(t.id, race)) : 'Coming later'}</span>
+      ${t.races ? `<span class="own-tag">${t.races.map((r) => RACE_SETTINGS[r].label).join(' and ')} only</span>` : ''}
     </button>`).join('');
-  const t = BUILDING_TYPES[selected];
+  const t = BUILDING_TYPES[isBuildableBy(selected, race) ? selected : types[0]?.id ?? selected];
   const isPlacing = placing === selected;
   return `
     <div class="groups" role="tablist" aria-label="Building groups">${groups}</div>
@@ -94,7 +96,7 @@ export function renderBuildPanel(groupType: BuildingGroupType, selected: Buildin
         <dt>Worker</dt><dd>${t.workerLabel}</dd>
         <dt>Uses</dt><dd>${t.usesLabel}</dd>
         <dt>Makes</dt><dd>${t.makesLabel}</dd>
-        <dt>Cost</dt><dd>${costText(t.cost, ', ')}</dd>
+        <dt>Cost</dt><dd>${costText(buildingCost(t.id, race), ', ')}</dd>
       </dl>
       <button type="button" class="primary" data-action="${isPlacing ? 'cancel-placing' : 'start-placing'}" ${t.isAvailable ? '' : 'disabled'}>
         ${isPlacing ? 'Cancel placing' : t.isAvailable ? 'Place on map' : 'Not available yet'}
@@ -264,7 +266,8 @@ export function renderMilitaryPanel(world: World, view: MilitaryViewId, owner: n
     return `${tabs}
       <div class="strength-block">
         <span class="menu-label">Strength outside your land</span>
-        <div class="strength-value"><b>${strength} %</b><span class="muted">from ${goodCount('gold', gold)}</span></div>
+        <div class="strength-value"><b>${strength} %</b><span class="muted">${world.players[owner].raceType === 'egyptians'
+          ? `worth ${Math.round(gold * 10) / 10} gold bars: gold counts half and gems double for the Egyptians` : `from ${goodCount('gold', gold)}`}</span></div>
         <div class="strength-bar"><div style="width: ${strength}%"></div></div>
         <span class="muted">On your own land soldiers always fight at 100 %. Outside it, strength rises with the gold bars in your storage, up to 100 % at ${GOLD_FOR_FULL_STRENGTH}.</span>
       </div>
@@ -337,6 +340,8 @@ export interface MenuState {
   botType: BotType;
   /** The map size selected for the next match. */
   mapSize: MapSizeType;
+  /** The people selected for the next match. */
+  raceType: RaceType;
 }
 
 /** Typical match length in bot-vs-bot runs, per opponent and map size; shown so players can pick a game that fits their time. */
@@ -358,6 +363,14 @@ export function renderGameMenu(state: MenuState): string {
     <button type="button" class="menu-item" data-action="load-autosave" ${state.autosavedAt ? '' : 'disabled'}>Load autosave${state.autosavedAt ? `<span class="muted">${state.autosavedAt}</span>` : ''}</button>
     <div class="menu-section" role="group" aria-labelledby="menu-new-match">
       <span class="menu-label" id="menu-new-match">New match against the computer</span>
+      <span class="menu-hint" id="menu-race">Your people</span>
+      <div class="race-row" role="radiogroup" aria-labelledby="menu-race">
+        ${RACE_TYPES.map((r) => `
+          <button type="button" class="race-choice ${r === state.raceType ? 'is-on' : ''}" role="radio" aria-checked="${r === state.raceType}" data-action="race" data-race="${r}">
+            <span class="opponent-name">${RACE_SETTINGS[r].label}</span>
+            <span class="muted">${RACE_SETTINGS[r].summary}</span>
+          </button>`).join('')}
+      </div>
       <span class="menu-hint" id="menu-map-size">Map size</span>
       <div class="map-size-row" role="radiogroup" aria-labelledby="menu-map-size">
         ${MAP_SIZE_TYPES.map((m) => `
@@ -366,7 +379,7 @@ export function renderGameMenu(state: MenuState): string {
             <span class="muted">${MAP_SIZE_SETTINGS[m].width} × ${MAP_SIZE_SETTINGS[m].height}</span>
           </button>`).join('')}
       </div>
-      <span class="menu-hint">Opponent — starts the match</span>
+      <span class="menu-hint">Opponent — starts the match; the computer plays another people</span>
       ${BOT_TYPES.map((t) => `
         <button type="button" class="opponent-choice ${t === state.botType ? 'is-on' : ''}" data-action="new-match" data-bot="${t}">
           <span class="opponent-name">${BOT_TYPE_SETTINGS[t].label}</span>
@@ -442,7 +455,8 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
   const lines: string[] = [];
   if (!b.isComplete) {
     const missing: Partial<GoodAmounts> = {};
-    for (const g of GOOD_TYPES) missing[g] = (type.cost[g] ?? 0) - b.built[g] - b.delivered[g];
+    const cost = siteCost(world, b);
+    for (const g of GOOD_TYPES) missing[g] = (cost[g] ?? 0) - b.built[g] - b.delivered[g];
     lines.push(`<dt>Still needs</dt><dd>${costTotal(missing) > 0 ? costText(missing, ', ') : 'Nothing'}</dd>`);
   } else {
     if (isMilitaryBuilding(b)) {

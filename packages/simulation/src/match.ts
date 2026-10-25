@@ -1,5 +1,5 @@
-import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, MAP_SIZE_SETTINGS } from './definitions.ts';
-import type { BuildingTypeId, MapSizeType } from './definitions.ts';
+import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, MAP_SIZE_SETTINGS, RACE_TYPES } from './definitions.ts';
+import type { BuildingTypeId, MapSizeType, RaceType } from './definitions.ts';
 import { BOT_DECISION_TICKS, decideBot } from './bot.ts';
 import type { BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
@@ -16,9 +16,15 @@ import type { World } from './world.ts';
 const GATHER_REACH = 10;
 
 /** A match: you (player 0) against one built-in computer player on a mirrored map. */
-export function createMatch(seed: number, botType: BotType = 'aggressive', mapSize: MapSizeType = 'medium'): World {
+export function createMatch(seed: number, botType: BotType = 'aggressive', mapSize: MapSizeType = 'medium', playerRace: RaceType = 'romans', botRace?: RaceType): World {
   const { width, height } = MAP_SIZE_SETTINGS[mapSize];
-  return createWorld({ seed, playerCount: 2, botType, width, height });
+  return createWorld({ seed, playerCount: 2, botType, width, height, raceTypes: [playerRace, botRace ?? computerRace(seed, playerRace)] });
+}
+
+/** The computer's people when none is chosen: another one than the player's, picked from the seed. */
+export function computerRace(seed: number, playerRace: RaceType): RaceType {
+  const others = RACE_TYPES.filter((r) => r !== playerRace);
+  return others[seed % others.length];
 }
 
 /**
