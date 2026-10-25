@@ -69,7 +69,7 @@ test('the same seed generates the same map with a castle, territory, trees and r
 test('placement rejects unavailable buildings, blocked ground, missing water and other players', () => {
   const world = createWorld({ seed: 3 });
   const castle = castleOf(world, 0)!;
-  assert.match(placementProblem(world, 0, 'gold_mine', castle.x + 6, castle.y)!, /not available/);
+  assert.match(placementProblem(world, 0, 'healer', castle.x + 6, castle.y)!, /not available/);
   assert.match(placementProblem(world, 0, 'castle', castle.x + 6, castle.y)!, /not available/);
   assert.equal(placementProblem(world, 0, 'woodcutter', castle.x, castle.y), 'Another building is in the way');
   assert.equal(placementProblem(world, 0, 'woodcutter', 0, 0) !== null, true);

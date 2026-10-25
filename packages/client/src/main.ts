@@ -14,8 +14,8 @@ import type { GoodsViewId, MilitaryViewId, OrderMode, TabId } from './ui.ts';
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v3';
-const AUTOSAVE_KEY = 'lers.autosave.v3';
+const SAVE_KEY = 'lers.save.v4';
+const AUTOSAVE_KEY = 'lers.autosave.v4';
 const AUTOSAVE_MS = 5 * 60 * 1000;
 const DRAG_THRESHOLD = 6;
 

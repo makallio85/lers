@@ -1,6 +1,6 @@
 import {
   BUILDING_TYPES, FAVOURITE_FOOD_MEALS, FOOD_TYPES, GOOD_NAMES, GOOD_TYPES, OTHER_FOOD_MEALS, SETTLER_LABELS,
-  SOLDIER_STATS, WEAPON_SOLDIERS, WEAPON_TYPES, costTotal, isSoldierType, totalGoods
+  SOLDIER_STATS, WEAPON_SOLDIERS, WEAPON_TYPES, costTotal, isSoldierType, isSpecialistType, totalGoods
 } from './definitions.ts';
 import type { BuildingTypeId, GoodType, SettlerType } from './definitions.ts';
 import { applyCommand } from './commands.ts';
@@ -9,12 +9,19 @@ import { releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from 
 import { advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
 import { updateVision } from './vision.ts';
 import {
-  FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_WATER, TREE_MATURE,
-  buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, newSettler, playerOf, pushMessage,
-  storedTotal, tileIndex
+  FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
+  buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
+  recomputeTerritory, storedTotal, tileIndex
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
 
+
+const OCCUPATION_TICKS = 50;
+/** A geologist looks this far around the spot he was sent to; a pioneer claims this far. */
+export const PROSPECT_RADIUS = 6;
+export const CLAIM_RADIUS = 4;
+const PROSPECT_TICKS = 40;
+const CLAIM_TICKS = 60;
 
 /** A producer stops once this many finished goods wait at its door. */
 export const OUTPUT_LIMIT = 8;
@@ -64,6 +71,7 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   if (world.tick % RESIDENT_INTERVAL_TICKS === 0) releaseResidents(world);
   if (world.tick % 5 === 0) runLogistics(world);
   if (world.tick % 5 === 0) { assignConstructionCrews(world); assignWorkers(world); }
+  if (world.tick % OCCUPATION_TICKS === 0) for (const p of world.players) applyOccupations(world, p);
   fillGarrisons(world);
   recruitSoldiers(world);
   sendDefenders(world);
@@ -168,6 +176,7 @@ function runLogistics(world: World): void {
   const requests: Request[] = [];
   for (const b of world.buildings) {
     if (!b.isComplete) {
+      if (b.isPaused) continue;
       const cost = BUILDING_TYPES[b.typeId].cost;
       for (const good of GOOD_TYPES) {
         const need = (cost[good] ?? 0) - b.delivered[good] - b.built[good] - b.incoming[good];
@@ -192,7 +201,7 @@ function runLogistics(world: World): void {
     return ((counts?.[r.building.typeId] ?? 0) + 1) / r.share;
   };
   requests.sort((a, b) => Number(b.isConstruction) - Number(a.isConstruction)
-    || (a.isConstruction ? a.building.id - b.building.id : 0)
+    || (a.isConstruction ? Number(b.building.isPriority) - Number(a.building.isPriority) || a.building.id - b.building.id : 0)
     || order(a) - order(b) || shareScore(a) - shareScore(b) || a.building.id - b.building.id);
 
   const send = (from: Building, to: Building, good: GoodType): boolean => {
@@ -250,8 +259,10 @@ function runLogistics(world: World): void {
 // ---------------------------------------------------------------- construction crews, workers, soldiers
 
 function assignConstructionCrews(world: World): void {
-  for (const site of world.buildings) {
-    if (site.isComplete) continue;
+  // Sites marked "Build first" get crews before the others; suspended sites get none.
+  const sites = world.buildings.filter((b) => !b.isComplete && !b.isPaused)
+    .sort((a, b) => Number(b.isPriority) - Number(a.isPriority) || a.id - b.id);
+  for (const site of sites) {
     if (site.levelProgress < 1) {
       if (site.diggerId !== null) continue;
       const digger = nearestIdle(world, 'digger', site.owner, site.doorX, site.doorY);
@@ -377,13 +388,15 @@ function updateSettler(world: World, s: Settler): void {
     case 'building': return updateBuilding(world, s);
     case 'toTool': return updateToTool(world, s);
     case 'toRecruit': return updateToRecruit(world, s);
+    case 'moving': case 'prospecting': case 'claiming': return updateSpecialist(world, s);
     default: return updateWorker(world, s);
   }
 }
 
 /** Idle settlers wait a moment where they are, then go into the nearest storage building. */
 function updateIdle(world: World, s: Settler): void {
-  if (s.isInside) return;
+  // Geologists and pioneers wait where they are for their next order.
+  if (s.isInside || isSpecialistType(s.settlerType)) return;
   if (s.timer > 0) { s.timer--; return; }
   if (s.path.length === 0) {
     const home = storageFor(world, s.owner, 'log', s.x, s.y, false);
@@ -656,12 +669,18 @@ function isShore(world: World, x: number, y: number): boolean {
 function countFields(world: World, home: Building): number {
   let count = 0;
   const r = GATHER_RULES.farmer.radius;
-  for (let y = home.doorY - r; y <= home.doorY + r; y++) {
-    for (let x = home.doorX - r; x <= home.doorX + r; x++) {
+  const { x: cx, y: cy } = workCentreOf(home);
+  for (let y = cy - r; y <= cy + r; y++) {
+    for (let x = cx - r; x <= cx + r; x++) {
       if (inBounds(world, x, y) && world.field[tileIndex(world, x, y)] >= 0) count++;
     }
   }
   return count;
+}
+
+/** A gatherer works around its work area, or around its door when none is set. */
+function workCentreOf(home: Building): { x: number; y: number } {
+  return { x: home.workX ?? home.doorX, y: home.workY ?? home.doorY };
 }
 
 function findTarget(world: World, s: Settler, home: Building, type: GatherType): number | null {
@@ -669,10 +688,11 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
   const fields = type === 'farmer' ? countFields(world, home) : 0;
   const ripe: { index: number; d: number }[] = [];
   const candidates: { index: number; d: number }[] = [];
-  for (let y = home.doorY - radius; y <= home.doorY + radius; y++) {
-    for (let x = home.doorX - radius; x <= home.doorX + radius; x++) {
+  const { x: cx, y: cy } = workCentreOf(home);
+  for (let y = cy - radius; y <= cy + radius; y++) {
+    for (let x = cx - radius; x <= cx + radius; x++) {
       if (!inBounds(world, x, y)) continue;
-      const d = distance(x, y, home.doorX, home.doorY);
+      const d = distance(x, y, cx, cy);
       if (d > radius) continue;
       const i = tileIndex(world, x, y);
       if (world.claim[i] !== 0) continue;
@@ -743,4 +763,108 @@ function warnAboutBlockedBuildings(world: World): void {
     const label = BUILDING_TYPES[b.typeId].label;
     pushMessage(world, b.owner, `${label} is waiting`, `${b.blockedReason}.`, true, b.id);
   }
+}
+
+// ---------------------------------------------------------------- occupations and specialists
+
+/**
+ * Keeps the share of diggers and builders under the player's maximum, and makes new ones from free
+ * carriers (taking a shovel or hammer from storage) when sites wait for them and carriers can spare it.
+ */
+function applyOccupations(world: World, player: PlayerState): void {
+  const own = world.settlers.filter((s) => s.owner === player.id && !isSoldierType(s.settlerType));
+  if (own.length === 0) return;
+  const countOf = (t: SettlerType) => own.filter((s) => s.settlerType === t).length;
+  const crew = countOf('digger') + countOf('builder');
+  const carriers = countOf('carrier');
+  const castle = castleOf(world, player.id);
+  if (!castle) return;
+  if (crew * 100 > own.length * player.maxCrewPercent) {
+    // Too many: an idle digger or builder goes back to carrying and returns the tool.
+    const spare = own.find((s) => (s.settlerType === 'digger' || s.settlerType === 'builder') && s.phase === 'idle');
+    if (spare) {
+      castle.stock[spare.settlerType === 'digger' ? 'shovel' : 'hammer']++;
+      spare.settlerType = 'carrier';
+    }
+    return;
+  }
+  if ((crew + 1) * 100 > own.length * player.maxCrewPercent || (carriers - 1) * 100 < own.length * player.minCarrierPercent) return;
+  const waiting = world.buildings.filter((b) => b.owner === player.id && !b.isComplete && !b.isPaused);
+  const needed: SettlerType | null = waiting.some((b) => b.blockedReason === 'Waiting for a digger') ? 'digger'
+    : waiting.some((b) => b.blockedReason === 'Waiting for a builder') ? 'builder' : null;
+  if (!needed) return;
+  const tool = needed === 'digger' ? 'shovel' : 'hammer';
+  const store = world.buildings.find((b) => b.owner === player.id && isStorageBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
+  const carrier = own.find((s) => isIdle(s, 'carrier'));
+  if (!store || !carrier) return;
+  store.stock[tool]--;
+  carrier.settlerType = needed;
+}
+
+/**
+ * Geologists and pioneers walk to where they were sent, then work around that spot: a geologist puts up
+ * signs on mountain tiles, showing its owner what ore lies there; a pioneer puts up posts that claim land
+ * no enemy military building holds.
+ */
+function updateSpecialist(world: World, s: Settler): void {
+  if (s.phase === 'moving') {
+    if (!advance(world, s)) return;
+    if (s.workCentre < 0) { s.phase = 'idle'; return; }
+    s.phase = s.settlerType === 'geologist' ? 'prospecting' : 'claiming';
+    s.targetTile = -1; s.timer = 0;
+    return;
+  }
+  if (s.targetTile >= 0) {
+    // Walking to the next tile, then working there.
+    if (s.path.length > 0) { advance(world, s); return; }
+    if (s.timer < (s.phase === 'prospecting' ? PROSPECT_TICKS : CLAIM_TICKS)) { s.timer++; return; }
+    const tx = s.targetTile % world.width, ty = Math.floor(s.targetTile / world.width);
+    if (s.phase === 'prospecting') {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) if (inBounds(world, tx + dx, ty + dy)) world.prospect[s.owner][tileIndex(world, tx + dx, ty + dy)] = 1;
+      }
+      world.mapVersion++;
+    } else if (canClaim(world, s.owner, s.targetTile)) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!inBounds(world, tx + dx, ty + dy)) continue;
+          const i = tileIndex(world, tx + dx, ty + dy);
+          if (canClaim(world, s.owner, i)) world.pioneerLand[i] = s.owner + 1;
+        }
+      }
+      recomputeTerritory(world);
+    }
+    s.targetTile = -1; s.timer = 0;
+    return;
+  }
+  // The nearest tile still worth a sign or a post that the specialist can walk to.
+  for (const next of specialistTiles(world, s).slice(0, 6)) {
+    if (tileOf(world, s) === next || walkTo(world, s, next, 3000)) { s.targetTile = next; s.timer = 0; return; }
+  }
+  s.phase = 'idle'; s.workCentre = -1; s.targetTile = -1;
+}
+
+/** Pioneers can claim any land no enemy military building holds, including other players' pioneer land. */
+function canClaim(world: World, owner: number, i: number): boolean {
+  const military = world.militaryLand[i];
+  return (military === 0 || military === owner + 1) && world.territory[i] !== owner + 1 && world.terrain[i] !== TERRAIN_WATER;
+}
+
+/** Tiles around the work centre still worth a sign or a post, nearest to the specialist first. */
+function specialistTiles(world: World, s: Settler): number[] {
+  const cx = s.workCentre % world.width, cy = Math.floor(s.workCentre / world.width);
+  const radius = s.settlerType === 'geologist' ? PROSPECT_RADIUS : CLAIM_RADIUS;
+  const found: { i: number; d: number }[] = [];
+  for (let y = cy - radius; y <= cy + radius; y++) {
+    for (let x = cx - radius; x <= cx + radius; x++) {
+      if (!inBounds(world, x, y) || Math.hypot(x - cx, y - cy) > radius) continue;
+      const i = tileIndex(world, x, y);
+      if (!isWalkable(world, i)) continue;
+      const isWanted = s.settlerType === 'geologist'
+        ? world.terrain[i] === TERRAIN_MOUNTAIN && world.prospect[s.owner][i] === 0
+        : canClaim(world, s.owner, i);
+      if (isWanted) found.push({ i, d: distance(x, y, s.x, s.y) });
+    }
+  }
+  return found.sort((a, b) => a.d - b.d || a.i - b.i).map((f) => f.i);
 }

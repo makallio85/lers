@@ -1,4 +1,4 @@
-import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_IRON, MAP_SIZE_SETTINGS } from './definitions.ts';
+import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, MAP_SIZE_SETTINGS } from './definitions.ts';
 import type { BuildingTypeId, MapSizeType } from './definitions.ts';
 import { BOT_DECISION_TICKS, decideBot } from './bot.ts';
 import type { BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
@@ -8,7 +8,7 @@ import type { Command, CommandResult } from './commands.ts';
 import { step } from './step.ts';
 import { observe } from './vision.ts';
 import {
-  NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TREE_MATURE, VISION_NONE, castleOf, createWorld, inBounds, tileIndex
+  NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TREE_MATURE, VISION_NONE, castleOf, createWorld, inBounds, isWalkable, tileIndex
 } from './world.ts';
 import type { World } from './world.ts';
 
@@ -45,6 +45,7 @@ export function stepMatch(world: World, commands: readonly Command[] = [], botLo
 export function spotFinder(world: World, playerId: number): BotSpotFinder {
   const owned = playerId + 1;
   const vision = world.vision[playerId];
+  const prospect = world.prospect[playerId];
   const castle = castleOf(world, playerId);
   const around = (x: number, y: number, r: number, fn: (i: number) => void) => {
     for (let ty = y - r; ty <= y + r; ty++) {
@@ -77,6 +78,22 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
   return {
     canReach(x: number, y: number) {
       return isNearReachable(x, y);
+    },
+    prospectTile() {
+      // The nearest seen mountain without signs yet, on own land first.
+      if (!castle) return null;
+      let best: { x: number; y: number } | null = null, bestScore = Infinity;
+      for (let y = 0; y < world.height; y++) {
+        for (let x = 0; x < world.width; x++) {
+          const i = tileIndex(world, x, y);
+          if (vision[i] === VISION_NONE || world.terrain[i] !== TERRAIN_MOUNTAIN || prospect[i] === 1 || !isWalkable(world, i)) continue;
+          const score = Math.hypot(x - castle.doorX, y - castle.doorY) + (world.territory[i] === owned ? 0 : 25);
+          if (score >= bestScore) continue;
+          reachable ??= reachableFrom(world, tileIndex(world, castle.doorX, castle.doorY));
+          if (reachable(i)) { bestScore = score; best = { x, y }; }
+        }
+      }
+      return best;
     },
     frontTile(towardX: number) {
       if (!castle) return null;
@@ -122,9 +139,11 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
               break;
             case 'water': score = -toCastle; break;
             case 'deposit_coal':
-            case 'deposit_iron': {
-              const deposit = need === 'deposit_coal' ? DEPOSIT_COAL : DEPOSIT_IRON;
-              around(x + 1, y + 1, 3, (i) => { if (world.deposit[i] === deposit) score += world.depositAmount[i]; });
+            case 'deposit_iron':
+            case 'deposit_gold': {
+              const deposit = need === 'deposit_coal' ? DEPOSIT_COAL : need === 'deposit_iron' ? DEPOSIT_IRON : DEPOSIT_GOLD;
+              // Only ore the player's own geologists have marked.
+              around(x + 1, y + 1, 3, (i) => { if (prospect[i] === 1 && world.deposit[i] === deposit) score += world.depositAmount[i]; });
               if (score === 0) continue;
               score -= toCastle * 0.5;
               break;
@@ -141,7 +160,10 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
             case 'distant_rocks': {
               // Closest to ore (or rocks) on land the player has seen but does not own yet.
               let nearest = Infinity;
-              const isWanted = need === 'ore' ? (i: number) => world.deposit[i] !== 0 && world.depositAmount[i] > 0 : (i: number) => world.rock[i] > 0;
+              // Ore: marked ore, or mountains nobody has looked at yet, which may hold some.
+              const isWanted = need === 'ore'
+                ? (i: number) => world.terrain[i] === TERRAIN_MOUNTAIN && (prospect[i] === 0 || (world.deposit[i] !== 0 && world.depositAmount[i] > 0))
+                : (i: number) => world.rock[i] > 0;
               around(doorX, doorY, 14, (i) => {
                 if (isWanted(i) && world.territory[i] !== owned) {
                   nearest = Math.min(nearest, Math.hypot((i % world.width) - doorX, Math.floor(i / world.width) - doorY));
@@ -155,7 +177,7 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
               const spread = Math.min(...military.map((m) => Math.hypot(doorX - m.x, doorY - m.y)));
               score = Math.min(spread, 14) * 2 - Math.abs(doorX - towardX) * 0.4;
               // Unclaimed mountains with ore nearby make a tower spot more valuable.
-              around(doorX, doorY, 12, (i) => { if (world.terrain[i] === TERRAIN_MOUNTAIN && world.deposit[i] !== 0 && world.territory[i] !== owned) score += 0.2; });
+              around(doorX, doorY, 12, (i) => { if (world.terrain[i] === TERRAIN_MOUNTAIN && world.territory[i] !== owned) score += 0.2; });
               break;
             }
           }

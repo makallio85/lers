@@ -6,7 +6,7 @@ import type { BotType } from './bot.ts';
 import type { Building, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 function botType(value: unknown): BotType {
   if (typeof value !== 'string' || !(BOT_TYPES as readonly string[]).includes(value)) fail('a bot type is unknown');
@@ -16,7 +16,8 @@ function botType(value: unknown): BotType {
 const PHASES: readonly SettlerPhase[] = [
   'idle', 'toPickup', 'toDrop', 'toStore', 'toSite', 'leveling', 'building',
   'toTool', 'toWork', 'inside', 'toTarget', 'working', 'returning',
-  'toRecruit', 'toGarrison', 'defending', 'moving', 'attacking'
+  'toRecruit', 'toGarrison', 'defending', 'moving', 'attacking',
+  'prospecting', 'claiming'
 ];
 const MADE_GOODS: readonly string[] = [...TOOL_TYPES, ...WEAPON_TYPES];
 const STAT_KEYS: readonly (keyof PlayerStats)[] = [
@@ -33,6 +34,7 @@ export function saveGame(world: World): Record<string, unknown> {
     terrain: Array.from(world.terrain), tree: Array.from(world.tree), field: Array.from(world.field),
     rock: Array.from(world.rock), deposit: Array.from(world.deposit), depositAmount: Array.from(world.depositAmount),
     claim: Array.from(world.claim), vision: world.vision.map((v) => Array.from(v)),
+    prospect: world.prospect.map((v) => Array.from(v)), pioneerLand: Array.from(world.pioneerLand),
     players: structuredClone(world.players),
     buildings: structuredClone(world.buildings),
     settlers: structuredClone(world.settlers),
@@ -155,6 +157,7 @@ export function loadGame(data: unknown): World {
       distribution: consumerRecords(raw.distribution, 10, 'distribution'),
       distributionCount: consumerRecords(raw.distributionCount, Number.MAX_SAFE_INTEGER, 'distribution count'),
       isRecruitingAutomatic: bool(raw.isRecruitingAutomatic, 'recruiting'), recruitsLeft: int(raw.recruitsLeft, 0, 99, 'recruits'),
+      minCarrierPercent: int(raw.minCarrierPercent, 0, 100, 'carrier share'), maxCrewPercent: int(raw.maxCrewPercent, 0, 100, 'crew share'),
       stats
     };
   });
@@ -178,7 +181,10 @@ export function loadGame(data: unknown): World {
       garrison: raw.garrison.map((g: unknown) => id(g, 'garrison soldier')),
       garrisonWanted: int(raw.garrisonWanted, 0, type.garrisonCapacity, 'garrison size'),
       isOccupied: bool(raw.isOccupied, 'occupation'), meals: int(raw.meals, 0, 100, 'meals'),
-      isPaused: bool(raw.isPaused, 'pause'), residentsLeft: int(raw.residentsLeft, 0, 1000, 'residents'),
+      isPaused: bool(raw.isPaused, 'pause'), isPriority: bool(raw.isPriority, 'site priority'),
+      workX: raw.workX === null ? null : int(raw.workX, 0, width - 1, 'work area'),
+      workY: raw.workY === null ? null : int(raw.workY, 0, height - 1, 'work area'),
+      residentsLeft: int(raw.residentsLeft, 0, 1000, 'residents'),
       blockedReason: raw.blockedReason === null ? null : text(raw.blockedReason, 'blocked reason'),
       blockedSince: nullableInt(raw.blockedSince, 'blocked time'), hasWarned: bool(raw.hasWarned, 'warning state')
     };
@@ -201,7 +207,8 @@ export function loadGame(data: unknown): World {
       good: nullableGood(raw.good, 'settler good'), homeId: nullableInt(raw.homeId, 'settler home'),
       targetTile: int(raw.targetTile, -1, n - 1, 'settler target tile'), isInside: bool(raw.isInside, 'settler inside'),
       health: num(raw.health, 0, 1000, 'health'), cooldown: int(raw.cooldown, 0, 1000, 'cooldown'),
-      enemyId: nullableInt(raw.enemyId, 'enemy'), attackId: nullableInt(raw.attackId, 'attack target')
+      enemyId: nullableInt(raw.enemyId, 'enemy'), attackId: nullableInt(raw.attackId, 'attack target'),
+      workCentre: int(raw.workCentre, -1, n - 1, 'specialist work area')
     };
   });
 
@@ -217,16 +224,19 @@ export function loadGame(data: unknown): World {
   });
 
   if (!Array.isArray(data.vision) || data.vision.length !== players.length) fail('the fog of war is missing');
+  if (!Array.isArray(data.prospect) || data.prospect.length !== players.length) fail('geologist signs are missing');
   const world: World = {
     seed: int(data.seed, 0, 0xffffffff, 'seed'), tick: int(data.tick, 0, Number.MAX_SAFE_INTEGER, 'game time'), width, height,
     terrain: Uint8Array.from(intArray(data.terrain, n, 0, 2, 'terrain')),
     tree: Int16Array.from(intArray(data.tree, n, -1, TREE_MATURE, 'trees')),
     field: Int16Array.from(intArray(data.field, n, -1, FIELD_RIPE, 'fields')),
     rock: Uint8Array.from(intArray(data.rock, n, 0, 255, 'rocks')),
-    deposit: Uint8Array.from(intArray(data.deposit, n, 0, 2, 'deposits')),
+    deposit: Uint8Array.from(intArray(data.deposit, n, 0, 3, 'deposits')),
     depositAmount: Uint8Array.from(intArray(data.depositAmount, n, 0, 255, 'deposit amounts')),
     claim: Int32Array.from(intArray(data.claim, n, 0, nextId, 'claims')),
     vision: data.vision.map((v: unknown) => Uint8Array.from(intArray(v, n, 0, 2, 'fog of war'))),
+    prospect: data.prospect.map((v: unknown) => Uint8Array.from(intArray(v, n, 0, 1, 'geologist signs'))),
+    pioneerLand: Uint8Array.from(intArray(data.pioneerLand, n, 0, players.length, 'pioneer land')), militaryLand: new Uint8Array(n),
     footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
     players, buildings, settlers, messages, nextId,
     randomState: int(data.randomState, 0, 0xffffffff, 'random state'), mapVersion: 0, territoryVersion: 0,

@@ -14,6 +14,7 @@ const TICKS_PER_MINUTE = 600;
 /** A squad attacking a building: three per defender inside, plus these. */
 const SQUAD_EXTRA = 4;
 const SCOUTS = 3;
+const GEOLOGISTS = 2;
 
 /** How a built-in bot plays. Calm follows the original game's computer players, which build for a long time before attacking. */
 export const BOT_TYPES = ['calm', 'aggressive'] as const;
@@ -51,7 +52,7 @@ export interface BotLogEntry {
 }
 
 /** What a spot should be close to when the bot picks where to build. */
-export type SpotNeed = 'trees' | 'rocks' | 'water' | 'deposit_coal' | 'deposit_iron' | 'free_land' | 'castle' | 'border' | 'ore' | 'distant_rocks';
+export type SpotNeed = 'trees' | 'rocks' | 'water' | 'deposit_coal' | 'deposit_iron' | 'deposit_gold' | 'free_land' | 'castle' | 'border' | 'ore' | 'distant_rocks';
 
 /**
  * The bot's only access to the map besides its observation: finding a valid spot on its own land,
@@ -59,6 +60,8 @@ export type SpotNeed = 'trees' | 'rocks' | 'water' | 'deposit_coal' | 'deposit_i
  */
 export interface BotSpotFinder {
   findSpot(typeId: BuildingTypeId, need: SpotNeed, towardX: number): { x: number; y: number } | null;
+  /** A seen mountain tile its geologists have not marked yet, own land first. */
+  prospectTile(): { x: number; y: number } | null;
   /** Whether the bot's settlers can walk from the castle to this tile (or next to it). */
   canReach(x: number, y: number): boolean;
   /** The explored, walkable tile closest to the given side of the map, for scouting with the army. */
@@ -73,14 +76,14 @@ const BUILD_PLAN: readonly BuildingTypeId[] = [
   'woodcutter', 'stonecutter', 'sawmill', 'forester', 'woodcutter', 'stonecutter',
   'farm', 'waterworks', 'mill', 'bakery', 'fisher',
   'coal_mine', 'iron_mine', 'smelter', 'pig_farm', 'slaughterhouse',
-  'weaponsmith', 'barracks', 'toolsmith', 'storage',
+  'weaponsmith', 'barracks', 'toolsmith', 'storage', 'gold_mine', 'gold_smelter',
   'woodcutter', 'forester', 'coal_mine', 'farm', 'bakery', 'mill', 'fisher', 'iron_mine', 'coal_mine',
   'weaponsmith', 'sawmill', 'farm', 'stonecutter'
 ];
 
 const NEEDS: Partial<Record<BuildingTypeId, SpotNeed>> = {
   woodcutter: 'trees', forester: 'trees', stonecutter: 'rocks', waterworks: 'water', fisher: 'water',
-  coal_mine: 'deposit_coal', iron_mine: 'deposit_iron', farm: 'free_land', pig_farm: 'free_land'
+  coal_mine: 'deposit_coal', iron_mine: 'deposit_iron', gold_mine: 'deposit_gold', farm: 'free_land', pig_farm: 'free_land'
 };
 
 /** Buildings that feed miners, in the order the bot adds them when mines go hungry. */
@@ -95,6 +98,7 @@ function isUseful(typeId: BuildingTypeId, count: (t: BuildingTypeId) => number):
     case 'slaughterhouse': return count('pig_farm') > count('slaughterhouse');
     case 'iron_mine': return count('coal_mine') > count('iron_mine');
     case 'smelter': return count('iron_mine') > count('smelter') && count('coal_mine') > 0;
+    case 'gold_smelter': return count('gold_mine') > count('gold_smelter') && count('coal_mine') > 1;
     case 'weaponsmith': case 'toolsmith': return count('smelter') > 0;
     case 'barracks': return count('weaponsmith') > count('barracks');
     default: return true;
@@ -190,7 +194,21 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     }
   }
 
-  // 2. Tools: order the one a finished workplace is missing.
+  // 2. Geologists: keep two, and send idle ones to mountains nobody has marked yet.
+  const geologists = obs.ownSpecialists.filter((s) => s.settlerType === 'geologist');
+  if (geologists.length < GEOLOGISTS && obs.tick % (BOT_DECISION_TICKS * 10) === 0) {
+    commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: GEOLOGISTS });
+  }
+  const idleGeologists = geologists.filter((s) => s.phase === 'idle');
+  if (idleGeologists.length > 0 && obs.tick % (BOT_DECISION_TICKS * 5) === 0) {
+    const tile = spots.prospectTile();
+    if (tile) {
+      commands.push({ type: 'moveSpecialists', playerId: me, settlerIds: idleGeologists.map((s) => s.id), x: tile.x, y: tile.y });
+      note(`prospect at ${tile.x},${tile.y} with ${idleGeologists.length}`);
+    }
+  }
+
+  // 3. Tools: order the one a finished workplace is missing.
   for (const b of obs.ownBuildings) {
     const tool = missingTool(b);
     if (tool && (obs.player.productionOrders[tool] ?? 0) === 0) {
@@ -199,7 +217,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     }
   }
 
-  // 3. Army. Intruders on own land are driven out at once, whatever the bot type.
+  // 4. Army. Intruders on own land are driven out at once, whatever the bot type.
   let free = obs.ownSoldiers.filter((s) => s.phase === 'idle' || s.phase === 'moving');
   const intruders = obs.otherSoldiers.filter((s) => isOnOwnLand(obs, s.x, s.y));
   if (intruders.length > 0 && free.length > 0) {

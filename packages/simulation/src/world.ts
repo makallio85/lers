@@ -1,6 +1,6 @@
 import type { BotType } from './bot.ts';
 import {
-  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_IRON, DEPOSIT_NONE, GOOD_TYPES, SOLDIER_STATS, TOOL_TYPES, WEAPON_TYPES,
+  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, GOOD_TYPES, SOLDIER_STATS, TOOL_TYPES, WEAPON_TYPES,
   consumersOf, distributedGoods, emptyGoods, isSoldierType
 } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, GoodType, SettlerType } from './definitions.ts';
@@ -64,7 +64,13 @@ export interface Building {
   isOccupied: boolean;
   /** Shifts a miner can still work from the last meal. */
   meals: number;
+  /** Paused: a workplace stops working; a construction site gets no materials or crew ("Suspend"). */
   isPaused: boolean;
+  /** Construction sites only: served before other sites ("Build first"). */
+  isPriority: boolean;
+  /** Gatherers only: the centre of the work area, or null for around the door. */
+  workX: number | null;
+  workY: number | null;
   /** Settlers a residence still has to send out. */
   residentsLeft: number;
   blockedReason: string | null;
@@ -75,7 +81,8 @@ export interface Building {
 export type SettlerPhase =
   | 'idle' | 'toPickup' | 'toDrop' | 'toStore' | 'toSite' | 'leveling' | 'building'
   | 'toTool' | 'toWork' | 'inside' | 'toTarget' | 'working' | 'returning'
-  | 'toRecruit' | 'toGarrison' | 'defending' | 'moving' | 'attacking';
+  | 'toRecruit' | 'toGarrison' | 'defending' | 'moving' | 'attacking'
+  | 'prospecting' | 'claiming';
 
 export interface Settler {
   id: number;
@@ -103,6 +110,8 @@ export interface Settler {
   cooldown: number;
   enemyId: number | null;
   attackId: number | null;
+  /** Specialists only: the tile they were sent to work around, or -1. */
+  workCentre: number;
 }
 
 export interface PlayerStats {
@@ -136,6 +145,10 @@ export interface PlayerState {
   /** Automatic: every weapon at the barracks becomes a soldier. Otherwise only `recruitsLeft` more. */
   isRecruitingAutomatic: boolean;
   recruitsLeft: number;
+  /** Occupations: new diggers and builders only while carriers stay at least this share (percent) of the settlers. */
+  minCarrierPercent: number;
+  /** Occupations: diggers and builders together stay at most this share (percent) of the settlers. */
+  maxCrewPercent: number;
   stats: PlayerStats;
 }
 
@@ -172,6 +185,12 @@ export interface World {
   claim: Int32Array;
   /** Per player: what each tile shows through the fog of war. */
   vision: Uint8Array[];
+  /** Per player: 1 where one of its geologists has put up a sign, so the ore there (or its absence) is known. */
+  prospect: Uint8Array[];
+  /** Owner + 1 of land claimed by pioneers' posts. Military land takes precedence over it. */
+  pioneerLand: Uint8Array;
+  /** Owner + 1 of land claimed by military buildings alone; worked out with the territory, not saved. */
+  militaryLand: Uint8Array;
   players: PlayerState[];
   buildings: Building[];
   settlers: Settler[];
@@ -246,7 +265,7 @@ export function newBuilding(world: World, typeId: BuildingTypeId, owner: number,
     delivered: emptyGoods(), built: emptyGoods(),
     levelProgress: 0, buildProgress: 0, diggerId: null, builderId: null, workerId: null,
     garrison: [], garrisonWanted: typeId === 'castle' ? 3 : Math.min(1, type.garrisonCapacity), isOccupied: false, meals: 0,
-    isPaused: false, residentsLeft: 0,
+    isPaused: false, isPriority: false, workX: null, workY: null, residentsLeft: 0,
     blockedReason: null, blockedSince: null, hasWarned: false
   };
   for (let dy = 0; dy < size; dy++) {
@@ -276,7 +295,8 @@ export function newSettler(world: World, owner: number, settlerType: SettlerType
   const s: Settler = {
     id: world.nextId++, owner, settlerType, x, y, prevX: x, prevY: y, path: [], phase: 'idle', timer: 0,
     carrying: null, fromId: null, toId: null, good: null, homeId: null, targetTile: -1, isInside: true,
-    health: isSoldierType(settlerType) ? SOLDIER_STATS[settlerType].health : 0, cooldown: 0, enemyId: null, attackId: null
+    health: isSoldierType(settlerType) ? SOLDIER_STATS[settlerType].health : 0, cooldown: 0, enemyId: null, attackId: null,
+    workCentre: -1
   };
   world.settlers.push(s);
   return s;
@@ -293,7 +313,10 @@ export function claimsTerritory(b: Building): boolean {
   return b.typeId === 'castle' || b.isOccupied;
 }
 
-/** Rebuilds owned land: each tile belongs to the nearest building that claims it. */
+/**
+ * Rebuilds owned land: each tile belongs to the nearest military building that claims it. Land no building
+ * claims belongs to whoever's pioneers put posts on it.
+ */
 export function recomputeTerritory(world: World): void {
   const next = new Uint8Array(world.width * world.height);
   const best = new Float32Array(world.width * world.height).fill(Infinity);
@@ -310,6 +333,8 @@ export function recomputeTerritory(world: World): void {
       }
     }
   }
+  world.militaryLand = next.slice();
+  for (let i = 0; i < next.length; i++) if (next[i] === 0) next[i] = world.pioneerLand[i];
   let isChanged = false;
   for (let i = 0; i < next.length; i++) if (next[i] !== world.territory[i]) { isChanged = true; break; }
   if (!isChanged) return;
@@ -321,6 +346,9 @@ export function recomputeTerritory(world: World): void {
     p.stats.largestTerritory = Math.max(p.stats.largestTerritory, land);
   }
 }
+
+export const DEFAULT_MIN_CARRIER_PERCENT = 30;
+export const DEFAULT_MAX_CREW_PERCENT = 25;
 
 export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'aggressive'): PlayerState {
   const isStored = {} as Record<GoodType, boolean>;
@@ -335,10 +363,10 @@ export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'ag
   }
   return {
     id, isBot, botType, isEliminated: false,
-    transportPriority: ['plank', 'stone', 'log', ...TOOL_TYPES, ...WEAPON_TYPES, 'coal', 'iron_ore', 'iron',
+    transportPriority: ['plank', 'stone', 'log', ...TOOL_TYPES, ...WEAPON_TYPES, 'coal', 'iron_ore', 'iron', 'gold_ore', 'gold',
       'water', 'grain', 'flour', 'bread', 'fish', 'pig', 'meat'],
     isStored, productionOrders: {}, productionShares, productionCredit: {}, distribution, distributionCount: {},
-    isRecruitingAutomatic: true, recruitsLeft: 0,
+    isRecruitingAutomatic: true, recruitsLeft: 0, minCarrierPercent: DEFAULT_MIN_CARRIER_PERCENT, maxCrewPercent: DEFAULT_MAX_CREW_PERCENT,
     stats: { buildingsBuilt: 0, soldiersRecruited: 0, soldiersLost: 0, towersTaken: 0, planksMade: 0, breadBaked: 0, largestTerritory: 0 }
   };
 }
@@ -374,7 +402,8 @@ export function createWorld({ seed = 1, width, height, playerCount = 1, botType 
     terrain: new Uint8Array(n), tree: new Int16Array(n).fill(NO_TREE), field: new Int16Array(n).fill(NO_FIELD),
     rock: new Uint8Array(n), deposit: new Uint8Array(n), depositAmount: new Uint8Array(n),
     footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
-    claim: new Int32Array(n), vision: players.map(() => new Uint8Array(n)), players, buildings: [], settlers: [], messages: [],
+    claim: new Int32Array(n), vision: players.map(() => new Uint8Array(n)), prospect: players.map(() => new Uint8Array(n)),
+    pioneerLand: new Uint8Array(n), militaryLand: new Uint8Array(n), players, buildings: [], settlers: [], messages: [],
     nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null
   };
   generateTerrain(world);
@@ -426,7 +455,8 @@ function generateTerrain(world: World): void {
     const r = random.next();
     if (world.terrain[i] === TERRAIN_MOUNTAIN) {
       if (r < 0.25) world.rock[i] = ROCK_STONE;
-      else if (ore[i] > 0.4) setDeposit(world, i, ore[i] > 0.62 ? DEPOSIT_IRON : DEPOSIT_COAL);
+      // Gold is the rarest ore, found where the ore is richest.
+      else if (ore[i] > 0.4) setDeposit(world, i, ore[i] > 0.78 ? DEPOSIT_GOLD : ore[i] > 0.62 ? DEPOSIT_IRON : DEPOSIT_COAL);
     }
     else if (world.terrain[i] === TERRAIN_GRASS && forest[i] > 0.58 && r < 0.6) world.tree[i] = TREE_MATURE;
     else if (world.terrain[i] === TERRAIN_GRASS && r < 0.012) world.rock[i] = ROCK_STONE;
@@ -490,9 +520,11 @@ function prepareStart(world: World, x: number, y: number): void {
       }
     }
   };
+  // Iron in the middle, coal around it, and a little gold at the far edge.
   forEachNear(mountain, 5, (i, d) => {
     world.terrain[i] = TERRAIN_MOUNTAIN; world.tree[i] = NO_TREE; world.rock[i] = 0;
-    setDeposit(world, i, d < 2.2 ? DEPOSIT_IRON : DEPOSIT_COAL);
+    const isFarSide = Math.hypot((i % world.width) + 0.5 - centreX, Math.floor(i / world.width) + 0.5 - centreY) > radius + 2;
+    setDeposit(world, i, d < 2.2 ? DEPOSIT_IRON : d > 3.8 && isFarSide ? DEPOSIT_GOLD : DEPOSIT_COAL);
   });
   forEachNear(pond, 2.4, (i) => { world.terrain[i] = TERRAIN_WATER; world.tree[i] = NO_TREE; world.rock[i] = 0; setDeposit(world, i, DEPOSIT_NONE); });
   forEachNear(grove, 4, (i) => { if (world.terrain[i] === TERRAIN_GRASS && random.next() < 0.7) { world.tree[i] = TREE_MATURE; world.rock[i] = 0; } });

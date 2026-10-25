@@ -1,5 +1,8 @@
-import { BUILDING_TYPES, GOOD_TYPES, TOOL_TYPES, WEAPON_TYPES, consumersOf, isSoldierType } from './definitions.ts';
-import type { BuildingTypeId, GoodType, ToolType } from './definitions.ts';
+import {
+  BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_REACH,
+  consumersOf, isSoldierType, isSpecialistType
+} from './definitions.ts';
+import type { BuildingTypeId, GoodType, SpecialistType, ToolType } from './definitions.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
 import { hasExplored, hasExploredBuilding } from './vision.ts';
 import {
@@ -21,6 +24,11 @@ export type Command =
   | { type: 'setGarrisonWanted'; playerId: number; buildingId: number; count: number }
   | { type: 'moveSoldiers'; playerId: number; soldierIds: number[]; x: number; y: number }
   | { type: 'attackBuilding'; playerId: number; soldierIds: number[]; buildingId: number }
+  | { type: 'setSitePriority'; playerId: number; buildingId: number; isPriority: boolean }
+  | { type: 'setWorkArea'; playerId: number; buildingId: number; x: number; y: number }
+  | { type: 'setOccupations'; playerId: number; minCarrierPercent: number; maxCrewPercent: number }
+  | { type: 'setSpecialists'; playerId: number; specialistType: SpecialistType; count: number }
+  | { type: 'moveSpecialists'; playerId: number; settlerIds: number[]; x: number; y: number }
   | { type: 'surrender'; playerId: number };
 
 export type CommandResult = { isAccepted: true; buildingId?: number } | { isAccepted: false; reason: string };
@@ -29,6 +37,7 @@ export type CommandResult = { isAccepted: true; buildingId?: number } | { isAcce
 export const DEMOLISH_REFUND = 0.5;
 export const MAX_SHARE = 10;
 export const MAX_ORDER = 99;
+export const MAX_SPECIALISTS = 50;
 const WATER_REACH = 4;
 
 const refuse = (reason: string): CommandResult => ({ isAccepted: false, reason });
@@ -257,6 +266,55 @@ export function applyCommand(world: World, command: Command): CommandResult {
       for (const s of soldiers) { s.phase = 'attacking'; s.attackId = target.id; s.homeId = null; s.path = []; s.enemyId = null; }
       return accept();
     }
+    case 'setSitePriority': {
+      const b = ownBuilding(world, command.playerId, command.buildingId);
+      if (!b || b.isComplete) return refuse('Only construction sites can be built first');
+      if (typeof command.isPriority !== 'boolean') return refuse('Malformed command');
+      b.isPriority = command.isPriority;
+      return accept();
+    }
+    case 'setWorkArea': {
+      const b = ownBuilding(world, command.playerId, command.buildingId);
+      if (!b || !(WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId)) return refuse('This building has no work area');
+      if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
+      if (Math.hypot(command.x - b.doorX, command.y - b.doorY) > WORK_AREA_REACH) return refuse('Too far from the building');
+      if (world.territory[tileIndex(world, command.x, command.y)] !== command.playerId + 1) return refuse('Outside your territory');
+      b.workX = command.x; b.workY = command.y;
+      return accept();
+    }
+    case 'setOccupations': {
+      if (!isIntIn(command.minCarrierPercent, 0, 100) || !isIntIn(command.maxCrewPercent, 0, 100)) return refuse('Malformed command');
+      player.minCarrierPercent = command.minCarrierPercent;
+      player.maxCrewPercent = command.maxCrewPercent;
+      return accept();
+    }
+    case 'setSpecialists': {
+      if (!(SPECIALIST_TYPES as readonly string[]).includes(command.specialistType) || !isIntIn(command.count, 0, MAX_SPECIALISTS)) {
+        return refuse('Malformed command');
+      }
+      const made = setSpecialistCount(world, command.playerId, command.specialistType, command.count);
+      return made === command.count ? accept() : refuse(`Only ${made} could be made: each needs a free carrier and a ${SPECIALIST_TOOLS[command.specialistType]} in storage`);
+    }
+    case 'moveSpecialists': {
+      if (!Array.isArray(command.settlerIds) || command.settlerIds.length === 0 || command.settlerIds.length > MAX_SPECIALISTS) return refuse('Malformed command');
+      const ids = new Set(command.settlerIds);
+      if (ids.size !== command.settlerIds.length) return refuse('Malformed command');
+      const specialists = world.settlers.filter((s) => ids.has(s.id));
+      if (specialists.length !== ids.size || specialists.some((s) => s.owner !== command.playerId || !isSpecialistType(s.settlerType))) {
+        return refuse('Choose your own geologists or pioneers');
+      }
+      if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
+      if (!hasExplored(world, command.playerId, command.x, command.y)) return refuse('You have not explored that land');
+      const centre = tileIndex(world, command.x, command.y);
+      const tiles = formationTiles(world, command.x, command.y, specialists.length);
+      if (tiles.length === 0) return refuse('They cannot stand there');
+      specialists.forEach((s, k) => {
+        const path = findPath(world, tileIndex(world, Math.round(s.x), Math.round(s.y)), tiles[k % tiles.length]);
+        if (!path) return;
+        s.path = path; s.phase = 'moving'; s.isInside = false; s.workCentre = centre; s.targetTile = -1; s.timer = 0;
+      });
+      return accept();
+    }
     case 'surrender': {
       player.isEliminated = true;
       pushMessage(world, player.id, 'Defeat', 'You surrendered.', true, null);
@@ -266,6 +324,32 @@ export function applyCommand(world: World, command: Command): CommandResult {
     }
   }
   return refuse('Unknown command');
+}
+
+/**
+ * Makes or dismisses specialists until the player has `count` of that type. A free carrier takes the tool
+ * from storage; a dismissed specialist becomes a carrier and the tool goes back. Returns how many there are.
+ */
+function setSpecialistCount(world: World, playerId: number, type: SpecialistType, count: number): number {
+  const tool = SPECIALIST_TOOLS[type];
+  const castle = castleOf(world, playerId)!;
+  const own = () => world.settlers.filter((s) => s.owner === playerId && s.settlerType === type);
+  for (const s of own().slice(count)) {
+    s.settlerType = 'carrier'; s.phase = 'idle'; s.path = []; s.workCentre = -1; s.targetTile = -1; s.timer = 0;
+    castle.stock[tool]++;
+  }
+  let have = own().length;
+  while (have < count) {
+    const store = world.buildings.find((b) => b.owner === playerId && b.isComplete && BUILDING_TYPES[b.typeId].storageCapacity > 0
+      && b.stock[tool] - b.reserved[tool] > 0);
+    const carrier = world.settlers.find((s) => s.owner === playerId && s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying);
+    if (!store || !carrier) break;
+    store.stock[tool]--;
+    carrier.settlerType = type; carrier.phase = 'idle'; carrier.path = []; carrier.workCentre = -1;
+    if (carrier.isInside) { carrier.isInside = false; carrier.x = store.doorX; carrier.y = store.doorY; carrier.prevX = carrier.x; carrier.prevY = carrier.y; }
+    have++;
+  }
+  return have;
 }
 
 /** Removes a building, returning half its materials and everything it held to the castle. */

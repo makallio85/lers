@@ -48,6 +48,19 @@ Deliver a small complete match before tuning the 3–4 hour format. The player m
 
 The slice must surface stock, missing inputs and transport priorities clearly. Test it with returning Settlers III players and new players. Record whether unfamiliar controls, idle waiting or an unclear objective prevent completion.
 
+## Settlers, specialists and the wider economy
+
+These follow The Settlers III as described in its manual (issue #12, phase 1).
+
+- **Occupations:** the player sets a minimum share of carriers and a maximum share of diggers and builders together. Within those shares, a free carrier becomes a digger or builder when a site waits for one. It takes a shovel or hammer from storage. Above the maximum, idle diggers and builders go back to carrying and return their tools. The defaults are at least 30 % carriers and at most 25 % crew.
+- **Specialists:** a free carrier becomes a geologist (with a hammer) or a pioneer (with a shovel), and turns back again on request, returning the tool. The player sends specialists to a spot on explored land. They work around it, then wait there.
+  - **Geologists** put up signs on mountain tiles within 6 tiles of the spot. Ore is hidden until a player's own geologist has marked it. Built-in bots see only ore their geologists have marked, and they keep two geologists at work.
+  - **Pioneers** put up posts within 4 tiles of the spot. A post claims land that no enemy military building holds, including other players' pioneer land. Military land always wins over pioneer land.
+- **Gold:** the gold mine (fish is the miners' favourite food) and the gold smelter (gold ore + coal → gold bar) are in. Each start's ore mountain has a little gold at its far edge. Elsewhere gold sits where ore is richest.
+- **Lookout tower:** sees 22 tiles around it and claims no land.
+- **Work areas:** woodcutters, stonecutters, foresters, fishers and farms work around a point the player sets, up to 14 tiles from the building and on their own land.
+- **Construction sites:** "Build first" puts a site ahead of all others for materials and crew. Pausing a site suspends it: it gets no materials and no crew until it is resumed.
+
 ## Pace
 
 At 1× the game runs at the pace of The Settlers III at normal speed, which has no speed setting of its own. These values were timed by watching the original run (screenshots and a stopwatch, nothing decompiled), on 2026-10-25:
