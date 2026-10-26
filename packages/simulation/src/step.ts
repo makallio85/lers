@@ -48,7 +48,9 @@ const BUILD_TICKS_PER_GOOD = 100;
 const LEVEL_TICKS_PER_TILE = 150;
 /** How many diggers and builders work on one site at once, by its size. */
 export function diggerCrew(size: number): number { return size + 1; }
-export function builderCrew(size: number): number { return size; }
+export function builderCrew(size: number): number { return size + 2; }
+/** Builders every site gets before any site gets more than this: crews are shared out first, extras come after. */
+function baseBuilderCrew(size: number): number { return size; }
 /** The crew a site's work is measured for: one settler alone takes twice as long, a full crew less. */
 const REFERENCE_CREW = 2;
 
@@ -366,7 +368,8 @@ function assignConstructionCrews(world: World): void {
   // Sites marked "Build first" get crews before the others; suspended sites get none.
   const sites = world.buildings.filter((b) => !b.isComplete && !b.isPaused)
     .sort((a, b) => Number(b.isPriority) - Number(a.isPriority) || a.id - b.id);
-  for (const site of sites) {
+  // Two rounds: every site gets its base crew first; spare builders then join, up to the full crew.
+  for (const isExtraRound of [false, true]) for (const site of sites) {
     const isLevelling = site.levelProgress < 1;
     const type: SettlerType = isLevelling ? 'digger' : 'builder';
     const crew = isLevelling ? site.diggerIds : site.builderIds;
@@ -375,13 +378,20 @@ function assignConstructionCrews(world: World): void {
       const s = world.settlers.find((x) => x.id === crew[k]);
       if (!s || s.homeId !== site.id || s.settlerType !== type) crew.splice(k, 1);
     }
-    const wanted = isLevelling ? diggerCrew(site.size) : builderCrew(site.size);
+    const wanted = isLevelling ? diggerCrew(site.size) : isExtraRound ? builderCrew(site.size) : baseBuilderCrew(site.size);
     while (crew.length < wanted) {
       const s = nearestIdle(world, type, site.owner, site.doorX, site.doorY);
       // Each one works its own spot along the site's edge, so the crew stands side by side.
       if (!s || !walkTo(world, s, crewSpot(world, site, crew.length))) break;
       s.phase = 'toSite'; s.homeId = site.id;
       crew.push(s.id);
+    }
+    // Still short of its base crew: an extra builder from another site comes over (on the next tick).
+    if (!isExtraRound && !isLevelling && crew.length < wanted) {
+      const donor = sites.find((d) => d !== site && d.owner === site.owner && d.levelProgress >= 1 && d.builderIds.length > baseBuilderCrew(d.size));
+      const id = donor?.builderIds.pop();
+      const extra = id === undefined ? undefined : world.settlers.find((x) => x.id === id);
+      if (extra) { extra.homeId = null; becomeIdle(extra); }
     }
     setBlocked(world, site, crew.length > 0 ? null : isLevelling ? 'Waiting for a digger' : 'Waiting for a builder');
   }
