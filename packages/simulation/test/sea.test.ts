@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  SHIP_TICKS, TERRAIN_WATER, TRANSPORT_CAPACITY, castleOf, createMatch, loadGame, newBuilding, newSettler, passengersOf, placementProblem,
+  SHIP_TICKS, TERRAIN_WATER, TRANSPORT_CAPACITY, castleOf, createMatch, landRegion, nearestWater, waterBodyOf, loadGame, newBuilding, newSettler, passengersOf, placementProblem,
   saveGame, step, stepMatch, tileIndex
 } from '../src/index.ts';
 import { reachableFrom } from '../src/pathfinding.ts';
@@ -144,4 +144,49 @@ test('on an islands map two built-in bots build ships, ferry their armies across
   for (let t = 0; t < 75 * 600 && world.winner === null; t++) stepMatch(world, [], log);
   assert.notEqual(world.winner, null, 'the match should end within 75 minutes');
   assert.ok(log.some((e) => e.text.startsWith('land ')), 'an army went ashore across the sea');
+});
+
+test('a second colony: pioneers sail out, claim land, become carriers, and a trade ship brings the first storage its materials', () => {
+  const world = createMatch(3, 'calm', 'medium', 'romans', 'egyptians', 'islands');
+  const castle = castleOf(world, 0)!;
+  castle.stock.plank = 60; castle.stock.stone = 40; castle.stock.hammer = 2; castle.stock.shovel = 2;
+  for (let y = 0; y < world.height; y++) for (let x = 0; x < world.width; x++) world.vision[0][tileIndex(world, x, y)] = 1;
+  const { water, land } = coast(world);
+  const ship = newSettler(world, 0, 'transport_ship', water.x, water.y); ship.isInside = false; ship.phase = 'idle';
+  const pioneers: Settler[] = [0, 1, 2].map(() => { const s = newSettler(world, 0, 'pioneer', land.x, land.y); s.isInside = false; s.phase = 'idle'; return s; });
+  step(world);
+  assert.equal(command(world, { type: 'boardShip', playerId: 0, shipId: ship.id, unitIds: pioneers.map((s) => s.id) }).isAccepted, true);
+  // Sail to the water nearest the neutral island in the middle, and go ashore.
+  const centre = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
+  const berth = nearestWater(world, centre.x, centre.y, 30, waterBodyOf(world, tileIndex(world, water.x, water.y)));
+  const bx = berth % world.width, by = Math.floor(berth / world.width);
+  assert.equal(command(world, { type: 'moveSoldiers', playerId: 0, soldierIds: [ship.id], x: bx, y: by }).isAccepted, true);
+  runUntil(world, () => ship.phase === 'idle' && Math.hypot(ship.x - bx, ship.y - by) < 2, 6000);
+  assert.equal(command(world, { type: 'unloadShip', playerId: 0, shipId: ship.id }).isAccepted, true);
+  // The pioneers claim the land around where they landed, then turn into the colony's carriers.
+  const at = { x: Math.round(pioneers[0].x), y: Math.round(pioneers[0].y) };
+  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers.map((s) => s.id), x: at.x, y: at.y }).isAccepted, true);
+  runUntil(world, () => world.territory.reduce((n, t, i) => n + (t === 1 && Math.hypot((i % world.width) - at.x, Math.floor(i / world.width) - at.y) < 8 ? 1 : 0), 0) >= 40, 6000);
+  assert.equal(command(world, { type: 'releaseSpecialists', playerId: 0, settlerIds: pioneers.map((s) => s.id) }).isAccepted, true);
+  assert.ok(pioneers.every((s) => s.settlerType === 'carrier'));
+  // The first colony building goes next to the carriers; nothing else of the player's stands on that land.
+  let spot: { x: number; y: number } | null = null;
+  for (let r = 1; r < 8 && !spot; r++) {
+    for (let dy = -r; dy <= r && !spot; dy++) for (let dx = -r; dx <= r && !spot; dx++) {
+      if (placementProblem(world, 0, 'storage', at.x + dx, at.y + dy) === null) spot = { x: at.x + dx, y: at.y + dy };
+    }
+  }
+  assert.ok(spot, 'a storage area fits on the colony');
+  assert.equal(command(world, { type: 'placeBuilding', playerId: 0, buildingType: 'storage', x: spot!.x, y: spot!.y }).isAccepted, true);
+  const site = world.buildings.at(-1)!;
+  // A landing dock at home sends planks and stone; its trade ship unloads them into the site.
+  const dockSpot = spotFor(world, 'landing_dock');
+  const dock = finished(world, 'landing_dock', 0, dockSpot.x, dockSpot.y);
+  const trader = newSettler(world, 0, 'trade_ship', water.x, water.y); trader.isInside = false; trader.phase = 'idle';
+  command(world, { type: 'setTradeRoute', playerId: 0, buildingId: dock.id, x: site.doorX, y: site.doorY, waypoints: [] });
+  command(world, { type: 'setTradeGood', playerId: 0, buildingId: dock.id, good: 'plank', amount: 8 });
+  command(world, { type: 'setTradeGood', playerId: 0, buildingId: dock.id, good: 'stone', amount: 8 });
+  runUntil(world, () => site.isComplete, 20_000);
+  assert.ok(world.settlers.some((s) => s.owner === 0 && s.settlerType === 'builder' && landRegion(world, s.x, s.y) === landRegion(world, site.doorX, site.doorY)),
+    'the colony\'s builder came from its own carriers');
 });

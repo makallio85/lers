@@ -11,7 +11,7 @@ import { landRegion } from './regions.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
 import { hasExplored, hasExploredBuilding } from './vision.ts';
 import {
-  TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, buildingById, castleOf, claimsTerritory, inBounds, isMilitaryBuilding, isWalkable,
+  TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, buildingById, castleOf, claimsTerritory, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable,
   newBuilding, playerOf, pushMessage, recomputeTerritory, removeBuilding, siteCost, tileIndex
 } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
@@ -42,6 +42,8 @@ export type Command =
   | { type: 'setOccupations'; playerId: number; minCarrierPercent: number; maxCrewPercent: number }
   | { type: 'setSpecialists'; playerId: number; specialistType: SpecialistType; count: number }
   | { type: 'moveSpecialists'; playerId: number; settlerIds: number[]; x: number; y: number }
+  /** Chosen geologists, pioneers or thieves become carriers where they stand, as pioneers do to start a colony. */
+  | { type: 'releaseSpecialists'; playerId: number; settlerIds: number[] }
   | { type: 'castSpell'; playerId: number; priestId: number; spell: SpellType; x: number; y: number }
   | { type: 'promoteSoldiers'; playerId: number; soldierType: SoldierType }
   | { type: 'setTradeRoute'; playerId: number; buildingId: number; x: number; y: number; waypoints: { x: number; y: number }[] }
@@ -157,9 +159,13 @@ export function placementProblem(world: World, playerId: number, buildingType: B
   const home = landRegion(world, castle.doorX, castle.doorY);
   const here = landRegion(world, doorX, doorY);
   const isReachable = reachableFrom(world, tileIndex(world, castle.doorX, castle.doorY));
-  // On a colony's land (cut off from the castle), the entrance must connect to one of the player's buildings there.
+  // On a colony's land (cut off from the castle), the entrance must connect to one of the player's buildings there,
+  // or, before the first one, to where the player's settlers stand on that land.
   const colony = here !== home ? world.buildings.find((b) => b.owner === playerId && landRegion(world, b.doorX, b.doorY) === here) : undefined;
-  const isColonyReachable = colony ? reachableFrom(world, door)(tileIndex(world, colony.doorX, colony.doorY)) : false;
+  const settler = here !== home && !colony
+    ? world.settlers.find((s) => s.owner === playerId && !s.isInside && !isUnitType(s.settlerType) && landRegion(world, s.x, s.y) === here) : undefined;
+  const anchor = colony ? tileIndex(world, colony.doorX, colony.doorY) : settler ? tileIndex(world, Math.round(settler.x), Math.round(settler.y)) : -1;
+  const isColonyReachable = here !== 0 && anchor >= 0 ? reachableFrom(world, door)(anchor) : false;
   let k = 0;
   for (let dy = 0; dy < size; dy++) {
     for (let dx = 0; dx < size; dx++) world.footprint[tileIndex(world, x + dx, y + dy)] = saved[k++];
@@ -491,6 +497,17 @@ export function applyCommand(world: World, command: Command): CommandResult {
       });
       return accept();
     }
+    case 'releaseSpecialists': {
+      if (!Array.isArray(command.settlerIds) || command.settlerIds.length === 0 || command.settlerIds.length > MAX_SPECIALISTS) return refuse('Malformed command');
+      const ids = new Set(command.settlerIds);
+      if (ids.size !== command.settlerIds.length) return refuse('Malformed command');
+      const specialists = world.settlers.filter((s) => ids.has(s.id));
+      if (specialists.length !== ids.size || specialists.some((s) => s.owner !== command.playerId || !isSpecialistType(s.settlerType) || s.isInside)) {
+        return refuse('Choose your own geologists, pioneers or thieves outside buildings');
+      }
+      for (const s of specialists) releaseSpecialist(world, s);
+      return accept();
+    }
     case 'surrender': {
       player.isEliminated = true;
       pushMessage(world, player.id, 'Defeat', 'You surrendered.', true, null);
@@ -527,6 +544,18 @@ function setSpecialistCount(world: World, playerId: number, type: SpecialistType
     have++;
   }
   return have;
+}
+
+/** A specialist becomes a carrier where it stands; its tool goes to the nearest storage on its land, else the castle. */
+function releaseSpecialist(world: World, s: Settler): void {
+  const tool = SPECIALIST_TOOLS[s.settlerType as SpecialistType];
+  if (tool) {
+    const region = landRegion(world, s.x, s.y);
+    const stores = world.buildings.filter((b) => b.owner === s.owner && b.isComplete && isStorageBuilding(b) && landRegion(world, b.doorX, b.doorY) === region);
+    stores.sort((a, b) => Math.hypot(a.doorX - s.x, a.doorY - s.y) - Math.hypot(b.doorX - s.x, b.doorY - s.y));
+    (stores[0] ?? castleOf(world, s.owner)!).stock[tool]++;
+  }
+  s.settlerType = 'carrier'; s.phase = 'idle'; s.path = []; s.workCentre = -1; s.targetTile = -1; s.timer = 0; s.health = 0; s.homeId = null;
 }
 
 /** Removes a building, returning half its materials and everything it held to the castle. */

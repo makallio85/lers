@@ -2,7 +2,7 @@ import {
   BOARDING_RANGE, DONKEY_LOAD, GOOD_TYPES, SETTLER_LABELS, SHIP_COSTS, SHIP_TICKS, SHIP_TYPES, TRADE_SHIP_PILES, TRADE_UNLIMITED, TRANSPORT_CAPACITY,
   isShipType
 } from './definitions.ts';
-import { TRADE_SHIPS_PER_DOCK, isTrading, storageAtRouteEnd } from './trade.ts';
+import { TRADE_SHIPS_PER_DOCK, isTrading, unloadAtRouteEnd } from './trade.ts';
 import type { ShipType } from './definitions.ts';
 import { advance, distance, walkTo } from './movement.ts';
 import { TERRAIN_WATER, inBounds, isWalkable, newSettler, playerOf, pushMessage, tileIndex } from './world.ts';
@@ -206,9 +206,12 @@ function updateTradeShip(world: World, s: Settler): void {
       const next = s.waypoints.shift();
       if (next !== undefined && walkTo(world, s, next, 60_000)) return;
       const route = home?.tradeRoute;
-      const store = route ? storageAtRouteEnd(world, s.owner, route.x, route.y) : null;
-      if (store && s.carrying) { store.stock[s.carrying] += s.cargo; s.carrying = null; s.cargo = 0; }
-      else if (home) pushMessage(world, s.owner, 'No storage at the end of the sea route', 'The trade ship brings its load back. Build a storage area there.', true, home.id);
+      if (route && s.carrying) {
+        const left = unloadAtRouteEnd(world, s.owner, route.x, route.y, s.carrying, s.cargo);
+        if (left === s.cargo && home) pushMessage(world, s.owner, 'No storage at the end of the sea route', 'The trade ship brings its load back. Build a storage area there.', true, home.id);
+        s.cargo = left;
+        if (left === 0) s.carrying = null;
+      }
       const berth = home ? berthOf(world, home, s) : -1;
       if (berth < 0 || !walkTo(world, s, berth, 60_000)) { s.phase = 'idle'; return; }
       s.phase = 'returning';
