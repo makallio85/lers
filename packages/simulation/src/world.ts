@@ -358,6 +358,21 @@ export function isMilitaryBuilding(b: Building): boolean {
   return BUILDING_TYPES[b.typeId].garrisonCapacity > 0;
 }
 
+/**
+ * Whether carriers may take goods from this building: storage, and finished goods waiting at a workplace.
+ * Goods are moved only where they are needed, or to a storage area, so a workplace's goods can stay there.
+ */
+export function isSupplyBuilding(b: Building): boolean {
+  return b.isComplete && (!isMilitaryBuilding(b) || isStorageBuilding(b));
+}
+
+/** How many of a good a player holds where carriers can fetch it: storage and workplaces' finished goods. */
+export function heldGood(world: World, owner: number, good: GoodType): number {
+  let total = 0;
+  for (const b of world.buildings) if (b.owner === owner && isSupplyBuilding(b)) total += b.stock[good];
+  return total;
+}
+
 export function storedTotal(b: Building): number {
   let total = 0;
   for (const good of GOOD_TYPES) total += b.stock[good] + b.incoming[good];

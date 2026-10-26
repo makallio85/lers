@@ -1,7 +1,7 @@
 import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
   GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
-  costTotal, distributedGoods, goodCount, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
+  costTotal, distributedGoods, goodCount, heldGood, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
   BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES,
   OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
   DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf,
@@ -87,8 +87,9 @@ export function costText(cost: Partial<GoodAmounts>, separator = ' · '): string
   return parts.length ? parts.join(separator) : 'Nothing';
 }
 
+/** Goods the player can use: in storage and finished at workplaces. */
 function storedOf(world: World, owner: number, good: GoodType): number {
-  return world.buildings.reduce((sum, b) => sum + (b.owner === owner && isStorageBuilding(b) ? b.stock[good] : 0), 0);
+  return heldGood(world, owner, good);
 }
 
 /**
@@ -633,10 +634,8 @@ function renderMarketplace(world: World, b: Building, owner: number, isConfirmin
   const load = isDock ? TRADE_SHIP_PILES[world.players[b.owner].raceType] * DONKEY_LOAD : DONKEY_LOAD;
   const carriers = isDock ? 'trade ships' : 'donkeys';
   const stocked = new Set<GoodType>();
-  // Goods worth a caravan: at least one donkey load in storage, or already ordered.
-  const inStorage: Partial<Record<GoodType, number>> = {};
-  for (const s of world.buildings) if (s.owner === owner && isStorageBuilding(s)) for (const g of GOOD_TYPES) inStorage[g] = (inStorage[g] ?? 0) + s.stock[g];
-  for (const g of GOOD_TYPES) if ((inStorage[g] ?? 0) >= DONKEY_LOAD) stocked.add(g);
+  // Goods worth a caravan: at least one donkey load held (storage and workplaces), or already ordered.
+  for (const g of GOOD_TYPES) if (heldGood(world, owner, g) >= DONKEY_LOAD) stocked.add(g);
   for (const g of GOOD_TYPES) if ((route?.goods[g] ?? 0) !== 0) stocked.add(g);
   const goods = GOOD_TYPES.filter((g) => stocked.has(g)).map((g) => {
     const amount = route?.goods[g] ?? 0;

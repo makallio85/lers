@@ -113,7 +113,8 @@ test('timber chain: woodcutter logs reach the sawmill and become planks', () => 
   runUntil(world, () => building(world, woodcutterId).isComplete && building(world, sawmillId).isComplete, 4000);
   const planksAfterBuilding = planks();
   run(world, 4000);
-  assert.ok(planks() > planksAfterBuilding + 8, `planks should be produced: ${planksAfterBuilding} -> ${planks()}`);
+  // With nothing to build, the sawmill fills its pile of 8 and waits until planks are needed.
+  assert.ok(planks() >= planksAfterBuilding + 8, `planks should be produced: ${planksAfterBuilding} -> ${planks()}`);
   assert.ok(world.settlers.some((s) => s.settlerType === 'carpenter'));
 });
 
@@ -220,8 +221,31 @@ test('goods marked as not stored stay at the producer until it is full', () => {
       if (world.territory[i] === 1 && world.footprint[i] === 0 && world.door[i] === 0 && world.tree[i] === NO_TREE && (x + y) % 3 === 0) world.tree[i] = TREE_MATURE;
     }
   }
-  runUntil(world, () => building(world, id).blockedReason === 'Output full: waiting for carriers', 8000);
+  runUntil(world, () => building(world, id).blockedReason === 'Output full: goods wait until needed', 8000);
   assert.equal(building(world, id).stock.log, 8);
+});
+
+test('spare goods are never carried to the castle: they wait at the workplace, or go to a storage area', () => {
+  const world = createWorld({ seed: 11 });
+  const castle = castleOf(world, 0)!;
+  const id = place(world, 'woodcutter');
+  const hut = building(world, id);
+  for (let y = hut.doorY - 6; y <= hut.doorY + 6; y++) {
+    for (let x = hut.doorX - 6; x <= hut.doorX + 6; x++) {
+      const i = tileIndex(world, x, y);
+      if (world.territory[i] === 1 && world.footprint[i] === 0 && world.door[i] === 0 && world.tree[i] === NO_TREE && (x + y) % 3 === 0) world.tree[i] = TREE_MATURE;
+    }
+  }
+  const castleLogs = castle.stock.log;
+  runUntil(world, () => building(world, id).blockedReason === 'Output full: goods wait until needed', 8000);
+  assert.equal(building(world, id).stock.log, 8, 'the logs wait at the woodcutter');
+  assert.equal(castle.stock.log, castleLogs, 'none went to the castle');
+  // With a storage area the logs go there, and the woodcutter goes on.
+  const storeId = place(world, 'storage');
+  runUntil(world, () => building(world, storeId).isComplete, 6000);
+  runUntil(world, () => building(world, storeId).stock.log >= 8, 3000);
+  assert.ok(building(world, storeId).stock.log >= 8);
+  assert.equal(castle.stock.log, castleLogs);
 });
 
 test('transport priority and pause commands are validated and applied', () => {
