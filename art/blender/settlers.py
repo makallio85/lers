@@ -1,6 +1,7 @@
 """Renders settler sprite frames: every look, for every people, in 8 directions.
 
-Run: blender -b --python art/blender/settlers.py -- [race ...] [--only look,look]
+Run: blender -b --python art/blender/settlers.py -- [race ...] [--only look,look] [--anims anim,anim]
+(--anims renders just those animations of the looks and keeps the frames already rendered for the others.)
 Writes art/.renders/settlers/<race>/<look>/<anim>_<dir>_<frame>.png and <look>.json with the anchor.
 Direction d faces game direction (sin(d*45deg), cos(d*45deg)): 0 = south (+y), 2 = east (+x), 4 = north, 6 = west.
 """
@@ -11,8 +12,9 @@ from nature import weapon_sword, weapon_spear, weapon_bow
 
 SCALE = 0.9
 CELL = (88, 96)
-FRAMES = {'walk': 8, 'carry': 8, 'work': 6, 'attack': 6, 'die': 6}
-SOURCE = {'walk': 'walk', 'work': 'interact-right', 'attack': 'attack-melee-right', 'die': 'die'}
+FRAMES = {'walk': 8, 'carry': 8, 'work': 6, 'attack': 6, 'die': 6, 'kick': 6}
+# A carrier with nothing to do kicks a pebble now and then.
+SOURCE = {'walk': 'walk', 'work': 'interact-right', 'attack': 'attack-melee-right', 'die': 'die', 'kick': 'attack-kick-right'}
 # Kit movements that fit each look's work better than the generic reach: a swing for axes, hammers and picks,
 # bending down for digging, sowing and planting, and the draw for the bow.
 LOOK_SOURCES = {
@@ -28,7 +30,7 @@ TOOL_SCALE = 1.5
 
 # look -> (model, tool, animations). Several settler types share a look (see the client's sprite table).
 LOOKS = {
-    'carrier': ('character-male-a', None, ('walk', 'carry', 'work')),
+    'carrier': ('character-male-a', None, ('walk', 'carry', 'work', 'kick')),
     'builder': ('character-male-b', 'tool-hammer', ('walk', 'work')),
     'digger': ('character-male-c', 'tool-shovel', ('walk', 'work')),
     'woodcutter': ('character-male-d', 'tool-axe', ('walk', 'work')),
@@ -121,12 +123,13 @@ def build(race, look):
     return s, arm, root, actions, anims
 
 
-def render_look(race, look):
+def render_look(race, look, only_anims=None):
     s, arm, root, actions, anims = build(race, look)
     s.camera(*CELL, target_z=0.32)
     base = os.path.join(RENDERS, 'settlers', race, look)
     arm.animation_data_create()
     for anim in anims:
+        if only_anims and anim not in only_anims: continue
         if anim == 'carry': act = carry_action(arm, actions['walk'], actions['holding-both'])
         else: act = actions[LOOK_SOURCES.get(look, {}).get(anim, SOURCE[anim])]
         arm.animation_data.action = act
@@ -150,7 +153,9 @@ def quick(race, looks):
 
 def main():
     args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-    only = None
+    only = None; only_anims = None
+    if '--anims' in args:
+        i = args.index('--anims'); only_anims = args[i + 1].split(','); args = args[:i] + args[i + 2:]
     if '--only' in args:
         i = args.index('--only'); only = args[i + 1].split(','); args = args[:i] + args[i + 2:]
     races = [a for a in args if a in RACES] or list(RACES)
@@ -161,7 +166,7 @@ def main():
         for look in (only or LOOKS):
             # A look is finished once its .json is written; skip it so an interrupted run can resume.
             if not only and os.path.exists(os.path.join(RENDERS, 'settlers', race, look + '.json')): continue
-            render_look(race, look)
+            render_look(race, look, only_anims)
 
 
 if __name__ == "__main__":
