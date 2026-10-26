@@ -1,9 +1,17 @@
 /** Static game data: goods, settler types, building types and their build menu groups. */
 
+/** Gatherers whose work area the player can move; it must stay this close to the building. */
+export const WORK_AREA_BUILDINGS = ['woodcutter', 'stonecutter', 'forester', 'fisher', 'farm'] as const;
+export const WORK_AREA_REACH = 14;
+/** How far around its work area each gatherer works. */
+export const WORK_AREA_RADIUS: Record<(typeof WORK_AREA_BUILDINGS)[number], number> = {
+  woodcutter: 10, stonecutter: 10, forester: 6, fisher: 8, farm: 5
+};
+
 export const GOOD_TYPES = [
   'log', 'plank', 'stone',
   'grain', 'flour', 'water', 'bread', 'fish', 'pig', 'meat',
-  'coal', 'iron_ore', 'iron',
+  'coal', 'iron_ore', 'iron', 'gold_ore', 'gold',
   'axe', 'saw', 'pick', 'scythe', 'shovel', 'hammer', 'rod',
   'sword', 'spear', 'bow'
 ] as const;
@@ -26,6 +34,7 @@ export const GOOD_NAMES: Record<GoodType, readonly [string, string]> = {
   grain: ['grain', 'grain'], flour: ['flour', 'flour'], water: ['water', 'water'], bread: ['bread', 'bread'],
   fish: ['fish', 'fish'], pig: ['pig', 'pigs'], meat: ['meat', 'meat'],
   coal: ['coal', 'coal'], iron_ore: ['iron ore', 'iron ore'], iron: ['iron bar', 'iron bars'],
+  gold_ore: ['gold ore', 'gold ore'], gold: ['gold bar', 'gold bars'],
   axe: ['axe', 'axes'], saw: ['saw', 'saws'], pick: ['pick', 'picks'], scythe: ['scythe', 'scythes'],
   shovel: ['shovel', 'shovels'], hammer: ['hammer', 'hammers'], rod: ['fishing rod', 'fishing rods'],
   sword: ['sword', 'swords'], spear: ['spear', 'spears'], bow: ['bow', 'bows']
@@ -35,7 +44,7 @@ export const GOOD_NAMES: Record<GoodType, readonly [string, string]> = {
 export const GOOD_LABELS: Record<GoodType, string> = {
   log: 'Logs', plank: 'Planks', stone: 'Stone',
   grain: 'Grain', flour: 'Flour', water: 'Water', bread: 'Bread', fish: 'Fish', pig: 'Pigs', meat: 'Meat',
-  coal: 'Coal', iron_ore: 'Iron ore', iron: 'Iron',
+  coal: 'Coal', iron_ore: 'Iron ore', iron: 'Iron', gold_ore: 'Gold ore', gold: 'Gold',
   axe: 'Axes', saw: 'Saws', pick: 'Picks', scythe: 'Scythes', shovel: 'Shovels', hammer: 'Hammers', rod: 'Fishing rods',
   sword: 'Swords', spear: 'Spears', bow: 'Bows'
 };
@@ -63,14 +72,25 @@ export type SettlerType =
   | 'carrier' | 'digger' | 'builder' | SoldierType
   | 'woodcutter' | 'forester' | 'carpenter' | 'stonecutter'
   | 'farmer' | 'miller' | 'baker' | 'waterworker' | 'fisher' | 'pig_farmer' | 'butcher'
-  | 'miner' | 'smelter' | 'smith';
+  | 'miner' | 'smelter' | 'smith' | SpecialistType;
+
+/** Settlers the player makes from free carriers in the Settlers tab and sends out by hand. */
+export const SPECIALIST_TYPES = ['geologist', 'pioneer'] as const;
+export type SpecialistType = (typeof SPECIALIST_TYPES)[number];
+/** The tool a carrier takes from storage to become each specialist; it goes back when the specialist does. */
+export const SPECIALIST_TOOLS: Record<SpecialistType, ToolType> = { geologist: 'hammer', pioneer: 'shovel' };
+
+export function isSpecialistType(type: SettlerType): type is SpecialistType {
+  return (SPECIALIST_TYPES as readonly string[]).includes(type);
+}
 
 export const SETTLER_LABELS: Record<SettlerType, string> = {
   carrier: 'Carrier', digger: 'Digger', builder: 'Builder',
   swordsman: 'Swordsman', spearman: 'Spearman', bowman: 'Bowman',
   woodcutter: 'Woodcutter', forester: 'Forester', carpenter: 'Carpenter', stonecutter: 'Stonecutter',
   farmer: 'Farmer', miller: 'Miller', baker: 'Baker', waterworker: 'Waterworker', fisher: 'Fisher',
-  pig_farmer: 'Pig farmer', butcher: 'Butcher', miner: 'Miner', smelter: 'Smelter', smith: 'Smith'
+  pig_farmer: 'Pig farmer', butcher: 'Butcher', miner: 'Miner', smelter: 'Smelter', smith: 'Smith',
+  geologist: 'Geologist', pioneer: 'Pioneer'
 };
 
 export const SETTLER_PLURALS: Record<SettlerType, string> = {
@@ -78,7 +98,8 @@ export const SETTLER_PLURALS: Record<SettlerType, string> = {
   swordsman: 'Swordsmen', spearman: 'Spearmen', bowman: 'Bowmen',
   woodcutter: 'Woodcutters', forester: 'Foresters', carpenter: 'Carpenters', stonecutter: 'Stonecutters',
   farmer: 'Farmers', miller: 'Millers', baker: 'Bakers', waterworker: 'Waterworkers', fisher: 'Fishers',
-  pig_farmer: 'Pig farmers', butcher: 'Butchers', miner: 'Miners', smelter: 'Smelters', smith: 'Smiths'
+  pig_farmer: 'Pig farmers', butcher: 'Butchers', miner: 'Miners', smelter: 'Smelters', smith: 'Smiths',
+  geologist: 'Geologists', pioneer: 'Pioneers'
 };
 
 export function isSoldierType(type: SettlerType): type is SoldierType {
@@ -115,7 +136,7 @@ export const BUILDING_GROUP_TYPES: readonly { id: BuildingGroupType; label: stri
 
 export type BuildingTypeId =
   | 'woodcutter' | 'forester' | 'sawmill' | 'stonecutter'
-  | 'coal_mine' | 'iron_mine' | 'gold_mine' | 'smelter' | 'toolsmith'
+  | 'coal_mine' | 'iron_mine' | 'gold_mine' | 'smelter' | 'gold_smelter' | 'toolsmith'
   | 'farm' | 'mill' | 'bakery' | 'waterworks' | 'fisher' | 'pig_farm' | 'slaughterhouse' | 'donkey_ranch'
   | 'guard_tower_small' | 'guard_tower_large' | 'castle' | 'lookout' | 'barracks' | 'weaponsmith'
   | 'residence_small' | 'residence_medium' | 'residence_large' | 'storage' | 'healer' | 'marketplace';
@@ -135,6 +156,7 @@ export interface Recipe {
 export const DEPOSIT_NONE = 0;
 export const DEPOSIT_COAL = 1;
 export const DEPOSIT_IRON = 2;
+export const DEPOSIT_GOLD = 3;
 
 export interface MineRule {
   deposit: number;
@@ -168,6 +190,8 @@ export interface BuildingType {
   garrisonCapacity: number;
   /** Settlers a residence adds once finished. */
   residents: number;
+  /** How far a building lets its owner see, beyond the usual sight of buildings. 0 for the usual sight. */
+  visionRadius: number;
   /** Goods a storage building holds; 0 when it stores nothing, Infinity for the castle. */
   storageCapacity: number;
   /** Shown in the build menu. */
@@ -188,6 +212,7 @@ interface BuildingOptions {
   territoryRadius?: number;
   garrisonCapacity?: number;
   residents?: number;
+  visionRadius?: number;
   storageCapacity?: number;
   isAvailable?: boolean;
 }
@@ -204,7 +229,7 @@ function building(
     id, label, groupType, size, cost: { plank, stone },
     worker: options.worker ?? null, tool: options.tool ?? null, recipe: options.recipe ?? null, inputLimits,
     mine: options.mine ?? null, placementType: options.placementType ?? 'land', territoryRadius: options.territoryRadius ?? 0,
-    garrisonCapacity: options.garrisonCapacity ?? 0, residents: options.residents ?? 0,
+    garrisonCapacity: options.garrisonCapacity ?? 0, residents: options.residents ?? 0, visionRadius: options.visionRadius ?? 0,
     storageCapacity: options.storageCapacity ?? 0, workerLabel, usesLabel, makesLabel, isAvailable: options.isAvailable ?? true
   };
 }
@@ -225,9 +250,13 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   iron_mine: building('iron_mine', 'Iron mine', 'resources', 2, 4, 1, 'Miner + pick', 'Meat (best), bread or fish', 'Iron ore',
     { worker: 'miner', tool: 'pick', placementType: 'mountain', inputLimits: MINE_FOOD,
       recipe: { inputs: {}, output: 'iron_ore', ticks: 240 }, mine: { deposit: DEPOSIT_IRON, favouriteFood: 'meat' } }),
-  gold_mine: building('gold_mine', 'Gold mine', 'resources', 2, 5, 1, 'Miner + pick', 'Fish (best)', 'Gold ore', LATER),
+  gold_mine: building('gold_mine', 'Gold mine', 'resources', 2, 5, 1, 'Miner + pick', 'Fish (best), bread or meat', 'Gold ore',
+    { worker: 'miner', tool: 'pick', placementType: 'mountain', inputLimits: MINE_FOOD,
+      recipe: { inputs: {}, output: 'gold_ore', ticks: 270 }, mine: { deposit: DEPOSIT_GOLD, favouriteFood: 'fish' } }),
   smelter: building('smelter', 'Iron smelter', 'resources', 3, 4, 6, 'Smelter', 'Iron ore, coal', 'Iron',
     { worker: 'smelter', recipe: { inputs: { iron_ore: 1, coal: 1 }, output: 'iron', ticks: 210 } }),
+  gold_smelter: building('gold_smelter', 'Gold smelter', 'resources', 3, 4, 6, 'Smelter', 'Gold ore, coal', 'Gold',
+    { worker: 'smelter', recipe: { inputs: { gold_ore: 1, coal: 1 }, output: 'gold', ticks: 210 } }),
   toolsmith: building('toolsmith', 'Toolsmith', 'resources', 3, 3, 5, 'Smith + hammer', 'Iron, coal', 'Tools',
     { worker: 'smith', tool: 'hammer', recipe: { inputs: { iron: 1, coal: 1 }, output: 'axe', outputChoices: TOOL_TYPES, ticks: 210 } }),
 
@@ -252,7 +281,7 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
     { territoryRadius: 16, garrisonCapacity: 6 }),
   castle: building('castle', 'Castle', 'military', 4, 8, 12, 'Up to 10 soldiers', 'Any goods', 'Territory, storage',
     { territoryRadius: 15, garrisonCapacity: 10, storageCapacity: Infinity, isAvailable: false }),
-  lookout: building('lookout', 'Lookout tower', 'military', 2, 2, 4, 'Scout', 'Nothing', 'Vision', LATER),
+  lookout: building('lookout', 'Lookout tower', 'military', 2, 2, 4, 'None', 'Nothing', 'A long view, no land', { visionRadius: 22 }),
   barracks: building('barracks', 'Barracks', 'military', 3, 4, 5, 'None', 'Weapons, free settlers', 'Soldiers',
     { inputLimits: { sword: 2, spear: 2, bow: 2 } }),
   weaponsmith: building('weaponsmith', 'Weaponsmith', 'military', 3, 5, 7, 'Smith + hammer', 'Iron, coal', 'Weapons',

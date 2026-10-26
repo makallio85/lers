@@ -1,4 +1,4 @@
-import { BUILDING_TYPES, isSoldierType } from './definitions.ts';
+import { BUILDING_TYPES, isSoldierType, isSpecialistType } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, SettlerType } from './definitions.ts';
 import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, tileIndex } from './world.ts';
 import type { PlayerState, World } from './world.ts';
@@ -24,7 +24,8 @@ export function updateVision(world: World): void {
     for (const b of world.buildings) {
       if (b.owner !== player.id) continue;
       const type = BUILDING_TYPES[b.typeId];
-      const r = type.territoryRadius > 0 ? type.territoryRadius + MILITARY_EXTRA_SIGHT : BUILDING_SIGHT;
+      const r = type.visionRadius > 0 && b.isComplete ? type.visionRadius
+        : type.territoryRadius > 0 ? type.territoryRadius + MILITARY_EXTRA_SIGHT : BUILDING_SIGHT;
       reveal(world, vision, b.x + b.size / 2, b.y + b.size / 2, r);
     }
     for (const s of world.settlers) {
@@ -98,6 +99,8 @@ export interface Observation {
   /** Other players' buildings this player can see right now. */
   otherBuildings: ObservedBuilding[];
   ownSoldiers: ObservedSoldier[];
+  /** Own geologists and pioneers, with what they are doing. */
+  ownSpecialists: ObservedSoldier[];
   /** Other players' soldiers in view right now, outside buildings. */
   otherSoldiers: ObservedSoldier[];
   settlerCounts: Partial<Record<SettlerType, number>>;
@@ -127,6 +130,7 @@ export function observe(world: World, playerId: number): Observation {
     }
   }
   const ownSoldiers: ObservedSoldier[] = [];
+  const ownSpecialists: ObservedSoldier[] = [];
   const otherSoldiers: ObservedSoldier[] = [];
   const settlerCounts: Partial<Record<SettlerType, number>> = {};
   let freeCarriers = 0;
@@ -134,6 +138,9 @@ export function observe(world: World, playerId: number): Observation {
     if (s.owner === playerId) {
       settlerCounts[s.settlerType] = (settlerCounts[s.settlerType] ?? 0) + 1;
       if (s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying) freeCarriers++;
+      if (isSpecialistType(s.settlerType)) {
+        ownSpecialists.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.phase });
+      }
       if (isSoldierType(s.settlerType)) {
         ownSoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.isInside ? 'inside' : s.phase });
       }
@@ -143,6 +150,6 @@ export function observe(world: World, playerId: number): Observation {
   }
   return {
     tick: world.tick, playerId, player: structuredClone(player), width: world.width, height: world.height,
-    ownBuildings, otherBuildings, ownSoldiers, otherSoldiers, settlerCounts, freeCarriers
+    ownBuildings, otherBuildings, ownSoldiers, ownSpecialists, otherSoldiers, settlerCounts, freeCarriers
   };
 }

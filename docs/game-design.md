@@ -48,6 +48,19 @@ Deliver a small complete match before tuning the 3–4 hour format. The player m
 
 The slice must surface stock, missing inputs and transport priorities clearly. Test it with returning Settlers III players and new players. Record whether unfamiliar controls, idle waiting or an unclear objective prevent completion.
 
+## Settlers, specialists and the wider economy
+
+These follow The Settlers III as described in its manual (issue #12, phase 1).
+
+- **Occupations:** the player sets a minimum share of carriers and a maximum share of diggers and builders together. Within those shares, a free carrier becomes a digger or builder when a site waits for one. It takes a shovel or hammer from storage. Above the maximum, idle diggers and builders go back to carrying and return their tools. The defaults are at least 30 % carriers and at most 25 % crew.
+- **Specialists:** a free carrier becomes a geologist (with a hammer) or a pioneer (with a shovel), and turns back again on request, returning the tool. The player sends specialists to a spot on explored land. They work around it, then wait there.
+  - **Geologists** put up signs on mountain tiles within 6 tiles of the spot. Ore is hidden until a player's own geologist has marked it. Built-in bots see only ore their geologists have marked, and they keep two geologists at work.
+  - **Pioneers** put up posts within 4 tiles of the spot. A post claims land that no enemy military building holds, including other players' pioneer land. Military land always wins over pioneer land.
+- **Gold:** the gold mine (fish is the miners' favourite food) and the gold smelter (gold ore + coal → gold bar) are in. Each start's ore mountain has a little gold at its far edge. Elsewhere gold sits where ore is richest.
+- **Lookout tower:** sees 22 tiles around it and claims no land.
+- **Work areas:** woodcutters, stonecutters, foresters, fishers and farms work around a point the player sets, up to 14 tiles from the building and on their own land.
+- **Construction sites:** "Build first" puts a site ahead of all others for materials and crew. Pausing a site suspends it: it gets no materials and no crew until it is resumed.
+
 ## Pace
 
 At 1× the game runs at the pace of The Settlers III at normal speed, which has no speed setting of its own. These values were timed by watching the original run (screenshots and a stopwatch, nothing decompiled), on 2026-10-25:
@@ -87,12 +100,12 @@ Default bots receive the same visibility and resource constraints as humans. Pub
 
 The built-in bot has two types, and neither gets extra information or resources:
 
-- **Calm** follows how the Settlers III computer players were observed to play: expand within the first minutes, build the economy with 2–4 sites open, drive intruders off at once, and attack no earlier than 20, 45 or 60 minutes on a small, medium or large map. It attacks the nearest weakly held tower with a squad sized to its garrison, keeps the rest of the army at home, and goes for the castle only later (35, 75 or 95 minutes) with 20 soldiers or more. At the original pace, bot-vs-bot matches on a small map take one to two hours, and on a medium map often more than 2.5 hours.
-- **Aggressive** attacks as soon as it has 6 soldiers and something to attack, with its whole army. Bot-vs-bot matches take about 40–65 minutes on a small map and 50–90 minutes on a medium map, so a small-map test game at 4× takes 10–16 minutes.
+- **Calm** follows how the Settlers III computer players were observed to play: expand within the first minutes, build the economy with 2–4 sites open, drive intruders off at once, and attack no earlier than 20, 45 or 60 minutes on a small, medium or large map. It attacks the nearest weakly held tower with a squad sized to its garrison, keeps the rest of the army at home, and goes for the castle only later (35, 75 or 95 minutes) with 20 soldiers or more. At the original pace, 18 of 20 bot-vs-bot matches on a small map ended, after 40–150 minutes (median about 80).
+- **Aggressive** attacks as soon as it has 6 soldiers and something to attack, with its whole army. On a small map 17 of 20 bot-vs-bot matches ended, after 32–88 minutes (median about 60), so a small-map test game at 4× takes about 15 minutes. On a medium map 7 of 10 ended, after 36–112 minutes.
 
 Match maps come in three sizes: small (96 × 64 tiles) for test games, medium (144 × 96) and large (192 × 128). Every start gets trees, rocks, water and an ore mountain that reaches into the starting land, on the player's own half of the mirrored map.
 
-Both types start only buildings whose planks and stone they already have, and save their stone for a stonecutter or a tower toward rocks when stone runs short. `stepMatch` can collect a log of each bot decision, with the tick and the reason, for tests and tuning.
+Across these 50 matches the left and right players won equally often (20 and 21): a bot on the right half scans the map mirrored, so ties between equally good spots go the same way for both. Both types start only buildings whose planks and stone they already have, and save their stone for a stonecutter or a tower toward rocks when stone runs short. `stepMatch` can collect a log of each bot decision, with the tick and the reason, for tests and tuning.
 
 ## Sharing, spectators and community
 

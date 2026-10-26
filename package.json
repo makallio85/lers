@@ -13,7 +13,8 @@
     "dev": "vite packages/client",
     "build": "vite build packages/client",
     "build:single": "vite build packages/client --mode single",
-    "benchmark": "node scripts/benchmark.mjs"
+    "benchmark": "node scripts/benchmark.mjs",
+    "benchmark:match": "node scripts/benchmark-match.ts"
   },
   "dependencies": {
     "pixi.js": "8.22.0"
