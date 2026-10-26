@@ -164,3 +164,29 @@ test('phase 2 orders survive saving and loading', () => {
   run(world, 200); run(copy, 200);
   assert.deepEqual(saveGame(copy), saveGame(world));
 });
+
+test('a soldier in a fight can be ordered away: it breaks off and walks to the spot', () => {
+  const world = createMatch(4);
+  run(world, 10);
+  const castle = castleOf(world, 0)!;
+  const x = castle.doorX + 4, y = castle.doorY + 4;
+  const mine = soldierAt(world, 0, 'swordsman', x, y);
+  const enemy = soldierAt(world, 1, 'swordsman', x + 1, y);
+  for (let t = 0; t < 20 && mine.enemyId === null; t++) step(world);
+  assert.equal(mine.enemyId, enemy.id, 'they are fighting');
+  const away = { x: castle.doorX - 3, y: castle.doorY + 2 };
+  assert.equal(command(world, { type: 'moveSoldiers', playerId: 0, soldierIds: [mine.id], x: away.x, y: away.y }).isAccepted, true);
+  // The enemy is held in place so it cannot follow; the order alone must move ours.
+  enemy.isHolding = true;
+  for (let t = 0; t < 150 && world.settlers.includes(mine); t++) step(world);
+  assert.ok(Math.hypot(mine.x - away.x, mine.y - away.y) <= 1.5, 'it walked away from the fight');
+});
+
+test('soldiers can be sent into land nobody has explored', () => {
+  const world = createMatch(4);
+  const castle = castleOf(world, 0)!;
+  const s = soldierAt(world, 0, 'swordsman', castle.doorX, castle.doorY + 2);
+  const far = { x: Math.floor(world.width / 2), y: castle.doorY };
+  assert.equal(world.vision[0][tileIndex(world, far.x, far.y)], 0, 'not explored yet');
+  assert.equal(command(world, { type: 'moveSoldiers', playerId: 0, soldierIds: [s.id], x: far.x, y: far.y }).isAccepted, true);
+});

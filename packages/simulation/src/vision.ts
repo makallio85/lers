@@ -100,6 +100,8 @@ export interface ObservedSoldier {
   isReady?: boolean;
   /** Own units only: the ship carrying them, or null on land. */
   shipId?: number | null;
+  /** Own units only: whether it is fighting an enemy right now. */
+  isFighting?: boolean;
 }
 
 /**
@@ -168,7 +170,7 @@ export function observe(world: World, playerId: number): Observation {
           ...(s.settlerType === 'priest' ? { isReady: s.timer === 0 && !s.isInside } : {}) });
       }
       if (isUnitType(s.settlerType)) {
-        ownSoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.isInside ? 'inside' : s.phase, shipId: s.shipId });
+        ownSoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.isInside ? 'inside' : s.phase, shipId: s.shipId, isFighting: s.enemyId !== null });
       }
     } else if (isUnitType(s.settlerType) && !s.isInside && canSee(world, playerId, s.x, s.y)) {
       if (isEnemy(world, playerId, s.owner)) enemySoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health });

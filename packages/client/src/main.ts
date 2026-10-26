@@ -382,8 +382,17 @@ function drawMinimap(): void {
 }
 els.minimap.addEventListener('pointerdown', (e) => {
   const rect = els.minimap.getBoundingClientRect();
-  view.centreOn(((e.clientX - rect.left) / rect.width) * world.width, ((e.clientY - rect.top) / rect.height) * world.height);
+  const x = ((e.clientX - rect.left) / rect.width) * world.width, y = ((e.clientY - rect.top) / rect.height) * world.height;
+  // With units selected, a right-click (or a tap while an order button is on) sends them there; otherwise it looks there.
+  const mode = ui.orderMode === 'move' || ui.orderMode === 'waypoint' || ui.orderMode === 'patrol' || ui.orderMode === 'free' ? ui.orderMode : e.button === 2 ? 'move' : null;
+  if (mode && selectedSoldierList().length > 0) {
+    const tile = { x: Math.max(0, Math.min(world.width - 1, Math.floor(x))), y: Math.max(0, Math.min(world.height - 1, Math.floor(y))) };
+    orderAtTile(tile, undefined, mode);
+    return;
+  }
+  view.centreOn(x, y);
 });
+els.minimap.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ---------------------------------------------------------------- commands and placement
 
@@ -535,13 +544,18 @@ function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
   renderSelectionCard(); renderOrders();
 }
 
-function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'auto' | 'waypoint' | 'patrol' | 'free'): void {
+type OrderModeAt = 'move' | 'attack' | 'auto' | 'waypoint' | 'patrol' | 'free';
+
+function orderAt(clientX: number, clientY: number, mode: OrderModeAt): void {
+  orderAtTile(view.screenToTile(clientX, clientY), buildingAt(clientX, clientY), mode);
+}
+
+/** Orders the selected units to a tile (or against a building there), from the map or the minimap; anywhere, explored or not. */
+function orderAtTile(tile: { x: number; y: number }, b: ReturnType<typeof buildingAt>, mode: OrderModeAt): void {
   const units = selectedSoldierList();
   const soldierIds = units.filter((s) => isUnitType(s.settlerType)).map((s) => s.id);
   const specialistIds = units.filter((s) => isSpecialistType(s.settlerType) || s.settlerType === 'priest').map((s) => s.id);
   if (units.length === 0) return;
-  const b = buildingAt(clientX, clientY);
-  const tile = view.screenToTile(clientX, clientY);
   // Specialists only ever walk to a spot and work there; soldiers may attack.
   if (specialistIds.length > 0 && mode !== 'attack') {
     submit({ type: 'moveSpecialists', playerId: PLAYER, settlerIds: specialistIds, x: tile.x, y: tile.y });

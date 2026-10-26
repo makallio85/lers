@@ -188,7 +188,9 @@ test('pioneers claim neutral land with posts, but never land an enemy tower hold
   assert.equal(world.pioneerLand[target], 1);
   // The enemy castle's land stays the enemy's whatever pioneers do.
   const enemyLand = tileIndex(world, enemy.doorX, enemy.doorY + 2);
-  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers, x: enemy.doorX, y: enemy.doorY + 2 }).isAccepted, false);
+  // Pioneers may be sent anywhere, unexplored land included, but they claim nothing an enemy tower holds.
+  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers, x: enemy.doorX, y: enemy.doorY + 2 }).isAccepted, true);
+  for (let t = 0; t < 3000; t++) step(world);
   assert.equal(world.territory[enemyLand], 2);
 });
 

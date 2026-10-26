@@ -63,6 +63,37 @@ export function distance(ax: number, ay: number, bx: number, by: number): number
   return Math.hypot(ax - bx, ay - by);
 }
 
+/**
+ * The nearest free tile a settler can step to, found by walking outward from it (so a crowd in an alley between
+ * buildings finds the open ground beyond, not a tile behind a wall): walkable, out of doorways, not taken, on its
+ * own land for a civilian, open ground for a war machine. -1 within 12 steps.
+ */
+function nearestFreeTile(world: World, s: Settler, taken: ReadonlySet<number>): number {
+  const { width, height } = world;
+  const start = tileOf(world, s);
+  const canStep = (i: number) => isWalkable(world, i) && (!isCivilianType(s.settlerType) || world.territory[i] === s.owner + 1)
+    && (!isWarMachineType(s.settlerType) || isMachinePassable(world, i));
+  // Caught inside a footprint (a building put up where it stood): it may search through the building to get out.
+  const isTrapped = !isWalkable(world, start);
+  const seen = new Map<number, number>([[start, 0]]);
+  const queue = [start];
+  for (let head = 0; head < queue.length; head++) {
+    const current = queue[head], depth = seen.get(current)!;
+    if (current !== start && !taken.has(current) && world.door[current] === 0 && canStep(current)) return current;
+    if (depth >= 12) continue;
+    const cx = current % width, cy = Math.floor(current / width);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const x = cx + dx, y = cy + dy;
+      if (x < 0 || y < 0 || x >= width || y >= height) continue;
+      const i = y * width + x;
+      // Doorways may be crossed, not stood in; a settler standing inside a footprint may step out of it.
+      if (seen.has(i) || !(canStep(i) || world.door[i] !== 0 || (isTrapped && world.footprint[i] !== 0))) continue;
+      seen.set(i, depth + 1); queue.push(i);
+    }
+  }
+  return -1;
+}
+
 /** How often standing settlers make room for each other, in ticks. */
 const SPREAD_TICKS = 5;
 
@@ -87,23 +118,7 @@ export function spreadStanding(world: World): void {
     else taken.add(i);
   }
   for (const s of crowded) {
-    const sx = Math.round(s.x), sy = Math.round(s.y);
-    let best = -1, bestDistance = Infinity;
-    // Out of a building's footprint it may have to look a little further.
-    const reach = isWalkable(world, tileOf(world, s)) ? 3 : 5;
-    for (let dy = -reach; dy <= reach; dy++) {
-      for (let dx = -reach; dx <= reach; dx++) {
-        const x = sx + dx, y = sy + dy;
-        if ((dx === 0 && dy === 0) || x < 0 || y < 0 || x >= world.width || y >= world.height) continue;
-        const i = tileIndex(world, x, y);
-        if (taken.has(i) || world.door[i] !== 0 || !isWalkable(world, i)) continue;
-        // Civilians keep to their own land; war machines to open ground.
-        if (isCivilianType(s.settlerType) && world.territory[i] !== s.owner + 1) continue;
-        if (isWarMachineType(s.settlerType) && !isMachinePassable(world, i)) continue;
-        const d = Math.hypot(dx, dy);
-        if (d < bestDistance) { bestDistance = d; best = i; }
-      }
-    }
+    const best = nearestFreeTile(world, s, taken);
     if (best < 0) { taken.add(tileOf(world, s)); continue; }
     // A building put up where it stood: it steps straight out to the free tile beside it.
     if (!isWalkable(world, tileOf(world, s))) {
@@ -111,7 +126,7 @@ export function spreadStanding(world: World): void {
       taken.add(best);
       continue;
     }
-    if (!walkTo(world, s, best, 200)) { taken.add(tileOf(world, s)); continue; }
+    if (!walkTo(world, s, best, 4000)) { taken.add(tileOf(world, s)); continue; }
     taken.add(best);
     // Units walk under their own orders; an idle civilian simply follows its path while it waits.
     if (isUnitType(s.settlerType) || isSpecialistType(s.settlerType) || s.settlerType === 'priest') s.phase = 'moving';

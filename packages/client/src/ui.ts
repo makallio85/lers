@@ -715,7 +715,7 @@ function renderPriestBar(priests: Settler[], mode: OrderMode, isTouch: boolean, 
   const aimed = mode === 'spell' && magic.spell ? SPELL_STATS[magic.spell] : null;
   const hint = aimed
     ? `${isTouch ? 'Tap' : 'Click'} the spot${aimed.isRanged ? ', anywhere on the map' : `: within the dashed ring (${SPELL_RANGE} tiles)`}. ${aimed.label}: ${aimed.summary.toLowerCase()}.`
-    : mode === 'move' ? 'Tap or click where they should go'
+    : mode === 'move' ? 'Tap or click where they should go, on the map or the minimap, explored or not'
     : 'Choose a spell, then tap the spot. Far sight and Blight work at any distance.';
   return `
     <div class="order-summary"><strong>${summary}</strong><span class="muted">${detail}</span></div>
@@ -783,7 +783,7 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
     ...shots, ...(machines.length > 0 ? ['they reload at their hall by themselves'] : []),
     ...(soldiers.length > 0 ? [`strength ${Math.round(strength * 100)} % outside your land`] : [])].join(' · ');
   const hint = mode === 'select' ? (isTouch ? 'Drag over soldiers to select them' : 'Drag a box around soldiers')
-    : mode === 'move' ? 'Tap or click where they should go'
+    : mode === 'move' ? 'Tap or click where they should go, on the map or the minimap, explored or not'
     : mode === 'attack' ? (machines.length > 0 ? 'Tap or click an enemy tower or castle to fire at it' : 'Tap or click an enemy tower or castle')
     : mode === 'waypoint' ? 'Tap or click each spot in turn, then press Done'
     : mode === 'patrol' ? 'Tap or click the far end of the patrol'
@@ -791,7 +791,7 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
     : isSpecialistsOnly ? `${isTouch ? 'Move, then tap' : 'Right-click'} where they should work: pioneers claim land there, geologists look for ore`
     : isTouch ? (machines.length > 0 ? 'War machines need open ground: no forest, rocks or mountains' : '')
     : machines.length > 0 ? 'Right-click an enemy tower or castle: fire at it · right-click ground: move · Shift: waypoint. War machines need open ground: no forest, rocks or mountains.'
-    : 'Right-click: move or attack · Shift: waypoint · Alt: patrol · H: hold';
+    : 'Right-click: move or attack (also on the minimap) · Shift: waypoint · Alt: patrol · H: hold';
   const modeButton = (id: Exclude<OrderMode, null>, label: string, isDisabled = false) =>
     `<button type="button" class="order-mode" data-action="order-mode" data-mode="${id}" aria-pressed="${mode === id}" ${isDisabled ? 'disabled' : ''}>${label}</button>`;
   return `

@@ -373,7 +373,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
 
   // 5. Army. Intruders on own land are driven out at once, whatever the bot type.
   const machines = obs.ownSoldiers.filter((s) => isWarMachineType(s.settlerType));
-  const onField = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && (s.phase === 'idle' || s.phase === 'moving'));
+  // Soldiers already fighting are left to it: a move order would pull them out of the fight.
+  const onField = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && (s.phase === 'idle' || s.phase === 'moving') && !s.isFighting);
   // On islands, soldiers on the castle's island defend it and wait for the ship; those landed elsewhere fight there.
   const isAtHome = (s: ObservedSoldier) => !isIslands || spots.canReach(Math.round(s.x), Math.round(s.y));
   let free = onField.filter(isAtHome);

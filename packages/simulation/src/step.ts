@@ -160,9 +160,11 @@ function nearestIdle(world: World, type: SettlerType, owner: number, x: number, 
 function storageFor(world: World, owner: number, good: GoodType, x: number, y: number, respectFlags: boolean, isAnyLand = false): Building | null {
   const player = playerOf(world, owner);
   if (respectFlags && player && !player.isStored[good]) return null;
-  // Only storage on the same stretch of land: carriers do not cross foreign land.
+  // Only storage on the same stretch of land: carriers do not cross foreign land. One stranded off its own land
+  // (lost to an enemy tower) heads for any of its owner's storage, as it may walk back in.
   const region = landRegion(world, x, y);
-  const isReachable = (b: Building) => isAnyLand || region === 0 || landRegion(world, b.doorX, b.doorY) === region;
+  const isOffOwnLand = inBounds(world, Math.round(x), Math.round(y)) && world.territory[tileIndex(world, Math.round(x), Math.round(y))] !== owner + 1;
+  const isReachable = (b: Building) => isAnyLand || isOffOwnLand || region === 0 || landRegion(world, b.doorX, b.doorY) === region;
   let best: Building | null = null, bestDistance = Infinity;
   for (const b of world.buildings) {
     if (b.owner !== owner || !isStorageBuilding(b) || !isReachable(b)) continue;
@@ -488,8 +490,9 @@ function updateIdle(world: World, s: Settler): void {
     if (home) { s.x = home.doorX; s.y = home.doorY; s.prevX = s.x; s.prevY = s.y; }
     return;
   }
-  if (s.timer > 0) { s.timer--; return; }
+  // Finish the step first, so nobody rests in a doorway, then wait out the rest.
   if (s.path.length > 0) { advance(world, s); return; }
+  if (s.timer > 0) { s.timer--; return; }
   const home = storageFor(world, s.owner, 'log', s.x, s.y, false);
   if (!home || distance(s.x, s.y, home.x + home.size / 2 - 0.5, home.y + home.size / 2 - 0.5) <= WAIT_RADIUS) return;
   // Cut off from storage: wait a while before trying again.
