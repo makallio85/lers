@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BUILDING_TYPES, DEPOSIT_GOLD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TREE_MATURE, VISION_NONE, castleOf, createMatch,
+  BUILDING_TYPES, DEPOSIT_GOLD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TREE_MATURE, VISION_NONE, WORK_AREA_REACH, castleOf, createMatch,
   createWorld, loadGame, newBuilding, placementProblem, saveGame, spotFinder, step, tileIndex, updateVision
 } from '../src/index.ts';
 import type { Building, BuildingTypeId, Command, World } from '../src/index.ts';
@@ -228,4 +228,23 @@ test('a work area may reach past the border, as long as part of it is on your la
   // Far beyond the border, with none of the area on our land.
   const far = command(world, { type: 'setWorkArea', playerId: 0, buildingId: hut!.id, x: hut!.doorX, y: Math.max(0, hut!.doorY - 30) });
   assert.equal(far.isAccepted, false);
+});
+
+test('a work area may be set up to the reach from the building, and no farther', () => {
+  const world = createMatch(5, 'calm', 'small', 'romans', 'romans');
+  const castle = castleOf(world, 0)!;
+  let hut = null;
+  for (let r = 4; r < 12 && !hut; r++) for (let dx = -r; dx <= r && !hut; dx++) if (placementProblem(world, 0, 'woodcutter', castle.x + dx, castle.y + r) === null) {
+    hut = newBuilding(world, 'woodcutter', 0, castle.x + dx, castle.y + r);
+  }
+  hut!.isComplete = true;
+  // Straight through the castle and out the other side: own land all the way.
+  const dx = castle.x - hut!.doorX, dy = castle.y - hut!.doorY, d = Math.hypot(dx, dy);
+  const at = (dist: number) => ({ x: Math.round(hut!.doorX + (dx / d) * dist), y: Math.round(hut!.doorY + (dy / d) * dist) });
+  const near = at(WORK_AREA_REACH - 1);
+  assert.equal(command(world, { type: 'setWorkArea', playerId: 0, buildingId: hut!.id, ...near }).isAccepted, true, 'just inside the reach');
+  const past = at(WORK_AREA_REACH + 2);
+  const result = command(world, { type: 'setWorkArea', playerId: 0, buildingId: hut!.id, ...past });
+  assert.equal(result.isAccepted, false);
+  assert.equal(!result.isAccepted && result.reason, 'Too far from the building');
 });

@@ -58,7 +58,7 @@ These follow The Settlers III as described in its manual (issue #12, phase 1).
   - **Pioneers** claim land within 4 tiles of the spot: land that no enemy military building holds, including other players' pioneer land. Military land always wins over pioneer land.
 - **Gold:** the gold mine (fish is the miners' favourite food) and the gold smelter (gold ore + coal → gold bar) are in. Each start's ore mountain has a little gold at its far edge. Elsewhere gold sits where ore is richest.
 - **Lookout tower:** sees 22 tiles around it and claims no land.
-- **Work areas:** woodcutters, stonecutters, foresters, fishers and farms work around a point the player sets, up to 14 tiles from the building and on their own land.
+- **Work areas:** woodcutters, stonecutters, foresters, fishers and farms work around a point the player sets, up to 22 tiles from the building and on their own land. While the player picks the spot, a ring shows how far it may be.
 - **Construction sites:** "Build first" puts a site ahead of all others for materials and crew. Pausing a site suspends it: it gets no materials and no crew until it is resumed.
 
 ## Military depth

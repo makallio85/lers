@@ -63,6 +63,8 @@ export interface ViewState {
   selectionBox: { x0: number; y0: number; x1: number; y1: number } | null;
   /** The work area of the selected gatherer, drawn as a dashed circle. */
   workArea: { x: number; y: number; radius: number } | null;
+  /** While the player picks a work area: how far from the building it may be, drawn as a thin solid ring. */
+  workReach?: { x: number; y: number; radius: number } | null;
   /** How far the selected priest reaches with the spell being aimed. */
   spellRange?: { x: number; y: number; radius: number } | null;
   /** The selected marketplace's trade route: from its door through each spot. */
@@ -967,6 +969,10 @@ export class MapView {
         if (k === state.tradeRoute!.points.length - 1) g.circle(c.x, c.y, 6).fill(0xe3a33b).stroke({ width: 2, color: 0x1b2420 });
         else g.circle(c.x, c.y, 4).stroke({ width: 2, color: 0xe3a33b });
       });
+    }
+    if (state.workReach) {
+      const { x, y, radius } = state.workReach;
+      g.circle((x + 0.5) * TILE, (y + 0.5) * TILE, radius * TILE).stroke({ width: 2, color: 0xece6d6, alpha: 0.6 });
     }
     if (state.spellRange) {
       const { x, y, radius } = state.spellRange;

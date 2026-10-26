@@ -1,6 +1,6 @@
 import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
-  RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
+  RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
   BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, isEnemy, isWinner, maxPlayersOf, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
@@ -295,7 +295,7 @@ function renderHint(): void {
   const workSite = buildingById(world, ui.workAreaFor);
   if (!ui.placing && workSite) {
     els.hint.hidden = false;
-    setHtml(els.hint, `<span>Work area of the ${BUILDING_TYPES[workSite.typeId].label.toLowerCase()}</span><span>Tap or click where it should work. It may reach past your border; only the part on your land is worked.</span>
+    setHtml(els.hint, `<span>Work area of the ${BUILDING_TYPES[workSite.typeId].label.toLowerCase()}</span><span>Tap or click where it should work, inside the ring. It may reach past your border; only the part on your land is worked.</span>
       <button type="button" class="secondary" data-action="cancel-work-area">Cancel</button>`);
     return;
   }
@@ -1157,7 +1157,7 @@ function frame(now: number): void {
   }
   view.render(ui.speed > 0 && world.winner === null ? accumulator / TICK_MS : 1, {
     speed: world.winner === null ? ui.speed : 0, ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId, hoveredId: ui.hoveredId,
-    selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown(), spellRange: spellRangeShown(), tradeRoute: tradeRouteShown()
+    selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown(), workReach: workReachShown(), spellRange: spellRangeShown(), tradeRoute: tradeRouteShown()
   });
   if (now - lastLive > 250) { lastLive = now; refreshLive(); }
   requestAnimationFrame(frame);
@@ -1181,6 +1181,12 @@ function spellRangeShown(): { x: number; y: number; radius: number } | null {
 }
 
 /** The selected gatherer's work area, or the one being set. */
+/** While a work area is being picked: the ring it must stay within. */
+function workReachShown(): { x: number; y: number; radius: number } | null {
+  const b = buildingById(world, ui.workAreaFor);
+  return b ? { x: b.doorX, y: b.doorY, radius: WORK_AREA_REACH } : null;
+}
+
 function workAreaShown(): { x: number; y: number; radius: number } | null {
   const b = buildingById(world, ui.workAreaFor ?? ui.selectedId);
   if (!b || b.owner !== PLAYER || !b.isComplete || !(WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId)) return null;
