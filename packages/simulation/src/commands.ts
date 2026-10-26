@@ -308,7 +308,6 @@ export function applyCommand(world: World, command: Command): CommandResult {
       const soldiers = ownFieldSoldiers(world, command.playerId, command.soldierIds);
       if (!soldiers) return refuse('Choose your own soldiers outside buildings');
       if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
-      if (!hasExplored(world, command.playerId, command.x, command.y)) return refuse('You have not explored that land');
       if (command.isAppending !== undefined && typeof command.isAppending !== 'boolean') return refuse('Malformed command');
       if (command.isIgnoringEnemies !== undefined && typeof command.isIgnoringEnemies !== 'boolean') return refuse('Malformed command');
       // Ships gather on the water, everyone else on land.
@@ -325,9 +324,12 @@ export function applyCommand(world: World, command: Command): CommandResult {
         }
         const path = unitPath(world, s, tile);
         if (!path) return;
+        const isFighting = s.enemyId !== null;
         s.path = path; s.phase = 'moving'; s.attackId = null; s.enemyId = null; s.waypoints = [];
         if (!isWarMachineType(s.settlerType)) s.homeId = null;
-        s.isIgnoringEnemies = command.isIgnoringEnemies === true;
+        // A soldier ordered away from a fight breaks off: it walks to the spot without turning back to the enemy.
+        // Soldiers not fighting still fight whatever they meet on the way (unless ordered to move without fighting).
+        s.isIgnoringEnemies = command.isIgnoringEnemies === true || isFighting;
       });
       return accept();
     }
@@ -335,7 +337,6 @@ export function applyCommand(world: World, command: Command): CommandResult {
       const soldiers = ownFieldSoldiers(world, command.playerId, command.soldierIds);
       if (!soldiers) return refuse('Choose your own soldiers outside buildings');
       if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
-      if (!hasExplored(world, command.playerId, command.x, command.y)) return refuse('You have not explored that land');
       const tiles = formationTiles(world, command.x, command.y, soldiers.length);
       if (tiles.length === 0) return refuse('Soldiers cannot stand there');
       soldiers.forEach((s, k) => {
@@ -489,7 +490,6 @@ export function applyCommand(world: World, command: Command): CommandResult {
         return refuse('Choose your own geologists, pioneers, thieves or priests');
       }
       if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
-      if (!hasExplored(world, command.playerId, command.x, command.y)) return refuse('You have not explored that land');
       const centre = tileIndex(world, command.x, command.y);
       const tiles = formationTiles(world, command.x, command.y, specialists.length);
       if (tiles.length === 0) return refuse('They cannot stand there');

@@ -261,6 +261,9 @@ Issue #12, phase 7, following the original's game setup.
 
 ## Cross-device army controls
 
+- **Orders go anywhere:** soldiers, specialists and ships can be sent to any tile, explored or not, as in The Settlers III. Spells and trade route waypoints still need explored land. With units selected, a right-click on the minimap (or a tap on it while an order button is on) sends them there.
+- **Breaking off a fight:** a soldier ordered to move while it is fighting breaks off and walks to the spot without turning back to the enemy. Soldiers not fighting still fight what they meet on the way, unless ordered to move without fighting. The computer player leaves its fighting soldiers to their fight.
+
 Prototype selecting, grouping and commanding large armies on a physical phone early. Saved army groups, explicit order modes and clear selection feedback must cover essential desktop interactions without requiring pixel-precise taps. Keep rules equal across devices; test usability and performance separately.
 
 ## Fair AI participation
