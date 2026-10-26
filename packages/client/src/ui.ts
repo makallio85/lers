@@ -398,8 +398,9 @@ export interface MenuState {
   enemyCount: number;
   areEnemiesAllied: boolean;
   maxPlayers: number;
-  /** Whether sound effects play. */
+  /** Whether sound effects and music play. */
   isSoundOn: boolean;
+  isMusicOn: boolean;
   /** The people selected for the next match. */
   raceType: RaceType;
 }
@@ -496,6 +497,7 @@ export function renderGameMenu(state: MenuState): string {
     </div>
     <button type="button" class="menu-item" data-action="new-sandbox">New sandbox (no opponent)</button>
     <button type="button" class="menu-item" data-action="sound" aria-pressed="${state.isSoundOn}">Sound: ${state.isSoundOn ? 'on' : 'off'}</button>
+    <button type="button" class="menu-item" data-action="music" aria-pressed="${state.isMusicOn}">Music: ${state.isMusicOn ? 'on' : 'off'}</button>
     ${state.isMatch ? (state.isConfirmingSurrender
       ? `<div class="menu-confirm"><span>Give up this match?</span><button type="button" class="danger" data-action="confirm-surrender">Surrender</button><button type="button" class="secondary" data-action="cancel-surrender">Keep playing</button></div>`
       : '<button type="button" class="menu-item" data-action="surrender">Surrender…</button>') : ''}
