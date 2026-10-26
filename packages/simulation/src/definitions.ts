@@ -323,13 +323,16 @@ interface BuildingOptions {
   races?: readonly RaceType[];
 }
 
+/** A workshop keeps up to one pile (8) of each good it uses, as in The Settlers III, unless its type says otherwise. */
+export const INPUT_PILE = 8;
+
 function building(
   id: BuildingTypeId, label: string, groupType: BuildingGroupType, size: 2 | 3 | 4, plank: number, stone: number,
   workerLabel: string, usesLabel: string, makesLabel: string, options: BuildingOptions = {}
 ): BuildingType {
   const inputLimits: Partial<GoodAmounts> = options.inputLimits ?? {};
   if (!options.inputLimits && options.recipe) {
-    for (const good of GOOD_TYPES) if (options.recipe.inputs[good]) inputLimits[good] = 4;
+    for (const good of GOOD_TYPES) if (options.recipe.inputs[good]) inputLimits[good] = INPUT_PILE;
   }
   return {
     id, label, groupType, size, cost: { plank, stone },

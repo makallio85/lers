@@ -102,7 +102,8 @@ test('the last team standing wins, allies included, and teams survive a save', (
 test('three built-in bots, two of them allies, play a match to a winner', () => {
   const world = createMatch(7, 'aggressive', 'small', 'romans', undefined, 'continent', { allyCount: 1, enemyCount: 1 });
   world.players[0].isBot = true;
-  for (let t = 0; t < 75 * 600 && world.winner === null; t++) stepMatch(world);
+  // About 76 minutes here since workshops keep a pile of 8 of each input.
+  for (let t = 0; t < 90 * 600 && world.winner === null; t++) stepMatch(world);
   assert.notEqual(world.winner, null);
   assert.ok(isWinner(world, 0) === isWinner(world, 1), 'allies win or lose together');
 });
