@@ -327,23 +327,10 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     }
   }
 
-  // 2. Geologists: keep two, and send idle ones to mountains nobody has marked yet.
-  // Geologists carry a hammer. A toolsmith or machinist waiting for one gets a geologist's back (otherwise
-  // no new hammers can ever be made), and new geologists are only taken on while hammers are spare.
+  // 2. Geologists: keep two (a carrier converts with no tool), and send idle ones to mountains nobody has marked yet.
   const geologists = obs.ownSpecialists.filter((s) => s.settlerType === 'geologist');
-  // Also with no hammer left and no toolsmith: without a hammer the toolsmith that makes them is never built.
-  const isHammerWanted = obs.ownBuildings.some((b) => b.isComplete && missingTool(b) === 'hammer')
-    || (stored('hammer') === 0 && count('toolsmith') === 0);
-  if (isHammerWanted && geologists.length > 0 && turn % 5 === 0) {
-    commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: geologists.length - 1 });
-    note('a geologist gives back his hammer');
-  } else if (!isHammerWanted && geologists.length < GEOLOGISTS && stored('hammer') > reserveOf('hammer', 'woodcutter') && turn % 10 === 0) {
+  if (geologists.length < GEOLOGISTS && obs.freeCarriers > MIN_FREE_CARRIERS && turn % 10 === 0) {
     commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: GEOLOGISTS });
-  } else if (!isHammerWanted && geologists.length === 0 && stored('hammer') > 0 && !hasOre(obs, spots) && turn % 10 === 0) {
-    // A short start keeps too few hammers to spare one, but without ore the smiths it saves them for never come:
-    // one geologist borrows a hammer, and gives it back when a workshop needs it.
-    commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: 1 });
-    note('a geologist borrows a hammer to find ore');
   }
   const idleGeologists = geologists.filter((s) => s.phase === 'idle');
   if (idleGeologists.length > 0 && turn % 5 === 0) {
