@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEPOSIT_IRON, TERRAIN_MOUNTAIN, castleOf, createMatch, loadGame, saveGame, stepMatch, tileIndex } from '../src/index.ts';
+import {
+  DEPOSIT_IRON, ECONOMY_OUTSIDE_STRENGTH, TERRAIN_MOUNTAIN, castleOf, createMatch, economyProgress, loadGame, newSettler, saveGame, step, stepMatch,
+  strengthOf, tileIndex
+} from '../src/index.ts';
 import { reachableFrom } from '../src/pathfinding.ts';
-import type { SettlerType, World } from '../src/index.ts';
+import type { BotLogEntry, SettlerType, World } from '../src/index.ts';
 
 const count = (world: World, owner: number, type: SettlerType) => world.settlers.filter((s) => s.owner === owner && s.settlerType === type).length;
 
@@ -65,4 +68,49 @@ test('with few starting goods on an unmirrored map, two built-in bots still play
   // Few hammers: the bot lends one to a geologist, or it never finds ore and stalls.
   for (let t = 0; t < 90 * 600 && world.winner === null; t++) stepMatch(world);
   assert.notEqual(world.winner, null, 'the match should end within 90 minutes');
+});
+
+test('economic mode: the first to make every goods target wins, and soldiers are weak away from home', () => {
+  const world = createMatch(5, 'calm', 'small', 'romans', 'romans', 'continent', { victoryType: 'economy' });
+  assert.equal(world.victoryType, 'economy');
+  const targets = economyProgress(world, 1);
+  assert.deepEqual(targets.map((t) => t.good), ['plank', 'bread', 'meat', 'iron', 'gold']);
+  // One short of the bread target: no winner yet.
+  for (const t of targets) world.players[1].stats.goodsMade[t.good] = t.target;
+  world.players[1].stats.goodsMade.bread = targets[1].target - 1;
+  for (let k = 0; k < 20; k++) step(world);
+  assert.equal(world.winner, null);
+  world.players[1].stats.goodsMade.bread = targets[1].target;
+  for (let k = 0; k < 20; k++) step(world);
+  assert.equal(world.winner, 1);
+  assert.ok(world.messages.some((m) => m.owner === 0 && m.text === 'Defeat'));
+  // Outside its land a soldier hits at a quarter, whatever gold its owner has.
+  const other = createMatch(5, 'calm', 'small', 'romans', 'romans', 'continent', { victoryType: 'economy' });
+  const castle = castleOf(other, 0)!;
+  castle.stock.gold = 100;
+  const s = newSettler(other, 0, 'swordsman', Math.floor(other.width / 2), castle.doorY); s.isInside = false;
+  assert.equal(strengthOf(other, s), ECONOMY_OUTSIDE_STRENGTH);
+  const home = newSettler(other, 0, 'swordsman', castle.doorX, castle.doorY + 2); home.isInside = false;
+  assert.equal(strengthOf(other, home), 1);
+});
+
+test('workshops count the goods they make, and the count and victory type survive a save', () => {
+  const world = createMatch(5, 'calm', 'small', 'romans', 'romans', 'continent', { victoryType: 'economy' });
+  world.players[0].isBot = true;
+  for (let t = 0; t < 12_000; t++) stepMatch(world);
+  assert.ok((world.players[0].stats.goodsMade.plank ?? 0) > 0);
+  assert.equal(world.players[0].stats.goodsMade.plank, world.players[0].stats.planksMade);
+  const copy = loadGame(JSON.parse(JSON.stringify(saveGame(world))));
+  assert.equal(copy.victoryType, 'economy');
+  assert.deepEqual(copy.players[0].stats.goodsMade, world.players[0].stats.goodsMade);
+});
+
+test('in the economic mode two built-in bots never attack, and one wins the race', () => {
+  const world = createMatch(7, 'aggressive', 'small', 'romans', 'egyptians', 'continent', { victoryType: 'economy' });
+  world.players[0].isBot = true;
+  const log: BotLogEntry[] = [];
+  for (let t = 0; t < 110 * 600 && world.winner === null; t++) stepMatch(world, [], log);
+  assert.notEqual(world.winner, null, 'the race should end within 110 minutes');
+  assert.ok(!log.some((e) => e.text.startsWith('attack ')), 'no attacks');
+  assert.ok(world.players.every((p) => castleOf(world, p.id)), 'both castles stand');
 });

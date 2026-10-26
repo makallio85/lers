@@ -7,7 +7,7 @@ import {
 import type { BuildingTypeId, GoodType, SettlerType, WarMachineType } from './definitions.ts';
 import { applyCommand } from './commands.ts';
 import type { Command, CommandResult } from './commands.ts';
-import { releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
+import { checkVictory, releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
 import { WALK_SPEED, advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
 import { updateVision } from './vision.ts';
 import { landRegion } from './regions.ts';
@@ -93,6 +93,8 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   for (const s of soldiers) updateSoldier(world, s);
   removeDead(world);
   warnAboutBlockedBuildings(world);
+  // The economic mode's race is checked once a second.
+  if (world.victoryType === 'economy' && world.tick % 10 === 0) checkVictory(world);
   world.tick++;
   return results;
 }
@@ -880,6 +882,7 @@ function finishWork(world: World, s: Settler, home: Building, type: SettlerType)
     const player = playerOf(world, home.owner);
     if (player && output === 'plank') player.stats.planksMade++;
     if (player && output === 'bread') player.stats.breadBaked++;
+    if (player) player.stats.goodsMade[output] = (player.stats.goodsMade[output] ?? 0) + 1;
     s.good = null;
     s.phase = 'inside'; s.timer = 5;
     return;

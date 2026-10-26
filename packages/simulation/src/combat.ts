@@ -1,9 +1,9 @@
 import {
-  BUILDING_STRUCTURE, BUILDING_TYPES, GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SETTLER_LABELS, SOLDIER_STATS, WAR_MACHINE_STATS,
-  emptyGoods, isShipType, isSoldierType, isUnitType, isWarMachineType
+  BUILDING_STRUCTURE, BUILDING_TYPES, ECONOMY_OUTSIDE_STRENGTH, ECONOMY_TARGETS, GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SETTLER_LABELS,
+  SOLDIER_STATS, WAR_MACHINE_STATS, emptyGoods, isShipType, isSoldierType, isUnitType, isWarMachineType, mapSizeTypeOf
 } from './definitions.ts';
 import { updateShip } from './sea.ts';
-import type { WarMachineType } from './definitions.ts';
+import type { GoodType, WarMachineType } from './definitions.ts';
 import { coveringBuilding, releaseFromBuilding } from './commands.ts';
 import { advance, distance, doorTile, isMachinePassable, tileOf, walkTo } from './movement.ts';
 import { reachableFrom } from './pathfinding.ts';
@@ -40,6 +40,8 @@ export function storedGold(world: World, owner: number): number {
 /** How hard a soldier hits: always fully on its own land, outside it by the gold its owner has. */
 export function strengthOf(world: World, s: Settler): number {
   if (world.territory[tileIndex(world, Math.round(s.x), Math.round(s.y))] === s.owner + 1) return 1;
+  // In the economic mode, soldiers are very weak away from home.
+  if (world.victoryType === 'economy') return ECONOMY_OUTSIDE_STRENGTH;
   return OUTSIDE_MIN_STRENGTH + (1 - OUTSIDE_MIN_STRENGTH) * Math.min(1, storedGold(world, s.owner) / GOLD_FOR_FULL_STRENGTH);
 }
 
@@ -423,9 +425,27 @@ function bringDown(world: World, b: Building, by: number): void {
   checkVictory(world);
 }
 
-/** A player without a castle is out; the last one standing wins. */
+/** How far a player is toward the economic mode's targets: each target's good, made so far and needed. */
+export function economyProgress(world: World, playerId: number): { good: GoodType; made: number; target: number }[] {
+  const targets = ECONOMY_TARGETS[mapSizeTypeOf(world.width)];
+  const made = world.players[playerId]?.stats.goodsMade ?? {};
+  return (Object.entries(targets) as [GoodType, number][]).map(([good, target]) => ({ good, made: made[good] ?? 0, target }));
+}
+
+/** A player without a castle is out; the last one standing wins. In the economic mode, the first to make every target wins. */
 export function checkVictory(world: World): void {
   if (world.players.length < 2 || world.winner !== null) return;
+  if (world.victoryType === 'economy') {
+    const first = world.players.find((p) => !p.isEliminated && economyProgress(world, p.id).every((t) => t.made >= t.target));
+    if (first) {
+      world.winner = first.id;
+      for (const p of world.players) {
+        if (p.id === first.id) pushMessage(world, p.id, 'Victory', 'Your settlement made every goods target first.', false, null);
+        else pushMessage(world, p.id, 'Defeat', 'Another settlement made every goods target first.', true, null);
+      }
+      return;
+    }
+  }
   for (const p of world.players) {
     if (!p.isEliminated && !castleOf(world, p.id)) {
       p.isEliminated = true;

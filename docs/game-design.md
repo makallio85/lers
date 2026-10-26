@@ -201,6 +201,22 @@ Long matches need meaningful early, middle and late decisions. Travel distance a
 
 A lost battle should leave reasonable recovery choices: rebuild, defend a chokepoint, cooperate with an ally or attack a strategically valuable production route. Define elimination and allied assistance rules explicitly; do not promise unlimited recovery after total defeat. Prototype terrain, chokepoints and economic disruption before adding more unit types.
 
+### Economic mode
+
+Issue #12, phase 7, following the manual: the match is won by reaching goods targets, and soldiers are very weak outside their own land.
+
+- **Targets:** goods the player's workshops and mines make over the match. The first player to make all of them wins; castles still stand.
+
+  | Map | Planks | Bread | Meat | Iron bars | Gold bars |
+  |---|---|---|---|---|---|
+  | Small | 160 | 40 | 30 | 30 | 15 |
+  | Medium | 240 | 65 | 50 | 45 | 25 |
+  | Large | 320 | 90 | 70 | 60 | 35 |
+
+- **Soldiers outside their land** hit at a quarter of their strength, whatever gold their owner holds. At home they are as strong as ever, so defending still matters.
+- **The Stats tab** shows the race: each target with your progress and the computer's.
+- **Computer player:** it does not attack, only defends. In bot-vs-bot runs, races on small and medium maps ended at about 85 minutes, with bread the slowest target before it was lowered.
+
 ## Long-session continuity
 
 Support saving a multiplayer match and resuming it later with the same participants. Specify who may pause, save, resume or approve a replacement player; persist player-slot identity independently of a transient connection. Define disconnect grace periods and configurable built-in bot takeover, showing the policy in the lobby. A slow or unavailable external AI must never stall the simulation.

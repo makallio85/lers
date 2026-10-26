@@ -1,5 +1,5 @@
 import { BUILDING_TYPES, SPELL_STATS, isSpecialistType, isUnitType } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, MapLayoutType, SettlerType } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, MapLayoutType, SettlerType, VictoryType } from './definitions.ts';
 import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, siteCost, tileIndex } from './world.ts';
 import type { PlayerState, World } from './world.ts';
 
@@ -112,6 +112,8 @@ export interface Observation {
   freeCarriers: number;
   /** The kind of map, chosen in the open when the match was set up. */
   mapLayout: MapLayoutType;
+  /** How the match is won, also chosen in the open. */
+  victoryType: VictoryType;
 }
 
 export function observe(world: World, playerId: number): Observation {
@@ -158,6 +160,6 @@ export function observe(world: World, playerId: number): Observation {
   }
   return {
     tick: world.tick, playerId, player: structuredClone(player), width: world.width, height: world.height,
-    ownBuildings, otherBuildings, ownSoldiers, ownSpecialists, otherSoldiers, settlerCounts, freeCarriers, mapLayout: world.mapLayout
+    ownBuildings, otherBuildings, ownSoldiers, ownSpecialists, otherSoldiers, settlerCounts, freeCarriers, mapLayout: world.mapLayout, victoryType: world.victoryType
   };
 }

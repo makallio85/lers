@@ -6,10 +6,10 @@ import {
   OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
   DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf,
   MAP_LAYOUT_LABELS, MAP_LAYOUT_TYPES, SHIP_COSTS, SHIP_TICKS, SHIP_TYPES, TRADE_SHIPS_PER_DOCK, TRADE_SHIP_PILES, TRANSPORT_CAPACITY, BOARDING_RANGE, isShipType,
-  passengersOf, shipsOfDock, isSpecialistType, STARTING_GOODS_LABELS, STARTING_GOODS_TYPES
+  passengersOf, shipsOfDock, isSpecialistType, STARTING_GOODS_LABELS, STARTING_GOODS_TYPES, VICTORY_LABELS, VICTORY_TYPES, economyProgress
 } from '../../simulation/src/index.ts';
 import type {
-  BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, StartingGoodsType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
+  BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, StartingGoodsType, VictoryType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
 } from '../../simulation/src/index.ts';
 
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
@@ -312,6 +312,24 @@ export function renderMilitaryPanel(world: World, view: MilitaryViewId, owner: n
   return `${tabs}<ul class="list">${rows}</ul><p class="empty">Free soldiers fill buildings up to the number wanted, emptiest first. A tower with nobody inside claims no land.</p>`;
 }
 
+/** The economic mode's race: each target's good, with your progress and the opponent's. */
+function renderEconomyRace(world: World, owner: number): string {
+  const other = world.players.find((p) => p.id !== owner)!;
+  const theirs = new Map(economyProgress(world, other.id).map((t) => [t.good, t.made]));
+  const bar = (made: number, target: number, cls: string) =>
+    `<span class="economy-bar ${cls}" aria-hidden="true"><span style="width:${Math.min(100, (made / target) * 100)}%"></span></span>`;
+  const rows = economyProgress(world, owner).map((t) => {
+    const them = theirs.get(t.good) ?? 0;
+    return `<li class="economy-row"><span class="economy-good">${GOOD_LABELS[t.good]}</span>
+      <span class="economy-side">${bar(t.made, t.target, 'is-you')}<span class="num">${Math.min(t.made, t.target)} / ${t.target}</span></span>
+      <span class="economy-side">${bar(them, t.target, 'is-them')}<span class="num muted">${Math.min(them, t.target)}</span></span></li>`;
+  }).join('');
+  return `<h2 class="section-title">Economy race</h2>
+    <p class="muted economy-note">Made by your workshops since the start; the first to make every target wins.</p>
+    <div class="economy-head"><span></span><span>You</span><span>Computer</span></div>
+    <ul class="list economy-list">${rows}</ul>`;
+}
+
 export function renderStatsPanel(world: World, owner: number): string {
   const counts = new Map<BuildingTypeId, { done: number; building: number }>();
   for (const b of world.buildings) {
@@ -323,7 +341,8 @@ export function renderStatsPanel(world: World, owner: number): string {
   const rows = [...counts].map(([id, c]) =>
     `<li><span>${BUILDING_TYPES[id].label}</span><span class="num">${c.done}${c.building ? ` + ${c.building} building` : ''}</span></li>`).join('');
   const land = world.territory.reduce((sum, v) => sum + (v === owner + 1 ? 1 : 0), 0);
-  return `<h2 class="section-title">Buildings</h2><ul class="list">${rows}</ul>
+  const race = world.victoryType === 'economy' && world.players.length > 1 ? renderEconomyRace(world, owner) : '';
+  return `${race}<h2 class="section-title">Buildings</h2><ul class="list">${rows}</ul>
     <h2 class="section-title">Land</h2><ul class="list"><li><span>Territory</span><span class="num">${land} tiles</span></li></ul>`;
 }
 
@@ -370,6 +389,7 @@ export interface MenuState {
   /** Whether the next match's map is mirrored, and how much each player starts with. */
   isMirrored: boolean;
   startingGoodsType: StartingGoodsType;
+  victoryType: VictoryType;
   /** The people selected for the next match. */
   raceType: RaceType;
 }
@@ -384,7 +404,8 @@ const MATCH_LENGTHS: Record<BotType, Record<MapSizeType, string>> = {
   aggressive: { small: 'about an hour (about 15 minutes at 4×)', medium: 'about an hour or more', large: 'well over an hour' }
 };
 
-function opponentText(botType: BotType, mapSize: MapSizeType): string {
+function opponentText(botType: BotType, mapSize: MapSizeType, victoryType: VictoryType = 'conquest'): string {
+  if (victoryType === 'economy') return 'Builds its economy and defends its land. A race lasts about an hour and a half.';
   const firstAttack = BOT_TYPE_SETTINGS[botType].firstAttackMinutes[mapSize];
   const start = firstAttack > 0 ? `Builds up first and attacks after about ${firstAttack} minutes.` : 'Attacks as soon as it has soldiers.';
   return `${start} A match lasts ${MATCH_LENGTHS[botType][mapSize]}.`;
@@ -421,6 +442,14 @@ export function renderGameMenu(state: MenuState): string {
             <span class="muted">${m === 'islands' ? 'Each people on its own island: attack by ship' : 'One land: walk to the enemy'}</span>
           </button>`).join('')}
       </div>
+      <span class="menu-hint" id="menu-victory">Victory</span>
+      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-victory">
+        ${VICTORY_TYPES.map((v) => `
+          <button type="button" class="map-size-choice ${v === state.victoryType ? 'is-on' : ''}" role="radio" aria-checked="${v === state.victoryType}" data-action="victory" data-victory="${v}">
+            <span class="opponent-name">${VICTORY_LABELS[v]}</span>
+            <span class="muted">${v === 'economy' ? 'First to make the goods targets; soldiers are weak away from home' : 'Take the enemy castle'}</span>
+          </button>`).join('')}
+      </div>
       <span class="menu-hint" id="menu-halves">Map halves</span>
       <div class="map-size-row" role="radiogroup" aria-labelledby="menu-halves">
         ${[true, false].map((m) => `
@@ -441,7 +470,7 @@ export function renderGameMenu(state: MenuState): string {
       ${BOT_TYPES.map((t) => `
         <button type="button" class="opponent-choice ${t === state.botType ? 'is-on' : ''}" data-action="new-match" data-bot="${t}">
           <span class="opponent-name">${BOT_TYPE_SETTINGS[t].label}</span>
-          <span class="muted">${opponentText(t, state.mapSize)}</span>
+          <span class="muted">${opponentText(t, state.mapSize, state.victoryType)}</span>
         </button>`).join('')}
     </div>
     <button type="button" class="menu-item" data-action="new-sandbox">New sandbox (no opponent)</button>
@@ -756,6 +785,15 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
     ${hint ? `<span class="order-hint muted">${hint}</span>` : ''}`;
 }
 
+function endReason(world: World, owner: number, isWin: boolean): string {
+  const hasCastles = world.players.every((p) => castleOf(world, p.id));
+  if (world.victoryType === 'economy' && hasCastles && !world.players.some((p) => p.isEliminated)) {
+    return isWin ? 'Your settlement made every goods target first.' : 'The computer\'s settlement made every goods target first.';
+  }
+  if (isWin) return world.players.some((p) => p.id !== owner && p.isEliminated && castleOf(world, p.id)) ? 'The computer surrendered.' : 'Your soldiers took the enemy castle.';
+  return world.players[owner].isEliminated && castleOf(world, owner) ? 'You surrendered.' : 'The enemy took your castle.';
+}
+
 export function renderEndScreen(world: World, owner: number): string {
   const isWin = world.winner === owner;
   const you = world.players[owner].stats, them = world.players.find((p) => p.id !== owner)?.stats;
@@ -772,7 +810,7 @@ export function renderEndScreen(world: World, owner: number): string {
     <div class="end-card" role="dialog" aria-modal="true" aria-labelledby="end-title">
       <span class="end-eyebrow">Match over · ${formatClock(world.tick)}</span>
       <h1 id="end-title" class="end-title">${isWin ? 'Victory' : 'Defeat'}</h1>
-      <p class="muted">${isWin ? 'Your soldiers took the enemy castle.' : world.players[owner].isEliminated && castleOf(world, owner) ? 'You surrendered.' : 'The enemy took your castle.'}</p>
+      <p class="muted">${endReason(world, owner, isWin)}</p>
       <table class="end-table">
         <thead><tr><th></th><th>You</th><th>Computer</th></tr></thead>
         <tbody>${rows.map(([label, a, b]) => `<tr><td>${label}</td><td>${a.toLocaleString('en')}</td><td>${(b ?? 0).toLocaleString('en')}</td></tr>`).join('')}</tbody>
