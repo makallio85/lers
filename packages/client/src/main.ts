@@ -3,9 +3,9 @@ import {
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
-  BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
+  BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
 } from '../../simulation/src/index.ts';
-import type { BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
@@ -17,8 +17,8 @@ import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } fr
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v11';
-const AUTOSAVE_KEY = 'lers.autosave.v11';
+const SAVE_KEY = 'lers.save.v12';
+const AUTOSAVE_KEY = 'lers.autosave.v12';
 const AUTOSAVE_MS = 5 * 60 * 1000;
 const DRAG_THRESHOLD = 6;
 
@@ -41,6 +41,7 @@ const RACE_KEY = 'lers.race';
 const MAP_LAYOUT_KEY = 'lers.mapLayout';
 const MAP_HALVES_KEY = 'lers.mapHalves';
 const STARTING_GOODS_KEY = 'lers.startingGoods';
+const VICTORY_KEY = 'lers.victory';
 /** Hash words such as `#calm`, `#small` or `#calm-small`, for hosts that pass only the hash to the page. */
 const hashWords = location.hash.slice(1).split('-');
 
@@ -66,7 +67,8 @@ let lastMapLayout: MapLayoutType = chosen(MAP_LAYOUT_TYPES, MAP_LAYOUT_KEY, 'lan
 let lastIsMirrored = chosen(['mirrored', 'own'] as const, MAP_HALVES_KEY, 'halves', 'mirrored') === 'mirrored';
 let lastStartingGoods: StartingGoodsType = chosen(STARTING_GOODS_TYPES, STARTING_GOODS_KEY, 'goods', 'default');
 /** The setup the menu has selected for the next match. */
-const nextSetup = () => ({ isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods });
+let lastVictory: VictoryType = chosen(VICTORY_TYPES, VICTORY_KEY, 'victory', 'conquest');
+const nextSetup = () => ({ isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory });
 const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
 const mapSize = (): MapSizeType => (isMatch() ? mapSizeTypeOf(world.width) : lastMapSize);
 const seedParam = Number(params.get('seed'));
@@ -193,7 +195,7 @@ function renderMenu(): void {
     els.menu.innerHTML = renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
       isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
-      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, raceType: lastRace
+      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace
     });
   }
 }
@@ -893,6 +895,9 @@ document.addEventListener('click', (e) => {
         lastMapLayout = target.dataset.layout as MapLayoutType; remember(MAP_LAYOUT_KEY, lastMapLayout);
       }
       renderMenu(); break;
+    case 'victory':
+      if ((VICTORY_TYPES as readonly string[]).includes(target.dataset.victory ?? '')) { lastVictory = target.dataset.victory as VictoryType; remember(VICTORY_KEY, lastVictory); }
+      renderMenu(); break;
     case 'map-mirror':
       lastIsMirrored = target.dataset.mirrored === 'true'; remember(MAP_HALVES_KEY, lastIsMirrored ? 'mirrored' : 'own');
       renderMenu(); break;
@@ -934,7 +939,7 @@ document.addEventListener('click', (e) => {
       renderOrders(); break;
     case 'new-sandbox': startNew(createWorld({ seed: randomSeed(), raceTypes: [lastRace] })); break;
     case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, world.players[1].raceType, world.mapLayout,
-      { isMirrored: world.isMirrored, startingGoodsType: world.startingGoodsType }) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
+      { isMirrored: world.isMirrored, startingGoodsType: world.startingGoodsType, victoryType: world.victoryType }) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;
     case 'surrender': ui.isConfirmingSurrender = true; renderMenu(); break;
     case 'cancel-surrender': ui.isConfirmingSurrender = false; renderMenu(); break;

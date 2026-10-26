@@ -1,15 +1,15 @@
 import {
   BUILDING_TYPES, GOOD_TYPES, MAX_TRADE_WAYPOINTS, RACE_TYPES, SHIP_TYPES, RANK_LABELS, SETTLER_LABELS, SOLDIER_TYPES, TOOL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED,
-  WEAPON_TYPES, STARTING_GOODS_TYPES, consumersOf
+  WEAPON_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, consumersOf
 } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, ShipType, SoldierType, StartingGoodsType, TradeModeType } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, ShipType, SoldierType, StartingGoodsType, TradeModeType, VictoryType } from './definitions.ts';
 import { FIELD_RIPE, TREE_MATURE, recomputeTerritory, tileIndex } from './world.ts';
 import { BOT_TYPES } from './bot.ts';
 import type { BotType } from './bot.ts';
 import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, TradeRoute, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 function raceType(value: unknown): RaceType {
   if (typeof value !== 'string' || !(RACE_TYPES as readonly string[]).includes(value)) fail('a people is unknown');
@@ -28,7 +28,7 @@ const PHASES: readonly SettlerPhase[] = [
   'prospecting', 'claiming', 'stealing'
 ];
 const MADE_GOODS: readonly string[] = [...TOOL_TYPES, ...WEAPON_TYPES];
-const STAT_KEYS: readonly (keyof PlayerStats)[] = [
+const STAT_KEYS: readonly Exclude<keyof PlayerStats, 'goodsMade'>[] = [
   'buildingsBuilt', 'soldiersRecruited', 'soldiersLost', 'towersTaken', 'planksMade', 'breadBaked', 'largestTerritory'
 ];
 
@@ -49,7 +49,7 @@ export function saveGame(world: World): Record<string, unknown> {
     messages: structuredClone(world.messages),
     farSights: structuredClone(world.farSights),
     nextId: world.nextId, randomState: world.randomState, winner: world.winner, mapLayout: world.mapLayout,
-    isMirrored: world.isMirrored, startingGoodsType: world.startingGoodsType
+    isMirrored: world.isMirrored, startingGoodsType: world.startingGoodsType, victoryType: world.victoryType
   };
 }
 
@@ -195,7 +195,8 @@ export function loadGame(data: unknown): World {
     for (const g of GOOD_TYPES) isStored[g] = bool(raw.isStored[g], `storage setting for ${g}`);
     if (!isRecord(raw.stats)) fail('statistics are missing');
     const stats = {} as PlayerStats;
-    for (const key of STAT_KEYS) stats[key] = int(raw.stats[key], 0, Number.MAX_SAFE_INTEGER, `statistic ${key}`);
+    for (const key of STAT_KEYS) (stats as unknown as Record<string, number>)[key] = int(raw.stats[key], 0, Number.MAX_SAFE_INTEGER, `statistic ${key}`);
+    stats.goodsMade = goodRecord(raw.stats.goodsMade, GOOD_TYPES, (v, what) => int(v, 0, Number.MAX_SAFE_INTEGER, what), 'goods made');
     return {
       id: int(raw.id, k, k, 'player id'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), raceType: raceType(raw.raceType), isEliminated: bool(raw.isEliminated, 'player state'),
       transportPriority: order.map((g) => good(g, 'priority entry')), isStored,
@@ -311,7 +312,8 @@ export function loadGame(data: unknown): World {
     winner: data.winner === null ? null : int(data.winner, 0, ownerMax, 'winner'),
     mapLayout: data.mapLayout === 'islands' ? 'islands' : data.mapLayout === 'continent' ? 'continent' : fail('the map layout is unknown'),
     isMirrored: typeof data.isMirrored === 'boolean' ? data.isMirrored : fail('whether the map is mirrored is unknown'),
-    startingGoodsType: (STARTING_GOODS_TYPES as readonly unknown[]).includes(data.startingGoodsType) ? data.startingGoodsType as StartingGoodsType : fail('the starting goods are unknown')
+    startingGoodsType: (STARTING_GOODS_TYPES as readonly unknown[]).includes(data.startingGoodsType) ? data.startingGoodsType as StartingGoodsType : fail('the starting goods are unknown'),
+    victoryType: (VICTORY_TYPES as readonly unknown[]).includes(data.victoryType) ? data.victoryType as VictoryType : fail('how the match is won is unknown')
   };
   // Building tiles and territory are derived from the buildings rather than trusted from the file.
   for (const b of buildings) {

@@ -484,6 +484,13 @@ export const STARTING_GOODS_SETTINGS: Record<StartingGoodsType, { goods: number;
   many: { goods: 2, tools: 2, settlers: 1.5, soldiers: 2 }
 };
 
+/** How a match is won: by taking every enemy castle, or, in the economic mode, by making the goods targets first. */
+export const VICTORY_TYPES = ['conquest', 'economy'] as const;
+export type VictoryType = (typeof VICTORY_TYPES)[number];
+export const VICTORY_LABELS: Record<VictoryType, string> = { conquest: 'Conquest', economy: 'Economy' };
+/** Economic mode: how hard soldiers hit outside their own land, whatever gold their owner has. */
+export const ECONOMY_OUTSIDE_STRENGTH = 0.25;
+
 /** Map layouts: one continent, or each player on an island across the sea, with a neutral island between. */
 export const MAP_LAYOUT_TYPES = ['continent', 'islands'] as const;
 export type MapLayoutType = (typeof MAP_LAYOUT_TYPES)[number];
@@ -491,6 +498,12 @@ export const MAP_LAYOUT_LABELS: Record<MapLayoutType, string> = { continent: 'Co
 
 export const MAP_SIZE_TYPES = ['small', 'medium', 'large'] as const;
 export type MapSizeType = (typeof MAP_SIZE_TYPES)[number];
+/** Economic mode: goods each player's workshops must make over the match, per map size; the first to make them all wins. */
+export const ECONOMY_TARGETS: Record<MapSizeType, Partial<Record<GoodType, number>>> = {
+  small: { plank: 160, bread: 40, meat: 30, iron: 30, gold: 15 },
+  medium: { plank: 240, bread: 65, meat: 50, iron: 45, gold: 25 },
+  large: { plank: 320, bread: 90, meat: 70, iron: 60, gold: 35 }
+};
 
 export const MAP_SIZE_SETTINGS: Record<MapSizeType, { label: string; width: number; height: number }> = {
   small: { label: 'Small', width: 96, height: 64 },

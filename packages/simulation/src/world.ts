@@ -3,7 +3,7 @@ import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, buildingCost, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, DEPOSIT_SULFUR, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
   WAR_MACHINE_STATS, SHIP_HEALTH, STARTING_GOODS_SETTINGS, consumersOf, distributedGoods, emptyGoods, isShipType, isSoldierType, isWarMachineType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, MapLayoutType, RaceType, SettlerType, ShipType, SoldierType, StartingGoodsType, TradeModeType } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, MapLayoutType, RaceType, SettlerType, ShipType, SoldierType, StartingGoodsType, TradeModeType, VictoryType } from './definitions.ts';
 import { createRandom } from './random.ts';
 
 export const TICKS_PER_SECOND = 10;
@@ -164,6 +164,8 @@ export interface PlayerStats {
   towersTaken: number;
   planksMade: number;
   breadBaked: number;
+  /** Goods the player's workshops and mines made over the match, per good: the economic mode's progress. */
+  goodsMade: Partial<GoodAmounts>;
   largestTerritory: number;
 }
 
@@ -264,6 +266,7 @@ export interface World {
   /** Whether the right half of a match map mirrors the left, so both players start on the same land. */
   isMirrored: boolean;
   startingGoodsType: StartingGoodsType;
+  victoryType: VictoryType;
 }
 
 export function tileIndex(world: World, x: number, y: number): number {
@@ -443,7 +446,7 @@ export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'ag
     isStored, productionOrders: {}, productionShares, productionCredit: {}, distribution, distributionCount: {},
     isRecruitingAutomatic: true, recruitsLeft: 0, minCarrierPercent: DEFAULT_MIN_CARRIER_PERCENT, maxCrewPercent: DEFAULT_MAX_CREW_PERCENT,
     manna: 0, soldierRanks: { swordsman: 0, spearman: 0, bowman: 0 },
-    stats: { buildingsBuilt: 0, soldiersRecruited: 0, soldiersLost: 0, towersTaken: 0, planksMade: 0, breadBaked: 0, largestTerritory: 0 }
+    stats: { buildingsBuilt: 0, soldiersRecruited: 0, soldiersLost: 0, towersTaken: 0, planksMade: 0, breadBaked: 0, largestTerritory: 0, goodsMade: {} }
   };
 }
 
@@ -460,6 +463,7 @@ export interface CreateWorldOptions {
   /** Matches only: mirror the left half onto the right (the default), or generate both halves on their own. */
   isMirrored?: boolean;
   startingGoodsType?: StartingGoodsType;
+  victoryType?: VictoryType;
 }
 
 export const STARTING_STOCK: Partial<GoodAmounts> = {
@@ -474,7 +478,8 @@ export const STARTING_SETTLERS: Partial<Record<SettlerType, number>> = {
 
 /** Creates a seeded map: a sandbox for one player, or a mirrored two-player match. */
 export function createWorld({
-  seed = 1, width, height, playerCount = 1, botType = 'aggressive', raceTypes = [], mapLayout = 'continent', isMirrored = true, startingGoodsType = 'default'
+  seed = 1, width, height, playerCount = 1, botType = 'aggressive', raceTypes = [], mapLayout = 'continent', isMirrored = true, startingGoodsType = 'default',
+  victoryType = 'conquest'
 }: CreateWorldOptions = {}): World {
   const w = width ?? (playerCount === 2 ? 144 : 96);
   const h = height ?? 96;
@@ -492,7 +497,7 @@ export function createWorld({
     claim: new Int32Array(n), vision: players.map(() => new Uint8Array(n)), prospect: players.map(() => new Uint8Array(n)),
     pioneerLand: new Uint8Array(n), militaryLand: new Uint8Array(n), players, buildings: [], settlers: [], messages: [], farSights: [],
     nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null, mapLayout,
-    isMirrored: playerCount === 2 && isMirrored, startingGoodsType
+    isMirrored: playerCount === 2 && isMirrored, startingGoodsType, victoryType: playerCount === 2 ? victoryType : 'conquest'
   };
   generateTerrain(world);
   const size = BUILDING_TYPES.castle.size;

@@ -383,7 +383,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
 
   // Then attack the nearest weakly held building in sight once the army is big enough; otherwise gather at the front.
   const mapSize = mapSizeTypeOf(obs.width);
-  const mayAttack = obs.tick >= settings.firstAttackMinutes[mapSize] * TICKS_PER_MINUTE;
+  // In the economic mode soldiers are too weak away from home to win anything there: the bot only defends.
+  const mayAttack = obs.victoryType !== 'economy' && obs.tick >= settings.firstAttackMinutes[mapSize] * TICKS_PER_MINUTE;
   const attacking = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && s.phase === 'attacking').length;
   const army = free.length + attacking;
   const mayTakeCastle = army >= settings.castleArmy && obs.tick >= settings.castleMinutes[mapSize] * TICKS_PER_MINUTE;

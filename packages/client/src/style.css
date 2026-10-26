@@ -256,6 +256,15 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 }
 
 /* A building battered by war machines: what is left of its structure. */
+.economy-note { margin: 0 0 6px; font-size: 12px; }
+.economy-head, .economy-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) minmax(0, 0.7fr); gap: 8px; align-items: center; font-size: 13px; }
+.economy-head { color: var(--muted); font-size: 12px; padding: 0 0 4px; }
+.economy-list li.economy-row { display: grid; }
+.economy-side { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.economy-bar { flex: 1; min-width: 0; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.economy-bar span { display: block; height: 100%; border-radius: 3px; }
+.economy-bar.is-you span { background: var(--accent); }
+.economy-bar.is-them span { background: var(--muted); }
 .structure { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .structure .bar { display: block; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .structure .bar span { display: block; height: 100%; border-radius: 3px; background: var(--warning); }
