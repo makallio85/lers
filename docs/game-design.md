@@ -188,6 +188,10 @@ The map shows what the simulation holds, so a player can read the settlement wit
 - **Walkers are drawn apart.** Settlers closer than their size are drawn pushed apart, never into a building; war machines and ships take more room. Only the drawing moves, not the simulation.
 - **Goods lie where they are.** A building's goods are piled in its yard, one item per good up to piles of eight: what it waits to work on at the front left, what it made at the front right. Storage areas show their piles across the yard, and construction sites show their delivered materials. The castle keeps its goods inside.
 - **Carried goods** are drawn large enough to tell what each carrier and donkey carries.
+- **Work shows:** woodcutters, builders, stonecutters and geologists swing their tool; diggers, pioneers and farmers bend down to dig, sow and plant. Tools are drawn half again as large as life so they read at normal zoom.
+- **Smoke** rises from workshops with a fire while their worker is at work.
+- **Fallen soldiers** fall where they stood, lie a moment and fade.
+- **Demolished buildings collapse:** a building that is demolished, burnt down or brought down sinks into the ground in a cloud of dust. One that only goes out of sight just disappears.
 - **Garrisons stand on the walls:** the soldiers inside a tower or castle, by type, up to two on a small tower, four on a large one and six on the castle.
 
 ## Pace

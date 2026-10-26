@@ -11,8 +11,18 @@ from nature import weapon_sword, weapon_spear, weapon_bow
 
 SCALE = 0.9
 CELL = (88, 96)
-FRAMES = {'walk': 8, 'carry': 8, 'work': 6, 'attack': 6}
-SOURCE = {'walk': 'walk', 'work': 'interact-right', 'attack': 'attack-melee-right'}
+FRAMES = {'walk': 8, 'carry': 8, 'work': 6, 'attack': 6, 'die': 6}
+SOURCE = {'walk': 'walk', 'work': 'interact-right', 'attack': 'attack-melee-right', 'die': 'die'}
+# Kit movements that fit each look's work better than the generic reach: a swing for axes, hammers and picks,
+# bending down for digging, sowing and planting, and the draw for the bow.
+LOOK_SOURCES = {
+    'builder': {'work': 'attack-melee-right'}, 'woodcutter': {'work': 'attack-melee-right'},
+    'stonecutter': {'work': 'attack-melee-right'}, 'geologist': {'work': 'attack-melee-right'},
+    'digger': {'work': 'pick-up'}, 'pioneer': {'work': 'pick-up'}, 'farmer': {'work': 'pick-up'},
+    'bowman': {'attack': 'holding-both-shoot'},
+}
+# Tools drawn half again as large as life, so they read at normal zoom.
+TOOL_SCALE = 1.5
 
 # look -> (model, tool, animations). Several settler types share a look (see the client's sprite table).
 LOOKS = {
@@ -27,9 +37,9 @@ LOOKS = {
     'geologist': ('character-female-d', 'tool-hammer', ('walk', 'work')),
     'pioneer': ('character-female-e', 'tool-shovel', ('walk', 'work')),
     'thief': ('character-female-f', None, ('walk', 'work')),
-    'swordsman': ('character-male-e', 'sword', ('walk', 'attack')),
-    'spearman': ('character-male-b', 'spear', ('walk', 'attack')),
-    'bowman': ('character-female-c', 'bow', ('walk', 'attack')),
+    'swordsman': ('character-male-e', 'sword', ('walk', 'attack', 'die')),
+    'spearman': ('character-male-b', 'spear', ('walk', 'attack', 'die')),
+    'bowman': ('character-female-c', 'bow', ('walk', 'attack', 'die')),
     'priest': ('character-male-f', 'staff', ('walk', 'work')),
 }
 SOLDIERS = ('swordsman', 'spearman', 'bowman')
@@ -60,15 +70,16 @@ def attach(s, objs, arm, bone):
 def hand_tool(s, tool, x, y, z):
     """A tool held upright in the right hand: a handle with the tool's head on top."""
     wood = s.mat('handle', '7a5a32'); steel = s.mat('steel', 'a0a4a8', rough=0.3, metal=0.8)
-    handle = s.cyl(x, y, z - 0.08, 0.014, 0.36, wood, 6)
-    top = z + 0.27
-    if tool == 'tool-axe': heads = [s.box(x, y - 0.035, top - 0.06, 0.02, 0.07, 0.08, steel)]
-    elif tool == 'tool-hammer': heads = [s.box(x, y, top - 0.02, 0.05, 0.1, 0.05, steel)]
+    k = TOOL_SCALE
+    handle = s.cyl(x, y, z - 0.08 * k, 0.014 * k, 0.36 * k, wood, 6)
+    top = z + 0.27 * k
+    if tool == 'tool-axe': heads = [s.box(x, y - 0.035 * k, top - 0.06 * k, 0.02 * k, 0.07 * k, 0.08 * k, steel)]
+    elif tool == 'tool-hammer': heads = [s.box(x, y, top - 0.02 * k, 0.05 * k, 0.1 * k, 0.05 * k, steel)]
     elif tool == 'tool-pickaxe':
-        heads = [s.box(x, y, top - 0.02, 0.025, 0.2, 0.03, steel)]
+        heads = [s.box(x, y, top - 0.02 * k, 0.025 * k, 0.2 * k, 0.03 * k, steel)]
     elif tool == 'tool-shovel':
-        handle.location.z -= 0.1; heads = [s.box(x, y, z - 0.2, 0.02, 0.08, 0.1, steel)]
-    elif tool == 'tool-hoe': heads = [s.box(x, y - 0.04, top - 0.03, 0.02, 0.09, 0.03, steel)]
+        handle.location.z -= 0.1 * k; heads = [s.box(x, y, z - 0.2 * k, 0.02 * k, 0.08 * k, 0.1 * k, steel)]
+    elif tool == 'tool-hoe': heads = [s.box(x, y - 0.04 * k, top - 0.03 * k, 0.02 * k, 0.09 * k, 0.03 * k, steel)]
     else: heads = []
     return [handle] + heads
 
@@ -115,7 +126,7 @@ def render_look(race, look):
     arm.animation_data_create()
     for anim in anims:
         if anim == 'carry': act = carry_action(arm, actions['walk'], actions['holding-both'])
-        else: act = actions[SOURCE[anim]]
+        else: act = actions[LOOK_SOURCES.get(look, {}).get(anim, SOURCE[anim])]
         arm.animation_data.action = act
         f0, f1 = act.frame_range; n = FRAMES[anim]
         for d in range(8):
@@ -151,4 +162,5 @@ def main():
             render_look(race, look)
 
 
-main()
+if __name__ == "__main__":
+    main()
