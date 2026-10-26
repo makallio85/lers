@@ -5,9 +5,9 @@ import {
   GOOD_TYPES, isStorageBuilding, TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, isShipType, tileIndex,
   BUILDING_STRUCTURE, WAR_MACHINE_STATS, buildingLabel
 } from '../../simulation/src/index.ts';
-import type { Building, BuildingTypeId, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { Building, BuildingTypeId, GoodType, RaceType, Settler, World } from '../../simulation/src/index.ts';
 import { SpriteBank, TREE_VARIANTS, lookOf } from './sprites.ts';
-import type { SettlerAnim, Sprite as ArtSprite } from './sprites.ts';
+import type { SettlerAnim, SettlerLook, Sprite as ArtSprite } from './sprites.ts';
 import { buildTerrain } from './terrain.ts';
 
 /** Pixels per tile in the flat (tile-space) drawing of the ground layer. */
@@ -84,13 +84,30 @@ interface BuildingView {
   root: Container; body: Sprite; scaffold: Sprite; mask: Graphics; marks: Graphics; label: Text; key: string;
   /** Goods piled in the yard and soldiers on the walls, in front of the building and sorted with the settlers. */
   piles: Container; guards: Container;
+  /** When the building left the world and began to collapse, and where its sprite stood then. */
+  collapsedAt?: number; collapseY?: number;
 }
+
+/** How long a demolished building takes to collapse, in milliseconds. */
+const COLLAPSE_MS = 1500;
 
 /** Goods drawn per pile: a pile of eight, as storage holds them. */
 const PILE_SIZE = 8;
 /** Where the items of a pile sit, in screen pixels from its foot: two layers of four. */
 const PILE_OFFSETS = [[0, 0], [7, -3], [-7, -3], [0, -6], [0, -6], [7, -9], [-7, -9], [0, -12]];
-interface SettlerView { root: Container; body: Sprite; load: Sprite; dir: number; walked: number }
+interface SettlerView {
+  root: Container; body: Sprite; load: Sprite; dir: number; walked: number;
+  /** A soldier's people and look, kept so it can fall when it dies; and when it died, once it has. */
+  race?: RaceType; look?: SettlerLook; diedAt?: number;
+}
+
+/** Workshops with a fire: smoke rises from them while their worker is at work. */
+const SMOKY_BUILDINGS: ReadonlySet<BuildingTypeId> = new Set<BuildingTypeId>([
+  'smelter', 'gold_smelter', 'bakery', 'toolsmith', 'weaponsmith', 'charcoal_maker', 'gunpowder_maker', 'distillery', 'brewery', 'mead_maker', 'alchemist'
+]);
+
+/** How long a fallen soldier plays its fall, then lies before fading, in milliseconds. */
+const DIE_FRAME_MS = 110, DIE_FRAMES = 6, FALLEN_MS = 1800;
 
 export class MapView {
   readonly app: Application;
@@ -360,8 +377,36 @@ export class MapView {
       this.drawPiles(b, v);
       this.drawGuards(b, v, !!art);
     }
+    // A building that leaves the world (demolished, burnt down or brought down by war machines) collapses:
+    // it sinks into a cloud of dust and fades. One that only went out of sight just disappears.
+    const existing = new Set(world.buildings.map((b) => b.id));
+    const now = performance.now();
     for (const [id, v] of this.buildingViews) {
       if (alive.has(id)) continue;
+      if (!existing.has(id) && v.body.visible && v.body.texture) {
+        v.collapsedAt ??= now;
+        const t = (now - v.collapsedAt) / COLLAPSE_MS;
+        if (t < 1) {
+          v.piles.visible = false; v.guards.visible = false; v.label.visible = false; v.scaffold.visible = false;
+          v.collapseY ??= v.body.y;
+          const h = v.body.height;
+          // Sinks fast at first, then settles; fades in the second half.
+          v.body.y = v.collapseY + h * 0.45 * (1 - (1 - t) * (1 - t));
+          v.body.alpha = t < 0.5 ? 1 : 1 - (t - 0.5) * 2;
+          // Cut off at the ground it stood on, so it sinks into it rather than sliding down.
+          const ground = v.collapseY + 4;
+          v.mask.clear().rect(v.body.x - v.body.width, ground - h * 2, v.body.width * 2, h * 2).fill(0xffffff);
+          v.body.mask = v.mask; v.mask.visible = true;
+          const g = v.marks.clear();
+          const foot = v.collapseY;
+          for (let k = 0; k < 9; k++) {
+            const a = (k / 9) * Math.PI * 2 + id, spread = 0.35 + 0.65 * t;
+            g.circle(v.body.x + Math.cos(a) * v.body.width * 0.4 * spread, foot - 6 - Math.sin(a) * 10 * spread - t * 18, 6 + t * 14)
+              .fill({ color: 0xb8a990, alpha: 0.55 * (1 - t) });
+          }
+          continue;
+        }
+      }
       v.piles.destroy({ children: true });
       v.root.destroy({ children: true });
       this.buildingViews.delete(id);
@@ -469,6 +514,17 @@ export class MapView {
       g.roundRect(base.x - 22, top - 30, 44, 6, 3).fill({ color: 0x0f1412, alpha: 0.8 });
       g.roundRect(base.x - 21, top - 29, 42 * left, 4, 2).fill(0xe8763a);
     }
+    if (b.isComplete && SMOKY_BUILDINGS.has(b.typeId) && hasArt) {
+      const worker = b.workerId === null ? undefined : this.world.settlers.find((s) => s.id === b.workerId);
+      if (worker && worker.phase === 'working' && !b.isPaused) {
+        // Smoke rising from the roof while the fire is lit: three puffs that grow and fade as they climb.
+        const now = performance.now();
+        for (let k = 0; k < 3; k++) {
+          const t = (now / 1600 + k / 3 + b.id * 0.17) % 1;
+          g.circle(base.x + b.size * 4 + Math.sin(t * 4 + k) * 4, top + 14 - t * 40, 4 + t * 8).fill({ color: 0xd9d4ca, alpha: 0.75 * (1 - t) });
+        }
+      }
+    }
     if (b.isComplete && b.isPaused) g.rect(base.x - 6, top - 18, 4, 11).fill(0xece6d6).rect(base.x + 2, top - 18, 4, 11).fill(0xece6d6);
     if (!b.isComplete) {
       const p = b.levelProgress < 1 ? b.levelProgress : b.buildProgress;
@@ -567,8 +623,21 @@ export class MapView {
         }
       }
     }
+    // Soldiers leave the world only when they die: they fall where they stood, lie a moment and fade.
+    const existing = new Set(this.world.settlers.map((s) => s.id));
     for (const [id, v] of this.settlerViews) {
       if (alive.has(id)) continue;
+      if (v.look && v.race && !existing.has(id) && this.bank.hasAnim(v.race, v.look, 'die')) {
+        v.diedAt ??= now;
+        const since = now - v.diedAt;
+        if (since < DIE_FRAMES * DIE_FRAME_MS + FALLEN_MS) {
+          const art = this.bank.settler(v.race, v.look, 'die', v.dir, Math.min(DIE_FRAMES - 1, Math.floor(since / DIE_FRAME_MS)));
+          if (art) this.place(v.body, art, 0, 0);
+          v.load.visible = false;
+          v.root.alpha = Math.max(0, Math.min(1, 1 - (since - DIE_FRAMES * DIE_FRAME_MS - FALLEN_MS / 2) / (FALLEN_MS / 2)));
+          continue;
+        }
+      }
       v.root.destroy({ children: true });
       this.settlerViews.delete(id);
     }
@@ -612,6 +681,7 @@ export class MapView {
     if (isShipType(s.settlerType)) { anim = 'walk'; frame = Math.floor(now / 260); }
     const art = this.bank.settler(race, look, anim, v.dir, frame + s.id);
     if (!art) return false;
+    if (isSoldierType(s.settlerType)) { v.race = race; v.look = look; }
     this.place(v.body, art, 0, 0);
     const p = iso(tx, ty);
     v.root.position.set(p.x, p.y);
