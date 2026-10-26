@@ -146,7 +146,7 @@ Issue #12, phase 4. The roles follow the manual; the names, numbers and effects 
   - Promotion costs 10 manna to sergeant and 20 to captain.
   - As in the manual, it applies to soldiers recruited afterwards; those already serving keep their rank.
   - Each rank adds 25 % health and damage.
-- **Computer player:** after the barracks it builds its people's drink maker and a small temple, and later a large temple. It promotes whenever it has the manna. In two 60–81 minute bot matches on medium maps, every people reached sergeant or captain. Casting spells is still to come for the computer; its priests wait.
+- **Computer player:** after the barracks it builds its people's drink maker and a small temple, and later a large temple. It promotes whenever it has the manna. In two 60–81 minute bot matches on medium maps, every people reached sergeant or captain. Its priests follow the army. In a fight near a priest, manna goes to spells first: Persuade on three or more enemies, Freeze on two, Fury or Shield on its own soldiers. Once every soldier type is a captain, spare manna goes to Blight on enemy mines in sight, Harvest at home, or Far sight toward the enemy. In three long bot matches priests cast only now and then, because they seldom reach a fight in time.
 
 ## Pace
 
