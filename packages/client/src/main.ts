@@ -75,6 +75,8 @@ const ui = {
   selectedType: 'woodcutter' as BuildingTypeId,
   placing: null as BuildingTypeId | null,
   ghost: null as Ghost | null,
+  /** The building under the mouse pointer, whose name is shown on the map. */
+  hoveredId: null as number | null,
   ghostKey: '',
   ghostProblem: null as string | null,
   markers: [] as number[],
@@ -393,6 +395,9 @@ function confirmPlacement(): void {
 }
 
 function buildingAt(clientX: number, clientY: number) {
+  // Buildings stand upright, so a tap on the roof counts as well as one on the ground they stand on.
+  const pictured = view.buildingAtScreen(clientX, clientY);
+  if (pictured && view.isBuildingVisible(pictured)) return pictured;
   const tile = view.screenToTile(clientX, clientY);
   if (tile.x < 0 || tile.y < 0 || tile.x >= world.width || tile.y >= world.height) return undefined;
   const i = tileIndex(world, tile.x, tile.y);
@@ -402,11 +407,14 @@ function buildingAt(clientX: number, clientY: number) {
 
 /** The player's own soldier outside a building nearest to a point, within about a tile. */
 function soldierAt(clientX: number, clientY: number): Settler | undefined {
-  const p = view.screenToWorld(clientX, clientY);
-  let best: Settler | undefined, bestDistance = 0.9;
+  // Settlers stand upright: measure on screen from the middle of the figure, not from its feet.
+  const rect = view.app.canvas.getBoundingClientRect();
+  const px = clientX - rect.left, py = clientY - rect.top;
+  let best: Settler | undefined, bestDistance = 22 * Math.max(0.7, view.scale);
   for (const s of world.settlers) {
     if (!isOwnUnit(s)) continue;
-    const d = Math.hypot(s.x + 0.5 - p.x, s.y + 0.5 - p.y);
+    const feet = view.tileToCanvas(s.x, s.y);
+    const d = Math.hypot(feet.x - px, feet.y - 12 * view.scale - py);
     if (d < bestDistance) { bestDistance = d; best = s; }
   }
   return best;
@@ -525,6 +533,7 @@ canvas.addEventListener('pointermove', (e) => {
   const p = pointers.get(e.pointerId);
   if (!p) {
     if (e.pointerType === 'mouse' && ui.placing && !ui.isTouchPlacement) moveGhost(e.clientX, e.clientY);
+    if (e.pointerType === 'mouse') ui.hoveredId = ui.placing ? null : buildingAt(e.clientX, e.clientY)?.id ?? null;
     return;
   }
   if (pointers.size === 2) {
@@ -849,7 +858,7 @@ function frame(now: number): void {
     if (ui.ghost) checkGhost(ui.ghost.x, ui.ghost.y);
   }
   view.render(ui.speed > 0 && world.winner === null ? accumulator / TICK_MS : 1, {
-    ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId,
+    ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId, hoveredId: ui.hoveredId,
     selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown()
   });
   if (now - lastLive > 250) { lastLive = now; refreshLive(); }
@@ -865,7 +874,7 @@ function workAreaShown(): { x: number; y: number; radius: number } | null {
 }
 
 showWorld();
-view.zoomCentre(1.4);
+view.zoomCentre(0.8);
 view.centreOn(castleOf(world, PLAYER)!.x + 2, castleOf(world, PLAYER)!.y + 2);
 renderPanel();
 renderSpeedButtons();

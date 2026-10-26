@@ -1,12 +1,19 @@
 import 'pixi.js/unsafe-eval';
-import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
+import { Application, Container, Graphics, Matrix, Sprite, Text, Texture } from 'pixi.js';
 import {
-  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
-  VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, tileIndex
+  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
+  TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, tileIndex
 } from '../../simulation/src/index.ts';
-import type { Building, BuildingTypeId, GoodType, World } from '../../simulation/src/index.ts';
+import type { Building, BuildingTypeId, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import { SpriteBank, TREE_VARIANTS, lookOf } from './sprites.ts';
+import type { SettlerAnim, Sprite as ArtSprite } from './sprites.ts';
+import { buildTerrain } from './terrain.ts';
 
+/** Pixels per tile in the flat (tile-space) drawing of the ground layer. */
 export const TILE = 20;
+/** On screen at zoom 1, a tile is a diamond this wide and half as tall. */
+export const ISO_W = 64;
+export const ISO_H = 32;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 3;
 
@@ -16,12 +23,6 @@ const SIGN_COLORS: Record<number, number> = { [DEPOSIT_COAL]: 0x1e1e1e, [DEPOSIT
 /** Border and banner colour per player: you, then the computer. */
 const OWNER_COLORS = [0xe3a33b, 0xd05a5a, 0x8fb3d9, 0x9b7fbf];
 
-const BUILDING_ACCENTS: Partial<Record<BuildingTypeId, number>> = {
-  woodcutter: 0x8a5a2b, forester: 0x4e7a3a, sawmill: 0xc98f3b, stonecutter: 0x8d8a7c,
-  farm: 0xd9b44a, mill: 0xe8d9a8, bakery: 0xc77b3c, waterworks: 0x4f7fa6, fisher: 0x5d93bf, pig_farm: 0xe8a0a0, slaughterhouse: 0xb04a4a,
-  coal_mine: 0x2a2a2a, iron_mine: 0x8a5a4a, smelter: 0x9aa3ad, toolsmith: 0x6d6a60, weaponsmith: 0x6d6a60, barracks: 0x7a3030,
-  residence_small: 0x9b7fbf, residence_medium: 0x9b7fbf, residence_large: 0x9b7fbf, storage: 0x6d6a60
-};
 const GOOD_COLORS: Record<GoodType, number> = {
   log: 0x7a4d24, plank: 0xd8a85e, stone: 0xa3a39b, grain: 0xe3c35a, flour: 0xf4efe2, water: 0x5d93bf,
   bread: 0xb5763a, fish: 0x8fb3d9, pig: 0xe8a0a0, meat: 0xb04a4a, coal: 0x2a2a2a, iron_ore: 0x8a5a4a, iron: 0x9aa3ad, gold_ore: 0xb8963a, gold: 0xe8c547,
@@ -34,6 +35,8 @@ const SETTLER_COLORS: Partial<Record<string, number>> = {
   swordsman: 0xd05a5a, spearman: 0xe3a33b, bowman: 0x8fb3d9,
   geologist: 0x9b7fbf, pioneer: 0x6fb08a, thief: 0x4a4a4a
 };
+/** Settler phases shown with the work movement while standing still. */
+const WORK_PHASES = new Set(['working', 'building', 'leveling', 'prospecting', 'claiming', 'stealing']);
 
 export interface Ghost {
   typeId: BuildingTypeId;
@@ -48,6 +51,8 @@ export interface ViewState {
   markers: readonly number[];
   markerSize: number;
   selectedId: number | null;
+  /** The building under the pointer; its name is shown. */
+  hoveredId?: number | null;
   selectedSoldiers: ReadonlySet<number>;
   /** Drag-selection rectangle in screen pixels relative to the map canvas. */
   selectionBox: { x0: number; y0: number; x1: number; y1: number } | null;
@@ -61,37 +66,63 @@ function hash(i: number): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
-function shade(color: number, amount: number): number {
-  const r = Math.max(0, Math.min(255, ((color >> 16) & 255) + amount));
-  const g = Math.max(0, Math.min(255, ((color >> 8) & 255) + amount));
-  const b = Math.max(0, Math.min(255, (color & 255) + amount));
-  return (r << 16) | (g << 8) | b;
+/** Screen position (camera space, zoom 1) of a map point in tile coordinates (tile corners are integers). */
+export function iso(tx: number, ty: number): { x: number; y: number } {
+  return { x: (tx - ty) * ISO_W / 2, y: (tx + ty) * ISO_H / 2 };
 }
+
+/** Where a building's group stands on the map; its children are placed in map space, so its own position stays 0. */
+const cullPoints = new WeakMap<object, { x: number; y: number }>();
+
+interface BuildingView { root: Container; body: Sprite; scaffold: Sprite; mask: Graphics; marks: Graphics; label: Text; key: string }
+interface SettlerView { root: Container; body: Sprite; load: Sprite; dir: number; walked: number }
 
 export class MapView {
   readonly app: Application;
   readonly camera = new Container();
   /** The player whose eyes the map is drawn through. */
   viewer = 0;
-  private readonly terrain = new Sprite();
+  private readonly bank = new SpriteBank();
+  /** Flat layers drawn in tile space and tilted into the isometric view. */
+  private readonly groundBase = new Container();
+  private readonly groundTop = new Container();
+  private terrain = new Container();
   private readonly territory = new Graphics();
-  private readonly objects = new Graphics();
-  private readonly buildingLayer = new Container();
-  private readonly settlers = new Graphics();
+  private readonly flats = new Graphics();
+  private readonly marks = new Graphics();
   private readonly fog = new Sprite();
   private readonly overlay = new Graphics();
+  /** Upright things (buildings, trees, settlers) sorted front to back. */
+  private readonly upright = new Container();
+  private readonly bars = new Graphics();
   private readonly screenOverlay = new Graphics();
-  private readonly buildingGraphics = new Map<number, { body: Graphics; label: Text }>();
+  private readonly buildingViews = new Map<number, BuildingView>();
+  private readonly settlerViews = new Map<number, SettlerView>();
+  /** One upright sprite per map tile that has a tree, rock, field or decoration; and what it shows. */
+  private tileSprites: (Sprite | null)[] = [];
+  private tileShown: Int32Array = new Int32Array(0);
+  private ghostSprite = new Sprite();
   private fogCanvas = document.createElement('canvas');
   private mapVersion = -1;
   private territoryVersion = -1;
   private fogKey = -1;
+  private growthKey = -1;
   private world: World;
 
   private constructor(app: Application, world: World) {
     this.app = app;
     this.world = world;
-    this.camera.addChild(this.terrain, this.territory, this.objects, this.buildingLayer, this.settlers, this.fog, this.overlay);
+    // Tile space (TILE px per tile) to the isometric diamond grid.
+    const m = new Matrix(ISO_W / 2 / TILE, ISO_H / 2 / TILE, -ISO_W / 2 / TILE, ISO_H / 2 / TILE, 0, 0);
+    this.groundBase.setFromMatrix(m);
+    this.groundTop.setFromMatrix(m);
+    this.groundBase.addChild(this.terrain, this.territory, this.flats, this.marks);
+    this.groundTop.addChild(this.fog, this.overlay);
+    this.upright.sortableChildren = true;
+    this.ghostSprite.alpha = 0.6;
+    this.ghostSprite.visible = false;
+    this.upright.addChild(this.ghostSprite);
+    this.camera.addChild(this.groundBase, this.upright, this.groundTop, this.bars);
     app.stage.addChild(this.camera, this.screenOverlay);
   }
 
@@ -105,18 +136,34 @@ export class MapView {
     // The map area changes size when the phone drawer opens or closes, not only on window resize.
     new ResizeObserver(() => app.resize()).observe(host);
     const view = new MapView(app, world);
+    await view.bank.load(world.players.map((p) => p.raceType));
     view.setWorld(world);
     return view;
   }
 
+  /** True when the rendered art loaded; otherwise the map is drawn with plain shapes. */
+  get hasArt(): boolean { return this.bank.isReady; }
+
   setWorld(world: World): void {
     this.world = world;
+    const races = world.players.map((p) => p.raceType);
+    if (!this.bank.hasRaces(races)) {
+      // Another people's art is needed; draw plain shapes until it arrives, then redraw.
+      void this.bank.load(races).then(() => { if (this.world === world) this.setWorld(world); });
+    }
     this.mapVersion = -1;
     this.territoryVersion = -1;
     this.fogKey = -1;
-    for (const { body, label } of this.buildingGraphics.values()) { body.destroy(); label.destroy(); }
-    this.buildingGraphics.clear();
-    this.drawTerrain();
+    for (const v of this.buildingViews.values()) v.root.destroy({ children: true });
+    this.buildingViews.clear();
+    for (const v of this.settlerViews.values()) v.root.destroy({ children: true });
+    this.settlerViews.clear();
+    for (const s of this.tileSprites) s?.destroy();
+    this.tileSprites = new Array(world.width * world.height).fill(null);
+    this.tileShown = new Int32Array(world.width * world.height).fill(-1);
+    this.terrain.destroy({ children: true, texture: true });
+    this.terrain = buildTerrain(world, TILE);
+    this.groundBase.addChildAt(this.terrain, 0);
     this.fogCanvas = document.createElement('canvas');
     this.fogCanvas.width = world.width;
     this.fogCanvas.height = world.height;
@@ -126,24 +173,14 @@ export class MapView {
 
   get scale(): number { return this.camera.scale.x; }
 
-  private drawTerrain(): void {
-    const { world } = this;
-    const canvas = document.createElement('canvas');
-    canvas.width = world.width * TILE;
-    canvas.height = world.height * TILE;
-    const ctx = canvas.getContext('2d')!;
-    for (let y = 0; y < world.height; y++) {
-      for (let x = 0; x < world.width; x++) {
-        const i = tileIndex(world, x, y);
-        const t = world.terrain[i];
-        const base = t === TERRAIN_WATER ? 0x4f7fa6 : t === TERRAIN_MOUNTAIN ? 0x8d8a7c : 0x7a9450;
-        const color = shade(base, Math.round((hash(i) - 0.5) * 14));
-        ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-        ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
-      }
-    }
-    this.terrain.texture?.destroy(true);
-    this.terrain.texture = Texture.from(canvas);
+  private raceOf(owner: number) { return this.world.players[owner]?.raceType ?? 'romans'; }
+
+  private place(sprite: Sprite, art: ArtSprite, tx: number, ty: number): void {
+    sprite.texture = art.texture;
+    sprite.anchor.set(art.anchorX, art.anchorY);
+    sprite.scale.set(this.bank.scale);
+    const p = iso(tx, ty);
+    sprite.position.set(p.x, p.y);
   }
 
   private drawTerritory(): void {
@@ -154,7 +191,7 @@ export class MapView {
     for (let y = 0; y < world.height; y++) {
       for (let x = 0; x < world.width; x++) if (ownerAt(x, y) !== this.viewer + 1) g.rect(x * TILE, y * TILE, TILE, TILE);
     }
-    g.fill({ color: 0x0f1412, alpha: 0.22 });
+    g.fill({ color: 0x0f1412, alpha: 0.18 });
     for (let owner = 1; owner <= world.players.length; owner++) {
       for (let y = 0; y < world.height; y++) {
         for (let x = 0; x < world.width; x++) {
@@ -166,49 +203,83 @@ export class MapView {
           if (ownerAt(x + 1, y) !== owner) g.moveTo(px + TILE, py).lineTo(px + TILE, py + TILE);
         }
       }
-      g.stroke({ width: 3, color: OWNER_COLORS[owner - 1], alpha: 0.9 });
+      g.stroke({ width: 2, color: OWNER_COLORS[owner - 1], alpha: 0.9 });
     }
     // Pioneer posts on land claimed by pioneers, one post per 3×3 tiles where military land does not cover it.
     for (let i = 0; i < world.pioneerLand.length; i++) {
       const owner = world.pioneerLand[i];
       const x = i % world.width, y = Math.floor(i / world.width);
       if (owner === 0 || world.militaryLand[i] !== 0 || world.territory[i] !== owner || x % 3 !== 1 || y % 3 !== 1) continue;
-      g.rect(x * TILE + TILE / 2 - 2, y * TILE + 2, 4, TILE - 4).fill(OWNER_COLORS[owner - 1]).stroke({ width: 1, color: 0x1b2420 });
+      g.circle(x * TILE + TILE / 2, y * TILE + TILE / 2, 3).fill(OWNER_COLORS[owner - 1]).stroke({ width: 1, color: 0x1b2420 });
     }
   }
 
+  /** What a tile shows upright, as a number: -1 nothing, else an index into tileArt(). */
+  private tileCode(i: number): number {
+    const { world } = this;
+    if (world.field[i] >= 0) return 100 + (world.field[i] >= FIELD_RIPE ? 3 : world.field[i] >= 45 ? 2 : world.field[i] >= 15 ? 1 : 0);
+    if (world.rock[i] > 0) return 200 + Math.min(3, Math.floor((world.rock[i] / ROCK_STONE) * 3.999));
+    const growth = world.tree[i];
+    if (growth >= 0) return 300 + (growth >= TREE_MATURE ? 3 : Math.min(2, Math.floor(growth / 20)));
+    const r = hash(i * 7 + 3);
+    if (world.terrain[i] === TERRAIN_MOUNTAIN && r < 0.22 && world.footprint[i] === 0) return 400 + Math.floor(r * 18) % 4;
+    if (world.terrain[i] === TERRAIN_GRASS && r < 0.05 && world.footprint[i] === 0 && world.door[i] === 0) return 500 + Math.floor(r * 120) % 6;
+    return -1;
+  }
+
+  private tileArt(i: number, code: number): ArtSprite | null {
+    const kind = Math.floor(code / 100), k = code % 100;
+    if (kind === 1) return this.bank.nature(`field-${k}`);
+    if (kind === 2) return this.bank.nature(`rock${Math.floor(hash(i) * 2)}-${k}`);
+    if (kind === 3) return this.bank.nature(`${TREE_VARIANTS[Math.floor(hash(i) * TREE_VARIANTS.length)]}-${k}`);
+    if (kind === 4) return this.bank.nature(`mountain${k}`);
+    if (kind === 5) return this.bank.nature(`meadow${k}`);
+    return null;
+  }
+
+  /** Trees, rocks and fields as sprites; geologist signs flat on the ground. */
   private drawObjects(): void {
     const { world } = this;
-    const g = this.objects.clear();
+    const vision = world.vision[this.viewer];
     for (let i = 0; i < world.tree.length; i++) {
-      const growth = world.tree[i];
-      const px = (i % world.width) * TILE, py = Math.floor(i / world.width) * TILE;
-      if (world.field[i] >= 0) {
-        const t = world.field[i] / FIELD_RIPE;
-        const color = t >= 1 ? 0xe0b84a : shade(0x8fa34a, Math.round(t * 50));
-        g.rect(px + 2, py + 2, TILE - 4, TILE - 4).fill(color);
-        for (let k = 0; k < 3; k++) g.rect(px + 4 + k * 5, py + 4, 1.5, TILE - 8).fill({ color: 0x5b6a2c, alpha: 0.5 });
-        continue;
-      }
-      const cx = px + TILE / 2, cy = py + TILE / 2;
-      // Geologist signs: only where the viewer's own geologists have looked, one sign per 2×2 tiles.
-      const prospect = world.prospect[this.viewer];
+      const code = vision && vision[i] === VISION_NONE ? -1 : this.tileCode(i);
+      if (code === this.tileShown[i]) continue;
+      this.tileShown[i] = code;
+      let sprite = this.tileSprites[i];
+      const art = code >= 0 ? this.tileArt(i, code) : null;
+      if (!art) { if (sprite) sprite.visible = false; continue; }
+      if (!sprite) { sprite = new Sprite(); this.tileSprites[i] = sprite; this.upright.addChild(sprite); }
+      const x = i % world.width, y = Math.floor(i / world.width);
+      // A little jitter so forests do not look planted in rows.
+      const jx = code >= 300 && code < 400 ? (hash(i * 3) - 0.5) * 0.4 : 0, jy = code >= 300 && code < 400 ? (hash(i * 5) - 0.5) * 0.4 : 0;
+      this.place(sprite, art, x + 0.5 + jx, y + 0.5 + jy);
+      sprite.zIndex = x + y + 1 + jx + jy;
+      sprite.visible = true;
+    }
+    this.drawFlats();
+  }
+
+  /** Things lying flat on the ground: geologist signs, and plain shapes when the art is missing. */
+  private drawFlats(): void {
+    const { world } = this;
+    const g = this.flats.clear();
+    const prospect = world.prospect[this.viewer];
+    for (let i = 0; i < world.tree.length; i++) {
       const tx = i % world.width, ty = Math.floor(i / world.width);
+      const cx = tx * TILE + TILE / 2, cy = ty * TILE + TILE / 2;
       if (prospect && prospect[i] === 1 && world.rock[i] === 0 && tx % 2 === 0 && ty % 2 === 0) {
         const hasOre = world.deposit[i] !== 0 && world.depositAmount[i] > 0;
-        g.rect(cx - 0.75, cy - 2, 1.5, 8).fill(0x3b2f22);
-        if (hasOre) g.circle(cx, cy - 4, 3.2).fill(SIGN_COLORS[world.deposit[i]] ?? 0xffffff).stroke({ width: 1, color: 0x1b2420 });
-        else g.circle(cx, cy - 4, 3).stroke({ width: 1.2, color: 0xece6d6 });
+        if (hasOre) g.circle(cx, cy, 4).fill(SIGN_COLORS[world.deposit[i]] ?? 0xffffff).stroke({ width: 1, color: 0x1b2420 });
+        else g.circle(cx, cy, 3.5).stroke({ width: 1.2, color: 0xece6d6 });
       }
-      if (growth < 0 && world.rock[i] === 0) continue;
-      if (world.rock[i] > 0) {
-        const r = TILE * (0.22 + 0.24 * Math.min(1, world.rock[i] / ROCK_STONE));
-        g.roundRect(cx - r, cy - r * 0.8, r * 2, r * 1.6, 4).fill(0xa8a59a).stroke({ width: 1, color: 0x6f6d65 });
-      } else if (growth >= TREE_MATURE) {
-        g.circle(cx, cy, TILE * 0.46).fill(0x3d5a2e);
-        g.circle(cx - 2, cy - 2, TILE * 0.28).fill(0x4f7038);
-      } else {
-        g.circle(cx, cy, TILE * (0.12 + 0.3 * (growth / TREE_MATURE))).fill(0x6d8f45);
+      if (this.bank.isReady) continue;
+      if (world.field[i] >= 0) {
+        const t = world.field[i] / FIELD_RIPE;
+        g.rect(cx - TILE / 2 + 2, cy - TILE / 2 + 2, TILE - 4, TILE - 4).fill(t >= 1 ? 0xe0b84a : 0x8fa34a);
+      } else if (world.rock[i] > 0) {
+        g.circle(cx, cy, TILE * 0.35).fill(0xa8a59a);
+      } else if (world.tree[i] >= 0) {
+        g.circle(cx, cy, TILE * (world.tree[i] >= TREE_MATURE ? 0.46 : 0.25)).fill(0x3d5a2e);
       }
     }
   }
@@ -221,7 +292,7 @@ export class MapView {
     const img = ctx.createImageData(world.width, world.height);
     for (let i = 0; i < vision.length; i++) {
       // Unexplored land is dark; explored land out of sight is dimmed.
-      const alpha = vision[i] === VISION_NONE ? 235 : vision[i] === VISION_VISIBLE ? 0 : 110;
+      const alpha = vision[i] === VISION_NONE ? 245 : vision[i] === VISION_VISIBLE ? 0 : 110;
       img.data.set([15, 20, 18, alpha], i * 4);
     }
     ctx.putImageData(img, 0, 0);
@@ -233,117 +304,186 @@ export class MapView {
       || canSee(this.world, this.viewer, b.x + b.size / 2, b.y + b.size / 2);
   }
 
-  private drawBuildings(selectedId: number | null): void {
+  private drawBuildings(state: ViewState): void {
     const { world } = this;
     const alive = new Set<number>();
     for (const b of world.buildings) {
       if (!this.isBuildingVisible(b)) continue;
       alive.add(b.id);
-      let entry = this.buildingGraphics.get(b.id);
-      if (!entry) {
+      let v = this.buildingViews.get(b.id);
+      if (!v) {
         const label = new Text({
-          text: BUILDING_TYPES[b.typeId].label,
-          style: { fontFamily: 'Barlow, system-ui, sans-serif', fontSize: 11, fontWeight: '600', fill: 0x1b2420 },
+          text: '', style: { fontFamily: 'Barlow, system-ui, sans-serif', fontSize: 12, fontWeight: '600', fill: 0xece6d6, stroke: { color: 0x0f1412, width: 3 }, align: 'center' },
           resolution: 3
         });
-        label.anchor.set(0.5);
-        entry = { body: new Graphics(), label };
-        this.buildingLayer.addChild(entry.body, entry.label);
-        this.buildingGraphics.set(b.id, entry);
+        label.anchor.set(0.5, 1);
+        v = { root: new Container(), body: new Sprite(), scaffold: new Sprite(), mask: new Graphics(), marks: new Graphics(), label, key: '' };
+        v.root.addChild(v.scaffold, v.body, v.mask, v.marks, v.label);
+        this.upright.addChild(v.root);
+        this.buildingViews.set(b.id, v);
       }
-      const { body, label } = entry;
-      const x = b.x * TILE + 1, y = b.y * TILE + 1, size = b.size * TILE - 2;
-      const isMine = b.owner === this.viewer;
-      const accent = isMilitaryBuilding(b) ? OWNER_COLORS[b.owner] : BUILDING_ACCENTS[b.typeId] ?? 0x8fb3d9;
-      body.clear();
-      if (b.isComplete) {
-        body.roundRect(x, y, size, size, 4).fill(isMine ? 0xd8cfb8 : 0xbfb3a6);
-        body.rect(x, y, size, 5).fill(accent);
-        if (!isMine) body.roundRect(x, y, size, size, 4).stroke({ width: 2, color: OWNER_COLORS[b.owner] });
-        label.style.fill = 0x1b2420;
-      } else {
-        const onSite = b.delivered.plank + b.delivered.stone + b.delivered.log;
-        if (b.levelProgress < 1) {
-          body.roundRect(x, y, size, size, 4).fill({ color: 0x8a6a45, alpha: 0.35 * b.levelProgress + 0.1 }).stroke({ width: 2, color: 0xece6d6, alpha: 0.6 });
-        } else {
-          body.roundRect(x, y, size, size, 4).fill({ color: 0x9c7a50, alpha: 0.45 }).stroke({ width: 2, color: 0xece6d6, alpha: 0.8 });
-          body.rect(x, y + size - size * b.buildProgress, size, size * b.buildProgress).fill({ color: 0xd8cfb8, alpha: 0.8 });
-        }
-        for (let k = 0; k < Math.min(onSite, 8); k++) body.rect(x + 3 + k * 6, y + 3, 4, 4).fill(0xd8a85e);
-        label.style.fill = 0xece6d6;
-      }
-      // Soldiers inside a tower or castle as small shields along the bottom edge.
-      if (b.isComplete && isMilitaryBuilding(b)) {
-        for (let k = 0; k < Math.min(b.garrison.length, 6); k++) {
-          const sx = x + 4 + k * 7, sy = y + size - 9;
-          body.moveTo(sx, sy).lineTo(sx + 5, sy).lineTo(sx + 5, sy + 3).lineTo(sx + 2.5, sy + 6).lineTo(sx, sy + 3).closePath()
-            .fill(OWNER_COLORS[b.owner]).stroke({ width: 1, color: 0x1b2420 });
-        }
-      }
-      if (b.isComplete && b.isPaused) body.rect(x + size - 12, y + 8, 3, 8).fill(0x1b2420).rect(x + size - 7, y + 8, 3, 8).fill(0x1b2420);
-      body.rect(b.doorX * TILE + TILE * 0.3, b.doorY * TILE - 3, TILE * 0.4, 6).fill(0x4a3b2a);
-      if (isMine && b.blockedReason && b.blockedSince !== null && world.tick - b.blockedSince > 30) {
-        body.roundRect(x - 2, y - 2, size + 4, size + 4, 5).stroke({ width: 3, color: 0xe8763a });
-      }
-      if (b.id === selectedId) body.roundRect(x - 4, y - 4, size + 8, size + 8, 6).stroke({ width: 2, color: 0xffffff });
-      const name = BUILDING_TYPES[b.typeId].label;
-      label.text = b.isComplete ? name
-        : b.levelProgress < 1 ? `${name}\nlevelling ${Math.floor(b.levelProgress * 100)}%`
-        : `${name} ${Math.floor(b.buildProgress * 100)}%`;
-      label.position.set(x + size / 2, y + size / 2 + 1);
-      label.style.wordWrap = true;
-      label.style.wordWrapWidth = Math.max(size * 1.6, 60);
-      label.style.align = 'center';
-      // Shrink long names so they stay inside small buildings instead of running into neighbours.
-      label.scale.set(1);
-      const fit = Math.min(1, (size - 4) / label.width, (size - 12) / label.height);
-      label.scale.set(fit);
+      const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
+      v.root.zIndex = cx + cy;
+      cullPoints.set(v.root, iso(cx, cy));
+      const art = this.bank.building(this.raceOf(b.owner), b.typeId);
+      const scaffoldArt = this.bank.scaffold(b.size);
+      if (art) this.place(v.body, art, cx, cy);
+      v.body.visible = !!art && (b.isComplete || b.levelProgress >= 1);
+      // A rising building shows from the ground up, inside its scaffold.
+      const isRising = !b.isComplete && b.levelProgress >= 1;
+      v.scaffold.visible = isRising && !!scaffoldArt;
+      if (scaffoldArt) this.place(v.scaffold, scaffoldArt, cx, cy);
+      if (isRising && art) {
+        const h = v.body.height, top = v.body.y - v.body.anchor.y * h;
+        const shown = Math.max(0.04, b.buildProgress);
+        v.mask.clear().rect(v.body.x - v.body.width, top + h * (1 - shown), v.body.width * 2, h * shown + 4).fill(0xffffff);
+        v.body.mask = v.mask; v.mask.visible = true;
+      } else if (v.body.mask) { v.body.mask = null; v.mask.clear(); v.mask.visible = false; }
+      v.body.alpha = isRising ? 0.95 : 1;
+      this.drawBuildingMarks(b, v, cx, cy, !!art, state);
     }
-    for (const [id, entry] of this.buildingGraphics) {
+    for (const [id, v] of this.buildingViews) {
       if (alive.has(id)) continue;
-      entry.body.destroy(); entry.label.destroy();
-      this.buildingGraphics.delete(id);
+      v.root.destroy({ children: true });
+      this.buildingViews.delete(id);
     }
   }
 
-  private drawSettlers(alpha: number, selected: ReadonlySet<number>): void {
-    const g = this.settlers.clear();
+  /** Owner flag at the door, garrison shields, pause sign, construction bar and name. */
+  private drawBuildingMarks(b: Building, v: BuildingView, cx: number, cy: number, hasArt: boolean, state: ViewState): void {
+    const g = v.marks.clear();
+    const isMine = b.owner === this.viewer;
+    const door = iso(b.doorX + 0.5, b.doorY + 0.2);
+    const base = iso(cx, cy);
+    const top = hasArt ? v.body.y - v.body.anchor.y * v.body.height : base.y - 30;
+    if (!b.isComplete && b.levelProgress < 1) {
+      // The site being levelled: bare earth that darkens as the diggers finish.
+      const corners = [iso(b.x, b.y), iso(b.x + b.size, b.y), iso(b.x + b.size, b.y + b.size), iso(b.x, b.y + b.size)];
+      g.poly(corners.flatMap((p) => [p.x, p.y])).fill({ color: 0x6a4a2a, alpha: 0.25 + 0.45 * b.levelProgress });
+    } else if (!hasArt) {
+      // Without art: the old flat box, in iso.
+      const corners = [iso(b.x, b.y), iso(b.x + b.size, b.y), iso(b.x + b.size, b.y + b.size), iso(b.x, b.y + b.size)];
+      g.poly(corners.flatMap((p) => [p.x, p.y])).fill(b.isComplete ? (isMine ? 0xd8cfb8 : 0xbfb3a6) : { color: 0x9c7a50, alpha: 0.5 });
+    }
+    // Owner flag by the door, as settlers mark their buildings.
+    g.rect(door.x - 0.8, door.y - 22, 1.6, 22).fill(0x3b2f22);
+    g.poly([door.x + 0.8, door.y - 22, door.x + 11, door.y - 19, door.x + 0.8, door.y - 15]).fill(OWNER_COLORS[b.owner]).stroke({ width: 1, color: 0x1b2420 });
+    if (b.isComplete && isMilitaryBuilding(b)) {
+      const n = Math.min(b.garrison.length, 6);
+      for (let k = 0; k < n; k++) {
+        const sx = base.x - n * 4 + k * 8, sy = top - 4;
+        g.moveTo(sx, sy).lineTo(sx + 6, sy).lineTo(sx + 6, sy + 4).lineTo(sx + 3, sy + 7).lineTo(sx, sy + 4).closePath()
+          .fill(OWNER_COLORS[b.owner]).stroke({ width: 1, color: 0x1b2420 });
+      }
+    }
+    if (b.isComplete && b.isPaused) g.rect(base.x - 6, top - 18, 4, 11).fill(0xece6d6).rect(base.x + 2, top - 18, 4, 11).fill(0xece6d6);
+    if (!b.isComplete) {
+      const p = b.levelProgress < 1 ? b.levelProgress : b.buildProgress;
+      g.roundRect(base.x - 20, base.y + 6, 40, 6, 3).fill({ color: 0x0f1412, alpha: 0.75 });
+      g.roundRect(base.x - 19, base.y + 7, 38 * p, 4, 2).fill(b.levelProgress < 1 ? 0xb07a45 : 0xe3a33b);
+    }
+    const name = BUILDING_TYPES[b.typeId].label;
+    const showName = b.id === state.selectedId || b.id === state.hoveredId || !this.bank.isReady;
+    v.label.visible = showName;
+    if (showName) {
+      v.label.text = b.isComplete ? name : b.levelProgress < 1 ? `${name} · levelling ${Math.floor(b.levelProgress * 100)}%` : `${name} ${Math.floor(b.buildProgress * 100)}%`;
+      v.label.position.set(base.x, top - 8);
+    }
+  }
+
+  private drawSettlers(alpha: number, selected: ReadonlySet<number>, now: number): void {
+    const marks = this.marks.clear();
+    const bars = this.bars.clear();
+    const alive = new Set<number>();
     for (const s of this.world.settlers) {
       if (s.isInside) continue;
       if (s.owner !== this.viewer && !canSee(this.world, this.viewer, s.x, s.y)) continue;
-      const x = (s.prevX + (s.x - s.prevX) * alpha) * TILE + TILE / 2;
-      const y = (s.prevY + (s.y - s.prevY) * alpha) * TILE + TILE / 2;
-      // An enemy thief looks like a carrier to everyone but its owner.
-      const looksAs = s.settlerType === 'thief' && s.owner !== this.viewer ? 'carrier' : s.settlerType;
-      const color = SETTLER_COLORS[looksAs] ?? 0x8fb3d9;
-      if (isSpecialistType(s.settlerType) && s.owner === this.viewer) {
-        // Geologists and pioneers can be selected and sent, so they get a ring like soldiers.
-        if (selected.has(s.id)) g.circle(x, y, TILE * 0.26 + 4).stroke({ width: 2, color: 0xffffff });
-        g.circle(x, y, TILE * 0.26).fill(color).stroke({ width: 2, color: 0x1b2420 });
-        g.rect(x - 1, y - TILE * 0.6, 2, TILE * 0.34).fill(0x3b2f22);
-        continue;
-      }
-      if (isSoldierType(s.settlerType)) {
-        const r = TILE * 0.32;
-        if (s.owner === this.viewer) {
-          if (selected.has(s.id)) g.circle(x, y, r + 4).stroke({ width: 2, color: 0xffffff });
-          g.circle(x, y, r).fill(color).stroke({ width: 2, color: 0x1b2420 });
-        } else {
-          // Enemy soldiers are diamonds in the enemy's colour, so they read differently at a glance.
-          g.moveTo(x, y - r - 2).lineTo(x + r + 2, y).lineTo(x, y + r + 2).lineTo(x - r - 2, y).closePath()
-            .fill(0x3a1f1f).stroke({ width: 2, color: OWNER_COLORS[s.owner] });
-          g.circle(x, y, r * 0.45).fill(color);
-        }
-        const max = SOLDIER_STATS[s.settlerType].health;
+      alive.add(s.id);
+      const x = s.prevX + (s.x - s.prevX) * alpha, y = s.prevY + (s.y - s.prevY) * alpha;
+      const tx = x + 0.5, ty = y + 0.5;
+      // Owner colour as a soft disc on the ground under every settler, a white ring when selected.
+      const gx = tx * TILE, gy = ty * TILE;
+      marks.circle(gx, gy, TILE * 0.28).fill({ color: OWNER_COLORS[s.owner], alpha: s.owner === this.viewer ? 0.35 : 0.6 });
+      if (selected.has(s.id)) marks.circle(gx, gy, TILE * 0.42).stroke({ width: 2, color: 0xffffff });
+      if (!this.drawSettlerSprite(s, tx, ty, now)) this.drawSettlerShape(s, tx, ty);
+      if (isSoldierType(s.settlerType) || s.settlerType === 'thief') {
+        const max = isSoldierType(s.settlerType) ? SOLDIER_STATS[s.settlerType].health : 30;
         if (s.health < max) {
-          g.rect(x - 8, y - r - 8, 16, 3).fill(0x1b2420);
-          g.rect(x - 8, y - r - 8, 16 * (s.health / max), 3).fill(s.health / max > 0.4 ? 0x8fdc7a : 0xe8763a);
+          const p = iso(tx, ty);
+          bars.rect(p.x - 9, p.y - 34, 18, 3).fill(0x1b2420);
+          bars.rect(p.x - 9, p.y - 34, 18 * (s.health / max), 3).fill(s.health / max > 0.4 ? 0x8fdc7a : 0xe8763a);
         }
-        continue;
       }
-      g.circle(x, y, TILE * 0.26).fill(color).stroke({ width: 1, color: s.owner === this.viewer ? 0x1b2420 : OWNER_COLORS[s.owner] });
-      if (s.carrying) g.rect(x - 4, y - TILE * 0.62, 8, 6).fill(GOOD_COLORS[s.carrying]).stroke({ width: 1, color: 0x1b2420 });
     }
+    for (const [id, v] of this.settlerViews) {
+      if (alive.has(id)) continue;
+      v.root.destroy({ children: true });
+      this.settlerViews.delete(id);
+    }
+  }
+
+  private drawSettlerSprite(s: Settler, tx: number, ty: number, now: number): boolean {
+    if (!this.bank.isReady) return false;
+    let v = this.settlerViews.get(s.id);
+    if (!v) {
+      v = { root: new Container(), body: new Sprite(), load: new Sprite(), dir: 0, walked: 0 };
+      v.root.addChild(v.body, v.load);
+      this.upright.addChild(v.root);
+      this.settlerViews.set(s.id, v);
+    }
+    const dx = s.x - s.prevX, dy = s.y - s.prevY, isMoving = Math.abs(dx) + Math.abs(dy) > 1e-4;
+    if (isMoving) {
+      // Direction d faces (sin d·45°, cos d·45°) in map terms: 0 south, 2 east, 4 north, 6 west.
+      v.dir = (Math.round(Math.atan2(dx, dy) / (Math.PI / 4)) + 8) % 8;
+      v.walked = now;
+    }
+    // An enemy thief looks like a carrier to everyone but its owner.
+    const type = s.settlerType === 'thief' && s.owner !== this.viewer ? 'carrier' : s.settlerType;
+    const look = lookOf(type), race = this.raceOf(s.owner);
+    const isWalking = now - v.walked < 160;
+    let anim: SettlerAnim = s.carrying && this.bank.hasAnim(race, look, 'carry') ? 'carry' : 'walk';
+    if (!isWalking && WORK_PHASES.has(s.phase) && this.bank.hasAnim(race, look, 'work')) anim = 'work';
+    if (!isWalking && isSoldierType(s.settlerType) && s.enemyId !== null) anim = 'attack';
+    const frame = anim === 'walk' || anim === 'carry' ? (isWalking ? Math.floor(now / 85) : 0) : Math.floor(now / 110);
+    const art = this.bank.settler(race, look, anim, v.dir, frame + s.id);
+    if (!art) return false;
+    this.place(v.body, art, 0, 0);
+    const p = iso(tx, ty);
+    v.root.position.set(p.x, p.y);
+    v.root.zIndex = tx + ty;
+    const good = s.carrying ? this.bank.good(s.carrying) : null;
+    v.load.visible = !!good;
+    if (good) {
+      this.place(v.load, good, 0, 0);
+      v.load.scale.set(this.bank.scale * 0.8);
+      const fx = Math.sin(v.dir * Math.PI / 4), fy = Math.cos(v.dir * Math.PI / 4);
+      const front = iso(fx * 0.12, fy * 0.12);
+      v.load.position.set(front.x, front.y - (anim === 'carry' ? 11 : 24));
+      // Behind the body when the settler walks away from the viewer.
+      v.root.setChildIndex(v.load, v.dir >= 3 && v.dir <= 5 ? 0 : 1);
+    }
+    return true;
+  }
+
+  /** Plain shapes, used when the art is not available. */
+  private drawSettlerShape(s: Settler, tx: number, ty: number): void {
+    const p = iso(tx, ty);
+    const g = this.bars;
+    const looksAs = s.settlerType === 'thief' && s.owner !== this.viewer ? 'carrier' : s.settlerType;
+    const color = SETTLER_COLORS[looksAs] ?? 0x8fb3d9;
+    g.circle(p.x, p.y - 8, isSoldierType(s.settlerType) ? 7 : 5).fill(color).stroke({ width: 1.5, color: 0x1b2420 });
+    if (s.carrying) g.rect(p.x - 4, p.y - 20, 8, 6).fill(GOOD_COLORS[s.carrying]).stroke({ width: 1, color: 0x1b2420 });
+    if (isSpecialistType(s.settlerType)) g.rect(p.x - 1, p.y - 22, 2, 8).fill(0x3b2f22);
+  }
+
+  private drawGhost(ghost: Ghost | null): void {
+    const art = ghost ? this.bank.building(this.raceOf(this.viewer), ghost.typeId) : null;
+    this.ghostSprite.visible = !!(ghost && art);
+    if (!ghost || !art) return;
+    const size = BUILDING_TYPES[ghost.typeId].size;
+    this.place(this.ghostSprite, art, ghost.x + size / 2, ghost.y + size / 2);
+    this.ghostSprite.zIndex = ghost.x + ghost.y + size;
+    this.ghostSprite.tint = ghost.isValid ? 0xffffff : 0xff9a7a;
   }
 
   private drawOverlay(state: ViewState): void {
@@ -359,9 +499,15 @@ export class MapView {
     if (ghost) {
       const size = BUILDING_TYPES[ghost.typeId].size;
       const color = ghost.isValid ? 0x8fdc7a : 0xe8763a;
-      g.rect(ghost.x * TILE, ghost.y * TILE, size * TILE, size * TILE).fill({ color, alpha: 0.4 }).stroke({ width: 2, color });
+      g.rect(ghost.x * TILE, ghost.y * TILE, size * TILE, size * TILE).fill({ color, alpha: 0.25 }).stroke({ width: 2, color });
       const doorX = ghost.x + Math.floor(size / 2), doorY = ghost.y + size;
       g.rect(doorX * TILE + 3, doorY * TILE + 3, TILE - 6, TILE - 6).stroke({ width: 2, color });
+    }
+    // Footprint outlines: the selected building in white, stuck ones in orange.
+    for (const b of this.world.buildings) {
+      const isStuck = b.owner === this.viewer && b.blockedReason && b.blockedSince !== null && this.world.tick - b.blockedSince > 30;
+      if (b.id !== state.selectedId && !isStuck) continue;
+      g.rect(b.x * TILE, b.y * TILE, b.size * TILE, b.size * TILE).stroke({ width: 2, color: b.id === state.selectedId ? 0xffffff : 0xe8763a });
     }
     // Routes of selected soldiers: where they are going, their waypoints, and patrol ends.
     const w = this.world.width;
@@ -404,19 +550,37 @@ export class MapView {
   }
 
   render(alpha: number, state: ViewState): void {
+    const now = performance.now();
     if (this.territoryVersion !== this.world.territoryVersion) {
       this.territoryVersion = this.world.territoryVersion;
       this.drawTerritory();
     }
-    if (this.mapVersion !== this.world.mapVersion) {
-      this.mapVersion = this.world.mapVersion;
+    const fogKey = Math.floor(this.world.tick / 10);
+    const growthKey = Math.floor(this.world.tick / 50);
+    if (this.mapVersion !== this.world.mapVersion || fogKey !== this.fogKey || growthKey !== this.growthKey) {
+      // Saplings grow without changing the map version, and newly explored land reveals what stands on it.
+      this.mapVersion = this.world.mapVersion; this.growthKey = growthKey;
       this.drawObjects();
     }
-    const fogKey = Math.floor(this.world.tick / 10);
     if (fogKey !== this.fogKey) { this.fogKey = fogKey; this.drawFog(); }
-    this.drawBuildings(state.selectedId);
-    this.drawSettlers(alpha, state.selectedSoldiers);
+    this.drawBuildings(state);
+    this.drawSettlers(alpha, state.selectedSoldiers, now);
+    this.drawGhost(state.ghost);
     this.drawOverlay(state);
+    this.cull();
+  }
+
+  /** Hides upright sprites outside the screen, which keeps big maps fast. */
+  private cull(): void {
+    const { width, height } = this.app.screen;
+    const s = this.scale, margin = 260 * s;
+    const left = -margin, right = width + margin, top = -margin, bottom = height + margin * 1.6;
+    for (const child of this.upright.children) {
+      if (!child.visible) continue;
+      const at = cullPoints.get(child) ?? child.position;
+      const x = at.x * s + this.camera.x, y = at.y * s + this.camera.y;
+      child.renderable = x > left && x < right && y > top && y < bottom;
+    }
   }
 
   // ------------------------------------------------------------- camera
@@ -426,17 +590,37 @@ export class MapView {
     return { x: Math.floor(p.x), y: Math.floor(p.y) };
   }
 
-  /** Map coordinates in tiles (fractional) under a point on screen. */
+  /** Map coordinates in tiles (fractional) of the ground under a point on screen. */
   screenToWorld(clientX: number, clientY: number): { x: number; y: number } {
     const rect = this.app.canvas.getBoundingClientRect();
-    const wx = (clientX - rect.left - this.camera.x) / this.scale;
-    const wy = (clientY - rect.top - this.camera.y) / this.scale;
-    return { x: wx / TILE, y: wy / TILE };
+    const sx = (clientX - rect.left - this.camera.x) / this.scale / (ISO_W / 2);
+    const sy = (clientY - rect.top - this.camera.y) / this.scale / (ISO_H / 2);
+    return { x: (sx + sy) / 2, y: (sy - sx) / 2 };
   }
 
-  /** Screen position (relative to the canvas) of a settler-style tile coordinate. */
+  /** Screen position (relative to the canvas) of a settler-style tile coordinate (tile centre = integer). */
   tileToCanvas(x: number, y: number): { x: number; y: number } {
-    return { x: (x + 0.5) * TILE * this.scale + this.camera.x, y: (y + 0.5) * TILE * this.scale + this.camera.y };
+    const p = iso(x + 0.5, y + 0.5);
+    return { x: p.x * this.scale + this.camera.x, y: p.y * this.scale + this.camera.y };
+  }
+
+  /** The visible building whose picture is under a point on screen, front-most first. */
+  buildingAtScreen(clientX: number, clientY: number): Building | undefined {
+    const rect = this.app.canvas.getBoundingClientRect();
+    const px = clientX - rect.left, py = clientY - rect.top;
+    let best: Building | undefined, bestZ = -Infinity;
+    for (const b of this.world.buildings) {
+      const v = this.buildingViews.get(b.id);
+      if (!v || !v.body.visible || !v.root.visible) continue;
+      const bounds = v.body.getBounds();
+      if (px < bounds.x || px > bounds.x + bounds.width || py < bounds.y || py > bounds.y + bounds.height) continue;
+      // Only the building itself counts, not the empty corners of its picture.
+      const local = v.body.toLocal({ x: px, y: py });
+      const ax = local.x + v.body.anchor.x * v.body.texture.width, ay = local.y + v.body.anchor.y * v.body.texture.height;
+      if (ax < v.body.texture.width * 0.12 || ax > v.body.texture.width * 0.88 || ay > v.body.texture.height * 0.92) continue;
+      if (v.root.zIndex > bestZ) { bestZ = v.root.zIndex; best = b; }
+    }
+    return best;
   }
 
   panBy(dx: number, dy: number): void {
@@ -463,23 +647,29 @@ export class MapView {
 
   centreOn(tileX: number, tileY: number): void {
     const { width, height } = this.app.screen;
-    this.camera.x = width / 2 - (tileX + 0.5) * TILE * this.scale;
-    this.camera.y = height / 2 - (tileY + 0.5) * TILE * this.scale;
+    const p = iso(tileX + 0.5, tileY + 0.5);
+    this.camera.x = width / 2 - p.x * this.scale;
+    this.camera.y = height / 2 - p.y * this.scale;
     this.clamp();
   }
 
-  /** Visible area in tiles, for the minimap frame. */
+  /** Visible area in tiles, for the minimap frame: the box around the four screen corners. */
   visibleTiles(): { x: number; y: number; w: number; h: number } {
-    const { width, height } = this.app.screen;
-    const s = this.scale * TILE;
-    return { x: -this.camera.x / s, y: -this.camera.y / s, w: width / s, h: height / s };
+    const rect = this.app.canvas.getBoundingClientRect();
+    const corners = [[0, 0], [rect.width, 0], [0, rect.height], [rect.width, rect.height]]
+      .map(([x, y]) => this.screenToWorld(rect.left + x, rect.top + y));
+    const xs = corners.map((c) => c.x), ys = corners.map((c) => c.y);
+    const x = Math.max(0, Math.min(...xs)), y = Math.max(0, Math.min(...ys));
+    return { x, y, w: Math.min(this.world.width, Math.max(...xs)) - x, h: Math.min(this.world.height, Math.max(...ys)) - y };
   }
 
   private clamp(): void {
     const { width, height } = this.app.screen;
-    const mapW = this.world.width * TILE * this.scale, mapH = this.world.height * TILE * this.scale;
-    const margin = 120;
-    this.camera.x = Math.min(margin, Math.max(width - mapW - margin, this.camera.x));
-    this.camera.y = Math.min(margin, Math.max(height - mapH - margin, this.camera.y));
+    const s = this.scale, { world } = this;
+    const minX = iso(0, world.height).x * s, maxX = iso(world.width, 0).x * s;
+    const maxY = iso(world.width, world.height).y * s;
+    const margin = 160;
+    this.camera.x = Math.min(margin - minX, Math.max(width - maxX - margin, this.camera.x));
+    this.camera.y = Math.min(margin + 120 * s, Math.max(height - maxY - margin, this.camera.y));
   }
 }
