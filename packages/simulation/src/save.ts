@@ -9,7 +9,7 @@ import type { BotType } from './bot.ts';
 import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, TradeRoute, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 13;
+export const SAVE_VERSION = 14;
 
 function raceType(value: unknown): RaceType {
   if (typeof value !== 'string' || !(RACE_TYPES as readonly string[]).includes(value)) fail('a people is unknown');
@@ -139,6 +139,11 @@ function goods(value: unknown, what: string): GoodAmounts {
   return out;
 }
 
+function intList(value: unknown, what: string): number[] {
+  if (!Array.isArray(value) || value.length > 16 || value.some((v) => !Number.isInteger(v) || v < 1)) fail(`${what} are invalid`);
+  return value as number[];
+}
+
 function intArray(value: unknown, length: number, min: number, max: number, what: string): number[] {
   if (!Array.isArray(value) || value.length !== length) fail(`${what} has the wrong size`);
   for (const v of value) if (!Number.isInteger(v) || v < min || v > max) fail(`${what} has an invalid value`);
@@ -227,7 +232,7 @@ export function loadGame(data: unknown): World {
       stock: goods(raw.stock, 'stock'), input: goods(raw.input, 'input'), incoming: goods(raw.incoming, 'incoming'),
       reserved: goods(raw.reserved, 'reserved'), delivered: goods(raw.delivered, 'delivered'), built: goods(raw.built, 'built'),
       levelProgress: num(raw.levelProgress, 0, 1, 'levelling'), buildProgress: num(raw.buildProgress, 0, 1, 'building progress'),
-      diggerId: nullableInt(raw.diggerId, 'digger'), builderId: nullableInt(raw.builderId, 'builder'),
+      diggerIds: intList(raw.diggerIds, 'diggers'), builderIds: intList(raw.builderIds, 'builders'),
       workerId: nullableInt(raw.workerId, 'worker'),
       garrison: raw.garrison.map((g: unknown) => id(g, 'garrison soldier')),
       garrisonWanted: int(raw.garrisonWanted, 0, type.garrisonCapacity, 'garrison size'),

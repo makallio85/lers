@@ -40,8 +40,23 @@ export const MINE_REACH = 2;
 
 // Pace follows The Settlers III at normal speed (see docs/game-design.md, "Pace"): a small hut takes about
 // a minute of levelling and 40 seconds of building.
+/** Work per good built and per tile levelled, measured for a crew of two: two diggers level a small hut in about
+ * 60 s and two builders build it in about 40 s, the times measured in The Settlers III. */
 const BUILD_TICKS_PER_GOOD = 100;
 const LEVEL_TICKS_PER_TILE = 150;
+/** How many diggers and builders work on one site at once, by its size. */
+export function diggerCrew(size: number): number { return size + 1; }
+export function builderCrew(size: number): number { return size; }
+/** The crew a site's work is measured for: one settler alone takes twice as long, a full crew less. */
+const REFERENCE_CREW = 2;
+
+/** A crew member whose spot was since built over steps to a free spot along the site's edge. */
+function keepOutOfFootprints(world: World, s: Settler, site: Building): void {
+  if (isWalkable(world, tileOf(world, s))) return;
+  const ids = site.levelProgress < 1 ? site.diggerIds : site.builderIds;
+  const spot = crewSpot(world, site, Math.max(0, ids.indexOf(s.id)));
+  s.x = spot % world.width; s.y = Math.floor(spot / world.width); s.prevX = s.x; s.prevY = s.y;
+}
 /** A tree grows one step per this many ticks: sapling to full size in about 4.5 minutes. */
 export const GROWTH_TICKS = 45;
 const IDLE_BEFORE_GOING_HOME = 30;
@@ -310,22 +325,46 @@ function assignConstructionCrews(world: World): void {
   const sites = world.buildings.filter((b) => !b.isComplete && !b.isPaused)
     .sort((a, b) => Number(b.isPriority) - Number(a.isPriority) || a.id - b.id);
   for (const site of sites) {
-    if (site.levelProgress < 1) {
-      if (site.diggerId !== null) continue;
-      const digger = nearestIdle(world, 'digger', site.owner, site.doorX, site.doorY);
-      if (!digger || !walkTo(world, digger, doorTile(world, site))) { setBlocked(world, site, 'Waiting for a digger'); continue; }
-      digger.phase = 'toSite'; digger.homeId = site.id;
-      site.diggerId = digger.id;
-      setBlocked(world, site, null);
-      continue;
+    const isLevelling = site.levelProgress < 1;
+    const type: SettlerType = isLevelling ? 'digger' : 'builder';
+    const crew = isLevelling ? site.diggerIds : site.builderIds;
+    // Drop crew members who are gone or were taken off the site.
+    for (let k = crew.length - 1; k >= 0; k--) {
+      const s = world.settlers.find((x) => x.id === crew[k]);
+      if (!s || s.homeId !== site.id || s.settlerType !== type) crew.splice(k, 1);
     }
-    if (site.builderId !== null) continue;
-    const builder = nearestIdle(world, 'builder', site.owner, site.doorX, site.doorY);
-    if (!builder || !walkTo(world, builder, doorTile(world, site))) { setBlocked(world, site, 'Waiting for a builder'); continue; }
-    builder.phase = 'toSite'; builder.homeId = site.id;
-    site.builderId = builder.id;
-    setBlocked(world, site, null);
+    const wanted = isLevelling ? diggerCrew(site.size) : builderCrew(site.size);
+    while (crew.length < wanted) {
+      const s = nearestIdle(world, type, site.owner, site.doorX, site.doorY);
+      // Each one works its own spot along the site's edge, so the crew stands side by side.
+      if (!s || !walkTo(world, s, crewSpot(world, site, crew.length))) break;
+      s.phase = 'toSite'; s.homeId = site.id;
+      crew.push(s.id);
+    }
+    setBlocked(world, site, crew.length > 0 ? null : isLevelling ? 'Waiting for a digger' : 'Waiting for a builder');
   }
+}
+
+/** The k-th place a crew member works from: walkable tiles around the site's edge, front first, else its door. */
+function crewSpot(world: World, site: Building, k: number): number {
+  const spots: { i: number; d: number }[] = [];
+  for (let y = site.y - 1; y <= site.y + site.size; y++) {
+    for (let x = site.x - 1; x <= site.x + site.size; x++) {
+      const isEdge = x === site.x - 1 || y === site.y - 1 || x === site.x + site.size || y === site.y + site.size;
+      if (!isEdge || !inBounds(world, x, y)) continue;
+      const i = tileIndex(world, x, y);
+      if (!isWalkable(world, i) || world.door[i] !== 0) continue;
+      // Ordered around the site, starting at its door.
+      const cx = site.x + site.size / 2 - 0.5, cy = site.y + site.size / 2 - 0.5;
+      const a = Math.atan2(y - cy, x - cx) - Math.atan2(site.doorY - cy, site.doorX - cx);
+      spots.push({ i, d: (a + 4 * Math.PI) % (2 * Math.PI) });
+    }
+  }
+  spots.sort((a, b) => a.d - b.d || a.i - b.i);
+  if (spots.length === 0) return doorTile(world, site);
+  // Spread evenly around the site: the k-th of a full crew takes every (spots / crew)-th spot.
+  const crew = site.levelProgress < 1 ? diggerCrew(site.size) : builderCrew(site.size);
+  return spots[Math.floor(((k % crew) * spots.length) / crew + Math.floor(k / crew)) % spots.length].i;
 }
 
 function assignWorkers(world: World): void {
@@ -583,9 +622,11 @@ function updateDrop(world: World, s: Settler): void {
 function updateLeveling(world: World, s: Settler): void {
   const site = buildingById(world, s.homeId);
   if (!site || site.levelProgress >= 1) { becomeIdle(s); return; }
-  site.levelProgress = Math.min(1, site.levelProgress + 1 / (site.size * site.size * LEVEL_TICKS_PER_TILE));
+  // Work scaled to a full crew: each digger does its share.
+  keepOutOfFootprints(world, s, site);
+  site.levelProgress = Math.min(1, site.levelProgress + 1 / (site.size * site.size * LEVEL_TICKS_PER_TILE * REFERENCE_CREW));
   if (site.levelProgress >= 1) {
-    site.diggerId = null;
+    site.diggerIds = [];
     world.mapVersion++;
     becomeIdle(s);
   }
@@ -597,11 +638,17 @@ function updateBuilding(world: World, s: Settler): void {
   const type = BUILDING_TYPES[site.typeId];
   const total = costTotal(siteCost(world, site));
   const builtCount = totalGoods(site.built);
+  // Each builder works one delivered good at a time; one with no good left to start waits for the next delivery.
+  keepOutOfFootprints(world, s, site);
+  const ticksPerGood = BUILD_TICKS_PER_GOOD * REFERENCE_CREW;
+  const crew = site.builderIds.map((id) => world.settlers.find((x) => x.id === id)).filter((x): x is Settler => !!x && x.phase === 'building');
+  const inHand = crew.filter((b) => b !== s && b.timer > 0).length;
   const onSite = GOOD_TYPES.find((good) => site.delivered[good] > 0);
-  if (onSite) {
+  const delivered = totalGoods(site.delivered);
+  if (onSite && (s.timer > 0 || delivered > inHand)) {
     s.timer++;
-    site.buildProgress = (builtCount + s.timer / BUILD_TICKS_PER_GOOD) / total;
-    if (s.timer >= BUILD_TICKS_PER_GOOD) { s.timer = 0; site.delivered[onSite]--; site.built[onSite]++; }
+    if (s.timer >= ticksPerGood) { s.timer = 0; site.delivered[onSite]--; site.built[onSite]++; }
+    site.buildProgress = (totalGoods(site.built) + crew.reduce((n, b) => n + b.timer, 0) / ticksPerGood) / total;
     setBlocked(world, site, null);
   } else if (builtCount < total) {
     setBlocked(world, site, 'Waiting for building materials');
@@ -609,7 +656,8 @@ function updateBuilding(world: World, s: Settler): void {
   if (totalGoods(site.built) < total) return;
   site.isComplete = true;
   site.buildProgress = 1;
-  site.builderId = null;
+  for (const id of site.builderIds) { const b = world.settlers.find((x) => x.id === id); if (b && b !== s) becomeIdle(b); }
+  site.builderIds = [];
   site.residentsLeft = type.residents;
   setBlocked(world, site, null);
   world.mapVersion++;
