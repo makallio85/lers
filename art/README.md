@@ -27,6 +27,10 @@ python3 art/pack.py
 
 On an 8-core CPU without a graphics card this takes about an hour and a half, most of it on settler frames. To redo part of the set, pass peoples or `--only type,type` to the building and settler scripts. `python3 art/preview.py out.jpg sprite.png ...` lays renders out on a tile grid for review.
 
+## Sound
+
+`art/sounds.sh` downloads Kenney's CC0 RPG Audio, Impact Sounds and Interface Sounds packs into `art/.audio/` (not committed) and converts the sounds the game uses into mono MP3 files in `packages/client/public/sound/`, with ffmpeg in a throwaway Docker container. `packages/client/src/sound.ts` lists each sound's variants.
+
 ## Next
 
 Later, an AI image service can repaint these renders in a richer, painted style while keeping their shapes, and fill in what the kits lack.

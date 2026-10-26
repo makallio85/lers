@@ -8,6 +8,7 @@ import {
 import type { Building, BuildingTypeId, GoodType, RaceType, Settler, World } from '../../simulation/src/index.ts';
 import { SpriteBank, TREE_VARIANTS, lookOf } from './sprites.ts';
 import type { SettlerAnim, SettlerLook, Sprite as ArtSprite } from './sprites.ts';
+import type { SoundId } from './sound.ts';
 import { buildTerrain } from './terrain.ts';
 
 /** Pixels per tile in the flat (tile-space) drawing of the ground layer. */
@@ -86,6 +87,8 @@ interface BuildingView {
   piles: Container; guards: Container;
   /** When the building left the world and began to collapse, and where its sprite stood then. */
   collapsedAt?: number; collapseY?: number;
+  /** The building's middle, in tiles, for the sound of its collapse. */
+  foot?: { x: number; y: number };
 }
 
 /** How long a demolished building takes to collapse, in milliseconds. */
@@ -99,7 +102,16 @@ interface SettlerView {
   root: Container; body: Sprite; load: Sprite; dir: number; walked: number;
   /** A soldier's people and look, kept so it can fall when it dies; and when it died, once it has. */
   race?: RaceType; look?: SettlerLook; diedAt?: number;
+  /** What the settler carried last frame, and when that changed: a carrier bends to pick up or put down its load. */
+  carried?: string | null; handledAt?: number;
+  /** The animation frame whose sound already played, so each stroke sounds once. */
+  cuedFrame?: number;
+  /** Where the settler was last drawn, in tiles: where it falls if it dies. */
+  lastX?: number; lastY?: number;
 }
+
+/** How long picking up or putting down a load takes on screen, in milliseconds. */
+const HANDLE_MS = 600;
 
 /** Workshops with a fire: smoke rises from them while their worker is at work. */
 const SMOKY_BUILDINGS: ReadonlySet<BuildingTypeId> = new Set<BuildingTypeId>([
@@ -114,6 +126,8 @@ export class MapView {
   readonly camera = new Container();
   /** The player whose eyes the map is drawn through. */
   viewer = 0;
+  /** Called with each map sound and where it happens on the canvas; nothing plays when unset. */
+  onSound: ((id: SoundId, x: number, y: number) => void) | null = null;
   private readonly bank = new SpriteBank();
   /** Flat layers drawn in tile space and tilted into the isometric view. */
   private readonly groundBase = new Container();
@@ -357,6 +371,7 @@ export class MapView {
       }
       const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
       v.root.zIndex = cx + cy;
+      v.foot = { x: cx, y: cy };
       cullPoints.set(v.root, iso(cx, cy));
       const art = this.bank.building(this.raceOf(b.owner), b.typeId);
       const scaffoldArt = this.bank.scaffold(b.size);
@@ -384,6 +399,7 @@ export class MapView {
     for (const [id, v] of this.buildingViews) {
       if (alive.has(id)) continue;
       if (!existing.has(id) && v.body.visible && v.body.texture) {
+        if (v.collapsedAt === undefined && v.foot) this.sound('collapse', v.foot.x, v.foot.y);
         v.collapsedAt ??= now;
         const t = (now - v.collapsedAt) / COLLAPSE_MS;
         if (t < 1) {
@@ -628,6 +644,7 @@ export class MapView {
     for (const [id, v] of this.settlerViews) {
       if (alive.has(id)) continue;
       if (v.look && v.race && !existing.has(id) && this.bank.hasAnim(v.race, v.look, 'die')) {
+        if (v.diedAt === undefined && v.lastX !== undefined) this.sound('fall', v.lastX, v.lastY!);
         v.diedAt ??= now;
         const since = now - v.diedAt;
         if (since < DIE_FRAMES * DIE_FRAME_MS + FALLEN_MS) {
@@ -677,15 +694,24 @@ export class MapView {
       // Machines play their shot once, from the moment it was fired (ticks since the shot, two per frame).
       frame = Math.min(5, Math.floor((WAR_MACHINE_STATS[s.settlerType].cooldown - s.cooldown) / 2)) - s.id;
     }
+    // Picking up or putting down a load: the carrier bends down for a moment where it happened.
+    const carried = s.carrying ?? null;
+    if (v.carried !== undefined && carried !== v.carried) v.handledAt = now;
+    v.carried = carried;
+    if (s.settlerType === 'carrier' && v.handledAt !== undefined && now - v.handledAt < HANDLE_MS && this.bank.hasAnim(race, look, 'work')) {
+      anim = 'work'; frame = Math.floor(((now - v.handledAt) / HANDLE_MS) * 6) - s.id;
+    }
     // Ships rock on the swell all the time, slowly.
     if (isShipType(s.settlerType)) { anim = 'walk'; frame = Math.floor(now / 260); }
     const art = this.bank.settler(race, look, anim, v.dir, frame + s.id);
     if (!art) return false;
     if (isSoldierType(s.settlerType)) { v.race = race; v.look = look; }
+    this.cueSound(s, v, look, anim, frame + s.id, tx, ty);
     this.place(v.body, art, 0, 0);
     const p = iso(tx, ty);
     v.root.position.set(p.x, p.y);
     v.root.zIndex = tx + ty;
+    v.lastX = tx; v.lastY = ty;
     // A trade ship's cargo is in its hold.
     const good = s.carrying && !isShipType(s.settlerType) ? this.bank.good(s.carrying) : null;
     v.load.visible = !!good;
@@ -701,6 +727,30 @@ export class MapView {
       v.root.setChildIndex(v.load, v.dir >= 3 && v.dir <= 5 ? 0 : 1);
     }
     return true;
+  }
+
+  /**
+   * Sounds of work and battle, at the frame the stroke lands (the fourth of six): a chop, a hammer blow, a pick on
+   * stone, a spade in earth, swords meeting, a bow released, a war machine's shot. Once per stroke.
+   */
+  private cueSound(s: Settler, v: SettlerView, look: SettlerLook, anim: SettlerAnim, frame: number, tx: number, ty: number): void {
+    if (!this.onSound || (anim !== 'work' && anim !== 'attack') || s.settlerType === 'carrier') return;
+    const isMachine = isWarMachineType(s.settlerType);
+    const cue = isMachine ? frame === 0 : ((frame % 6) + 6) % 6 === 3;
+    if (!cue || v.cuedFrame === frame) { if (!cue) v.cuedFrame = undefined; return; }
+    v.cuedFrame = frame;
+    const id: SoundId | null = isMachine ? 'siege'
+      : anim === 'attack' ? (s.settlerType === 'bowman' ? 'bow' : 'clash')
+      : look === 'woodcutter' ? 'chop' : look === 'builder' ? 'hammer' : look === 'stonecutter' || look === 'geologist' ? 'pick'
+      : look === 'digger' || look === 'pioneer' || look === 'farmer' ? 'dig' : null;
+    if (id) this.sound(id, tx, ty);
+  }
+
+  /** Hands a map sound at a tile to whoever plays sound, with where it is on the canvas. */
+  private sound(id: SoundId, tx: number, ty: number): void {
+    if (!this.onSound) return;
+    const p = this.tileToCanvas(tx - 0.5, ty - 0.5);
+    this.onSound(id, p.x, p.y);
   }
 
   /** Plain shapes, used when the art is not available. */

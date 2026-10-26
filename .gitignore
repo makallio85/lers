@@ -11,3 +11,4 @@ coverage/
 art/.kits/
 art/.renders/
 art/blender/__pycache__/
+art/.audio/

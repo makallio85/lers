@@ -3,10 +3,11 @@ import {
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
-  BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, isEnemy, maxPlayersOf, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
+  BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, isEnemy, isWinner, maxPlayersOf, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
 } from '../../simulation/src/index.ts';
 import type { BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
+import { SoundBoard } from './sound.ts';
 import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
 import {
@@ -135,6 +136,23 @@ const ui = {
 
 const queue: Command[] = [];
 const view = await MapView.create(els.map, world);
+const sounds = new SoundBoard();
+view.onSound = (id, x, y) => sounds.playAt(id, x, y, els.map.clientWidth, els.map.clientHeight, view.scale);
+/** What the player has already heard about: messages, finished buildings and the match result. */
+const heard = { messageId: Number.MAX_SAFE_INTEGER, built: new Set<number>(), isOver: false };
+/** Sounds for what changed since the last look: a warning, a building finished, the match won or lost. */
+function playNews(): void {
+  for (const m of world.messages) {
+    if (m.owner !== PLAYER || m.id <= heard.messageId || heard.messageId === Number.MAX_SAFE_INTEGER) continue;
+    if (m.isWarning) sounds.play('alert');
+  }
+  heard.messageId = world.messages.reduce((top, m) => Math.max(top, m.id), 0);
+  const done = world.buildings.filter((b) => b.owner === PLAYER && b.isComplete).map((b) => b.id);
+  if (heard.built.size > 0 && done.some((id) => !heard.built.has(id))) sounds.play('built');
+  heard.built = new Set(done);
+  if (world.winner !== null && !heard.isOver && isMatch()) sounds.play(isWinner(world, PLAYER) ? 'victory' : 'defeat');
+  heard.isOver = world.winner !== null;
+}
 const isMatch = () => world.players.length > 1;
 /** The computer players of this match, in a few words: one opponent by name and people, more by count and team. */
 /** This match's allies and enemies, to play it again the same way. */
@@ -229,7 +247,7 @@ function renderMenu(): void {
     els.menu.innerHTML = renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
       isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
-      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace,
+      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace, isSoundOn: sounds.isOn,
       allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied, maxPlayers: maxPlayersOf(lastMapSize, lastMapLayout)
     });
   }
@@ -303,6 +321,7 @@ function renderEnd(): void {
 }
 
 function refreshLive(): void {
+  playNews();
   els.stock.innerHTML = renderStock(world, PLAYER);
   els.clock.textContent = formatClock(world.tick);
   els.messages.innerHTML = renderMessages(world, PLAYER, ui.dismissed);
@@ -375,6 +394,7 @@ function submit(command: Command): void {
 }
 
 function showProblem(reason: string): void {
+  sounds.play('error');
   ui.problem = reason;
   ui.problemUntil = performance.now() + 2500;
   ui.menuNotice = null;
@@ -396,7 +416,7 @@ function handleResults(results: CommandResult[], commands: Command[]): void {
   results.forEach((result, k) => {
     const command = commands[k];
     if (!result.isAccepted) showProblem(result.reason);
-    else if (command.type === 'placeBuilding') ui.selectedId = result.buildingId ?? null;
+    else if (command.type === 'placeBuilding') { ui.selectedId = result.buildingId ?? null; sounds.play('place'); }
     else if (!['moveSoldiers', 'attackBuilding', 'moveSpecialists', 'patrolSoldiers', 'holdSoldiers'].includes(command.type)) isPanelStale = true;
   });
   if (isPanelStale) renderPanel();
@@ -760,6 +780,7 @@ document.addEventListener('click', (e) => {
   const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
   if (!target) return;
   const { action } = target.dataset;
+  if (!(target as HTMLButtonElement).disabled) sounds.play('click');
   const isTouch = (e as PointerEvent).pointerType === 'touch' || isTouchDevice();
   const selected = buildingById(world, ui.selectedId);
   const delta = Number(target.dataset.delta ?? 0);
@@ -944,6 +965,8 @@ document.addEventListener('click', (e) => {
     case 'enemy-teams':
       lastEnemiesAllied = target.dataset.together === 'true'; remember(ENEMY_TEAMS_KEY, lastEnemiesAllied ? 'together' : 'alone');
       renderMenu(); break;
+    case 'sound':
+      sounds.setOn(!sounds.isOn); renderMenu(); break;
     case 'victory':
       if ((VICTORY_TYPES as readonly string[]).includes(target.dataset.victory ?? '')) { lastVictory = target.dataset.victory as VictoryType; remember(VICTORY_KEY, lastVictory); }
       renderMenu(); break;
@@ -1093,5 +1116,5 @@ requestAnimationFrame(frame);
 
 // Exposed for automated screenshots and debugging in the browser console.
 Object.defineProperty(window, 'lers', {
-  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders })
+  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders, sounds })
 });
