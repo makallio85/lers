@@ -1,7 +1,7 @@
-import { BUILDING_TYPES, GOOD_NAMES, PROMOTION_COSTS, SOLDIER_TYPES, TOOL_TYPES, WAR_MACHINE_STATS, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
-import type { BuildingTypeId, GoodType, MapSizeType, ToolType } from './definitions.ts';
+import { BUILDING_TYPES, GOOD_NAMES, PROMOTION_COSTS, RACE_SPELLS, SOLDIER_TYPES, SPELL_RANGE, SPELL_STATS, TOOL_TYPES, WAR_MACHINE_STATS, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
+import type { BuildingTypeId, GoodType, MapSizeType, SpellType, ToolType } from './definitions.ts';
 import type { Command } from './commands.ts';
-import type { ObservedBuilding, Observation, OwnBuilding } from './vision.ts';
+import type { ObservedBuilding, ObservedSoldier, Observation, OwnBuilding } from './vision.ts';
 
 /** How often a built-in bot looks at the game and decides (2 seconds). */
 export const BOT_DECISION_TICKS = 20;
@@ -126,6 +126,68 @@ function isUseful(typeId: BuildingTypeId, count: (t: BuildingTypeId) => number):
 
 /** The bot builds its war machine hall from this minute of the match. */
 const WAR_MACHINE_HALL_MINUTES = 40;
+
+/** How far behind the army an idle priest follows, and how often the bot reconsiders magic. */
+const PRIEST_FOLLOW_DISTANCE = 3;
+
+/**
+ * The computer's priests. Fights come first: Shield or Fury on own soldiers fighting near a priest, Freeze or
+ * Persuade on enemies there. With all ranks bought, spare manna goes to Harvest at home, Blight on enemy mines
+ * in sight and Far sight toward the enemy. Idle priests follow the army.
+ */
+function decideSpells(obs: Observation, castle: OwnBuilding, turn: number, note: (text: string) => void): Command[] {
+  const me = obs.playerId;
+  const priests = obs.ownSpecialists.filter((s) => s.settlerType === 'priest');
+  if (priests.length === 0) return [];
+  const known = RACE_SPELLS[obs.player.raceType];
+  let manna = obs.player.manna;
+  const commands: Command[] = [];
+  const cast = (priest: ObservedSoldier, spell: SpellType, x: number, y: number) => {
+    commands.push({ type: 'castSpell', playerId: me, priestId: priest.id, spell, x: Math.round(x), y: Math.round(y) });
+    manna -= SPELL_STATS[spell].cost;
+    note(`cast ${spell} at ${Math.round(x)},${Math.round(y)}`);
+  };
+  const can = (spell: SpellType) => known.includes(spell) && manna >= SPELL_STATS[spell].cost;
+  const soldiers = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && s.phase !== 'inside');
+  const near = (list: readonly ObservedSoldier[], x: number, y: number, r: number) => list.filter((s) => Math.hypot(s.x - x, s.y - y) <= r);
+  for (const priest of priests.filter((p) => p.isReady)) {
+    // Enemies close to the priest: hold them or win them over, then strengthen own soldiers there.
+    const enemies = near(obs.otherSoldiers.filter((s) => isSoldierType(s.settlerType)), priest.x, priest.y, SPELL_RANGE);
+    if (enemies.length > 0) {
+      const cx = enemies.reduce((sum, s) => sum + s.x, 0) / enemies.length, cy = enemies.reduce((sum, s) => sum + s.y, 0) / enemies.length;
+      const friends = near(soldiers, cx, cy, SPELL_STATS.shield.radius);
+      if (enemies.length >= 3 && can('persuade')) { cast(priest, 'persuade', cx, cy); continue; }
+      if (enemies.length >= 2 && can('freeze')) { cast(priest, 'freeze', cx, cy); continue; }
+      if (friends.length >= 2 && can('fury')) { cast(priest, 'fury', cx, cy); continue; }
+      if (friends.length >= 2 && can('shield')) { cast(priest, 'shield', cx, cy); continue; }
+    }
+  }
+  if (commands.length > 0) return commands;
+  // Peace: only once every soldier type is a captain does manna go to the economy and scouting.
+  const isRanked = SOLDIER_TYPES.every((t) => obs.player.soldierRanks[t] >= PROMOTION_COSTS.length);
+  const ready = priests.find((p) => p.isReady);
+  if (isRanked && ready && turn % 6 === 0) {
+    const mine = obs.otherBuildings.find((b) => BUILDING_TYPES[b.typeId].mine);
+    const farm = obs.ownBuildings.find((b) => b.typeId === 'farm' && b.isComplete);
+    if (mine && can('blight')) cast(ready, 'blight', mine.doorX, mine.doorY);
+    else if (farm && can('harvest') && Math.hypot(farm.doorX - ready.x, farm.doorY - ready.y) <= SPELL_RANGE) cast(ready, 'harvest', farm.doorX, farm.doorY);
+    else if (obs.otherBuildings.length === 0 && can('far_sight')) cast(ready, 'far_sight', castle.x < obs.width / 2 ? obs.width - 20 : 20, obs.height / 2);
+  }
+  // Idle priests walk to the army, a little behind it, so they are at hand when it fights.
+  const army = soldiers.filter((s) => s.phase === 'attacking' || s.phase === 'moving' || s.phase === 'defending');
+  const idle = priests.filter((p) => p.phase === 'idle');
+  if (idle.length > 0 && turn % 4 === 0) {
+    const group = army.length > 0 ? army : soldiers;
+    if (group.length > 0) {
+      const gx = group.reduce((sum, s) => sum + s.x, 0) / group.length, gy = group.reduce((sum, s) => sum + s.y, 0) / group.length;
+      const dx = castle.doorX - gx, dy = castle.doorY - gy, d = Math.hypot(dx, dy) || 1;
+      const tx = Math.round(gx + (dx / d) * PRIEST_FOLLOW_DISTANCE), ty = Math.round(gy + (dy / d) * PRIEST_FOLLOW_DISTANCE);
+      const far = idle.filter((p) => Math.hypot(p.x - tx, p.y - ty) > 4);
+      if (far.length > 0) commands.push({ type: 'moveSpecialists', playerId: me, settlerIds: far.map((p) => p.id), x: tx, y: ty });
+    }
+  }
+  return commands;
+}
 
 /** Workplaces whose resource is gone for good; the bot clears them, as the manual advises players to. */
 const EXHAUSTED_REASONS = ['The deposit is used up', 'No rocks nearby'];
@@ -264,8 +326,10 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     }
   }
 
-  // 4. Promotions: manna goes into ranks, swordsmen first, one step per decision.
-  for (const soldierType of SOLDIER_TYPES) {
+  // 4. Priests and promotions. In a fight near a priest, manna goes to spells first; otherwise into ranks.
+  const spells = decideSpells(obs, castle, turn, note);
+  commands.push(...spells);
+  for (const soldierType of spells.length > 0 ? [] : SOLDIER_TYPES) {
     const rank = obs.player.soldierRanks[soldierType];
     if (rank < PROMOTION_COSTS.length && obs.player.manna >= PROMOTION_COSTS[rank]) {
       commands.push({ type: 'promoteSoldiers', playerId: me, soldierType });

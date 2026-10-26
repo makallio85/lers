@@ -84,6 +84,8 @@ export interface ObservedSoldier {
   health: number;
   /** Own soldiers only: what the soldier is doing. */
   phase?: string;
+  /** Own priests only: whether he can cast now, or still rests from the last spell. */
+  isReady?: boolean;
 }
 
 /**
@@ -100,7 +102,7 @@ export interface Observation {
   /** Other players' buildings this player can see right now. */
   otherBuildings: ObservedBuilding[];
   ownSoldiers: ObservedSoldier[];
-  /** Own geologists and pioneers, with what they are doing. */
+  /** Own geologists, pioneers, thieves and priests, with what they are doing. */
   ownSpecialists: ObservedSoldier[];
   /** Other players' soldiers in view right now, outside buildings. */
   otherSoldiers: ObservedSoldier[];
@@ -139,8 +141,9 @@ export function observe(world: World, playerId: number): Observation {
     if (s.owner === playerId) {
       settlerCounts[s.settlerType] = (settlerCounts[s.settlerType] ?? 0) + 1;
       if (s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying) freeCarriers++;
-      if (isSpecialistType(s.settlerType)) {
-        ownSpecialists.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.phase });
+      if (isSpecialistType(s.settlerType) || s.settlerType === 'priest') {
+        ownSpecialists.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.phase,
+          ...(s.settlerType === 'priest' ? { isReady: s.timer === 0 && !s.isInside } : {}) });
       }
       if (isUnitType(s.settlerType)) {
         ownSoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.isInside ? 'inside' : s.phase });

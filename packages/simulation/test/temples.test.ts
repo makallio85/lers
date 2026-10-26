@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FIELD_RIPE, NO_TREE, PRIEST_TICKS, RACE_SPELLS, SPELL_STATS, TERRAIN_GRASS, TREE_MATURE, buildingCost, buildingLabel, castleOf, createMatch,
-  loadGame, maxHealth, newBuilding, newSettler, saveGame, step, tileIndex
+  decideBot, loadGame, maxHealth, newBuilding, newSettler, observe, saveGame, spotFinder, step, tileIndex, updateVision
 } from '../src/index.ts';
 import type { Building, BuildingTypeId, Command, RaceType, Settler, World } from '../src/index.ts';
 
@@ -167,4 +167,23 @@ test('manna, ranks, spells and far sight survive a save', () => {
   assert.equal(copy.players[0].soldierRanks.bowman, 1);
   assert.equal(copy.farSights.length, 1);
   assert.equal(copy.settlers.find((s) => s.id === priest.id)!.settlerType, 'priest');
+});
+
+test('a computer priest near a fight freezes the enemy or shields its own soldiers', () => {
+  const world = createMatch(4, 'calm', 'small', 'egyptians', 'romans');
+  const castle = castleOf(world, 1)!;
+  const x = castle.x - 6, y = castle.y + 8;
+  clear(world, x, y, 6);
+  const priest = unit(world, 1, 'priest', x, y);
+  for (let k = 0; k < 3; k++) unit(world, 1, 'swordsman', x + 2, y + k);
+  for (let k = 0; k < 3; k++) unit(world, 0, 'swordsman', x + 3, y + k);
+  world.players[1].manna = 40;
+  step(world);
+  updateVision(world);
+  const commands = decideBot(observe(world, 1), spotFinder(world, 1));
+  const spell = commands.find((c) => c.type === 'castSpell');
+  assert.ok(spell, 'the priest casts');
+  assert.ok(['persuade', 'shield', 'fury'].includes((spell as { spell: string }).spell), 'a Roman priest persuades, shields or rouses');
+  assert.equal(commands.some((c) => c.type === 'promoteSoldiers'), false, 'the manna goes to the fight, not to ranks');
+  assert.equal(priest.owner, 1);
 });
