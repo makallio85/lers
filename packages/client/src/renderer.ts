@@ -128,10 +128,19 @@ interface SettlerView {
   cuedFrame?: number;
   /** Where the settler was last drawn, in tiles: where it falls if it dies. */
   lastX?: number; lastY?: number;
+  /** The pebble an idle carrier kicks, made the first time one does. */
+  pebble?: Graphics;
 }
 
 /** How long picking up or putting down a load takes on screen, in milliseconds. */
 const HANDLE_MS = 600;
+
+/**
+ * A carrier with nothing to do kicks a pebble now and then: every 9 to 18 seconds of game time, staggered by settler,
+ * a 6-frame kick; the foot meets the pebble halfway, and it hops off half a tile and fades.
+ */
+const KICK_FRAME_MS = 110, KICK_MS = 6 * KICK_FRAME_MS, KICK_EVERY_MS = 9000, KICK_SPREAD_MS = 9000;
+const PEBBLE_MS = 900, PEBBLE_TILES = 0.55;
 
 /** Workshops with a fire: smoke rises from them while their worker is at work. */
 const SMOKY_BUILDINGS: ReadonlySet<BuildingTypeId> = new Set<BuildingTypeId>([
@@ -822,6 +831,10 @@ export class MapView {
     if (s.settlerType === 'carrier' && v.handledAt !== undefined && now - v.handledAt < HANDLE_MS && this.bank.hasAnim(race, look, 'work')) {
       anim = 'work'; frame = Math.floor(((now - v.handledAt) / HANDLE_MS) * 6) - s.id;
     }
+    const kickAt = s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying && !isWalking && anim === 'walk' && this.bank.hasAnim(race, look, 'kick')
+      ? (now + s.id * 1237) % (KICK_EVERY_MS + ((s.id * 2731) % KICK_SPREAD_MS)) : Infinity;
+    if (kickAt < KICK_MS) { anim = 'kick'; frame = Math.floor(kickAt / KICK_FRAME_MS) - s.id; }
+    this.drawPebble(v, kickAt - KICK_MS / 2);
     // Ships rock on the swell all the time, slowly.
     if (isShipType(s.settlerType)) { anim = 'walk'; frame = Math.floor(now / 260); }
     const art = this.bank.settler(race, look, anim, v.dir, frame + s.id);
@@ -854,6 +867,25 @@ export class MapView {
    * Sounds of work and battle, at the frame the stroke lands (the fourth of six): a chop, a hammer blow, a pick on
    * stone, a spade in earth, swords meeting, a bow released, a war machine's shot. Once per stroke.
    */
+  /** The kicked pebble, `since` ms after the foot met it: it hops away in the direction the carrier faces and fades. */
+  private drawPebble(v: SettlerView, since: number): void {
+    if (!(since >= 0 && since < PEBBLE_MS)) { if (v.pebble) v.pebble.visible = false; return; }
+    if (!v.pebble) {
+      v.pebble = new Graphics().ellipse(0, 0, 3.4, 2.4).fill(0x7d776c).ellipse(-0.8, -0.8, 1.7, 1.1).fill(0xb9b2a5);
+      v.root.addChild(v.pebble);
+    }
+    const t = since / PEBBLE_MS, d = PEBBLE_TILES * (1 - (1 - t) * (1 - t));
+    const fx = Math.sin(v.dir * Math.PI / 4), fy = Math.cos(v.dir * Math.PI / 4);
+    const p = iso(fx * (0.15 + d), fy * (0.15 + d));
+    // Two hops, the second lower, then it rolls to a stop.
+    const hop = t < 0.45 ? Math.sin((t / 0.45) * Math.PI) * 7 : t < 0.75 ? Math.sin(((t - 0.45) / 0.3) * Math.PI) * 2.5 : 0;
+    v.pebble.visible = true;
+    v.pebble.position.set(p.x, p.y - 2 - hop);
+    v.pebble.alpha = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
+    // Behind the body when kicked away from the viewer.
+    v.root.setChildIndex(v.pebble, v.dir >= 3 && v.dir <= 5 ? 0 : v.root.children.length - 1);
+  }
+
   private cueSound(s: Settler, v: SettlerView, look: SettlerLook, anim: SettlerAnim, frame: number, tx: number, ty: number): void {
     if (!this.onSound || (anim !== 'work' && anim !== 'attack') || s.settlerType === 'carrier') return;
     const isMachine = isWarMachineType(s.settlerType);

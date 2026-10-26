@@ -16,7 +16,7 @@ export type SettlerLook =
   | 'carrier' | 'builder' | 'digger' | 'woodcutter' | 'stonecutter' | 'farmer' | 'fisher' | 'worker'
   | 'geologist' | 'pioneer' | 'thief' | 'swordsman' | 'spearman' | 'bowman'
   | 'catapult' | 'ballista' | 'cannon' | 'war_gong' | 'priest' | 'donkey' | 'transport_ship' | 'trade_ship';
-export type SettlerAnim = 'walk' | 'carry' | 'work' | 'attack' | 'die';
+export type SettlerAnim = 'walk' | 'carry' | 'work' | 'attack' | 'die' | 'kick';
 
 /** Several settler types share a look; workers who stay indoors all share one. */
 const SETTLER_LOOKS: Partial<Record<SettlerType, SettlerLook>> = {
