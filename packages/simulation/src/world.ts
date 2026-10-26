@@ -170,6 +170,21 @@ export interface PlayerStats {
   /** Goods the player's workshops and mines made over the match, per good: the economic mode's progress. */
   goodsMade: Partial<GoodAmounts>;
   largestTerritory: number;
+  /** A snapshot every STATS_SAMPLE_TICKS, oldest first, for the statistics graphs. */
+  history: StatsSample[];
+}
+
+/** How often a player's statistics are sampled for the graphs: once a minute of game time. */
+export const STATS_SAMPLE_TICKS = 600;
+
+/** One sample of a player's economy: goods made so far (running totals) and what the player had at that moment. */
+export interface StatsSample {
+  tick: number;
+  goodsMade: Partial<GoodAmounts>;
+  land: number;
+  settlers: number;
+  soldiers: number;
+  buildings: number;
 }
 
 export interface PlayerState {
@@ -471,7 +486,7 @@ export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'ag
     isStored, productionOrders: {}, productionShares, productionCredit: {}, distribution, distributionCount: {},
     isRecruitingAutomatic: true, recruitsLeft: 0, minCarrierPercent: DEFAULT_MIN_CARRIER_PERCENT, maxCrewPercent: DEFAULT_MAX_CREW_PERCENT,
     manna: 0, soldierRanks: { swordsman: 0, spearman: 0, bowman: 0 },
-    stats: { buildingsBuilt: 0, soldiersRecruited: 0, soldiersLost: 0, towersTaken: 0, planksMade: 0, breadBaked: 0, largestTerritory: 0, goodsMade: {} }
+    stats: { buildingsBuilt: 0, soldiersRecruited: 0, soldiersLost: 0, towersTaken: 0, planksMade: 0, breadBaked: 0, largestTerritory: 0, goodsMade: {}, history: [] }
   };
 }
 

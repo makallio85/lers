@@ -55,7 +55,7 @@ These follow The Settlers III as described in its manual (issue #12, phase 1).
 - **Occupations:** the player sets a minimum share of carriers and a maximum share of diggers and builders together. Within those shares, a free carrier becomes a digger or builder when a site waits for one. It takes a shovel or hammer from storage. Above the maximum, idle diggers and builders go back to carrying and return their tools. The defaults are at least 30 % carriers and at most 25 % crew.
 - **Specialists:** a free carrier becomes a geologist or a pioneer without a tool, as in The Settlers III, and turns back again on request. The player sends specialists to a spot on explored land. They work around it, then wait there.
   - **Geologists** put up signs on mountain tiles within 6 tiles of the spot. Ore is hidden until a player's own geologist has marked it. Built-in bots see only ore their geologists have marked, and they keep two geologists at work.
-  - **Pioneers** put up posts within 4 tiles of the spot. A post claims land that no enemy military building holds, including other players' pioneer land. Military land always wins over pioneer land.
+  - **Pioneers** claim land within 4 tiles of the spot: land that no enemy military building holds, including other players' pioneer land. Military land always wins over pioneer land.
 - **Gold:** the gold mine (fish is the miners' favourite food) and the gold smelter (gold ore + coal → gold bar) are in. Each start's ore mountain has a little gold at its far edge. Elsewhere gold sits where ore is richest.
 - **Lookout tower:** sees 22 tiles around it and claims no land.
 - **Work areas:** woodcutters, stonecutters, foresters, fishers and farms work around a point the player sets, up to 14 tiles from the building and on their own land.
@@ -194,7 +194,7 @@ The map shows what the simulation holds, so a player can read the settlement wit
   - A workshop's goods lie in its yard: what it waits to work on at the front left, what it made at the front right.
   - A storage area's piles fill its yard.
   - A construction site's delivered materials wait in the open along its right front edge, until a builder uses them.
-  - The castle's stock is the starting stockpile, piled on the ground around its two front sides, as in The Settlers III.
+  - The castle's stock is the starting stockpile, on the ground in front of it in four heaps: wood beside the door, stone and what mines bring, food and drink, and tools and weapons along the right-hand wall. A full heap spills into the next.
 - **Work areas** of the woodcutter, stonecutter, forester and farmer may reach past the border: the worker uses the part on the player's own land, so some of it must be.
 - **Geologists' signs** stand on the mountain where they looked: a post with a flag in the ore's colour (coal black, iron steel, gold yellow, gems blue, sulfur green-yellow), or a bare cross-piece where there is no ore.
 - **Demolishing your own tower keeps its land:** the land it held stays yours, like land pioneers claimed, until an enemy tower takes it. A tower captured or destroyed by the enemy loses its land as before.
@@ -249,6 +249,7 @@ Issue #12, phase 7, following the manual: the match is won by reaching goods tar
 
 - **Soldiers outside their land** hit at a quarter of their strength, whatever gold their owner holds. At home they are as strong as ever, so defending still matters.
 - **The Stats tab** shows the race: each target with your progress and the computer's.
+- **Statistics window** (Stats tab › Open statistics and graphs): line charts from a sample taken every minute of game time. *Goods made* shows the running total per good, by group (materials, food, mining, drinks, tools, weapons), with a table of totals and the last ten minutes; goods gatherers bring home (logs, stone, fish) count as made. *Kingdoms* compares every player's land, settlers, soldiers and buildings. Hovering a chart shows the values at that minute.
 - **Computer player:** it does not attack, only defends. In bot-vs-bot runs, races on small and medium maps ended at about 85 minutes, with bread the slowest target before it was lowered.
 
 ## Long-session continuity

@@ -15,6 +15,8 @@ import {
   GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, buildingCounts, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
   renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs, machinesOf
 } from './ui.ts';
+import { renderStatsScreen } from './stats.ts';
+import type { StatsGoodsGroupId, StatsViewId } from './stats.ts';
 import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } from './ui.ts';
 
 const TICK_MS = 100;
@@ -29,7 +31,7 @@ const els = {
   side: $('side'), tabs: $('tabs'), panel: $('panel'), stock: $('stock'), clock: $('clock'), speed: $('speed'),
   map: $('map'), messages: $('messages'), hint: $('hint'), selection: $('selection'), orders: $('orders'),
   end: $('end-screen'), minimap: $<HTMLCanvasElement>('minimap'), mapName: $('map-name'), menu: $('game-menu'),
-  menuButton: $('menu-button')
+  menuButton: $('menu-button'), stats: $('stats-screen')
 };
 
 function randomSeed(): number {
@@ -101,6 +103,9 @@ const ui = {
   goodsView: 'inventory' as GoodsViewId,
   militaryView: 'recruiting' as MilitaryViewId,
   settlersView: 'counts' as SettlersViewId,
+  isStatsOpen: false,
+  statsView: 'goods' as StatsViewId,
+  statsGroup: 'materials' as StatsGoodsGroupId,
   /** A gatherer whose new work area the next map click sets. */
   workAreaFor: null as number | null,
   /** While setting a marketplace's route: the marketplace, and the spots tapped so far (the last is the route's end). */
@@ -345,8 +350,17 @@ function renderEnd(): void {
   if (!isShown) delete els.end.dataset.shown;
 }
 
+function renderStats(): void {
+  els.stats.hidden = !ui.isStatsOpen;
+  if (!ui.isStatsOpen) return;
+  // Keep the hover readout while the pointer is over a chart; the charts redraw when it leaves.
+  if (els.stats.querySelector('.chart:hover')) return;
+  setHtml(els.stats, renderStatsScreen(world, PLAYER, ui.statsView, ui.statsGroup));
+}
+
 function refreshLive(): void {
   playNews();
+  renderStats();
   setHtml(els.stock, renderStock(world, PLAYER));
   els.clock.textContent = formatClock(world.tick);
   setHtml(els.messages, renderMessages(world, PLAYER, ui.dismissed));
@@ -782,7 +796,8 @@ window.addEventListener('keydown', (e) => {
     holdSelected(); return;
   }
   if (e.key === 'Escape') {
-    if (ui.isMenuOpen) { ui.isMenuOpen = false; renderMenu(); }
+    if (ui.isStatsOpen) { ui.isStatsOpen = false; renderStats(); }
+    else if (ui.isMenuOpen) { ui.isMenuOpen = false; renderMenu(); }
     else if (ui.workAreaFor !== null) { ui.workAreaFor = null; renderHint(); }
     else if (ui.placing) stopPlacing();
     else if (ui.orderMode) { ui.orderMode = null; renderOrders(); }
@@ -839,6 +854,10 @@ document.addEventListener('click', (e) => {
     case 'goods-view': ui.goodsView = target.dataset.view as GoodsViewId; renderPanel(); break;
     case 'military-view': ui.militaryView = target.dataset.view as MilitaryViewId; renderPanel(); break;
     case 'settlers-view': ui.settlersView = target.dataset.view as SettlersViewId; renderPanel(); break;
+    case 'open-stats': ui.isStatsOpen = true; renderStats(); break;
+    case 'close-stats': ui.isStatsOpen = false; renderStats(); break;
+    case 'stats-view': ui.statsView = target.dataset.view as StatsViewId; renderStats(); break;
+    case 'stats-group': ui.statsGroup = target.dataset.view as StatsGoodsGroupId; renderStats(); break;
     case 'specialists': {
       const type = target.dataset.type as SpecialistType;
       if (!(SPECIALIST_TYPES as readonly string[]).includes(type)) break;
@@ -1181,3 +1200,34 @@ requestAnimationFrame(frame);
 Object.defineProperty(window, 'lers', {
   get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders, sounds, music })
 });
+
+// The statistics charts' hover readout: a crosshair at the nearest sample and its values beside it.
+els.stats.addEventListener('pointermove', (e) => {
+  const chart = (e.target as HTMLElement).closest<HTMLElement>('.chart');
+  for (const other of els.stats.querySelectorAll<HTMLElement>('.chart')) if (other !== chart) hideChartTip(other);
+  if (!chart) return;
+  const svg = chart.querySelector('svg')!, rect = svg.getBoundingClientRect();
+  const tips = (chart.dataset.tips ?? '').split('~');
+  const left = Number(chart.dataset.left), right = Number(chart.dataset.right);
+  const f = ((e.clientX - rect.left) / rect.width - left) / (right - left);
+  if (f < -0.05 || f > 1.05 || tips.length < 2) { hideChartTip(chart); return; }
+  const i = Math.max(0, Math.min(tips.length - 1, Math.round(f * (tips.length - 1))));
+  const cross = chart.querySelector<HTMLElement>('.chart-cross')!, tip = chart.querySelector<HTMLElement>('.chart-tip')!;
+  const box = chart.getBoundingClientRect(), svgTop = rect.top - box.top;
+  const px = rect.left - box.left + rect.width * (left + (i / (tips.length - 1)) * (right - left));
+  cross.hidden = false; cross.style.left = `${px}px`; cross.style.top = `${svgTop}px`; cross.style.height = `${rect.height}px`;
+  const [when, ...lines] = tips[i].split('|');
+  tip.hidden = false;
+  tip.innerHTML = `<b>${when}</b>${lines.map((l) => `<span>${l}</span>`).join('')}`;
+  const isRight = px > chart.clientWidth / 2;
+  tip.style.left = isRight ? '' : `${px + 10}px`;
+  tip.style.right = isRight ? `${chart.clientWidth - px + 10}px` : '';
+  tip.style.top = `${svgTop + 8}px`;
+});
+els.stats.addEventListener('pointerleave', () => { for (const c of els.stats.querySelectorAll<HTMLElement>('.chart')) hideChartTip(c); });
+els.stats.addEventListener('click', (e) => { if (e.target === els.stats) { ui.isStatsOpen = false; renderStats(); } });
+
+function hideChartTip(chart: HTMLElement): void {
+  chart.querySelector<HTMLElement>('.chart-cross')?.setAttribute('hidden', '');
+  chart.querySelector<HTMLElement>('.chart-tip')?.setAttribute('hidden', '');
+}

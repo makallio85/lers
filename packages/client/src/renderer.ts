@@ -3,13 +3,14 @@ import { Application, Container, Graphics, Matrix, Sprite, Text, Texture } from 
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_SULFUR, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
   GOOD_TYPES, isStorageBuilding, TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, isShipType, tileIndex,
-  BUILDING_STRUCTURE, WAR_MACHINE_STATS, buildingLabel
+  BUILDING_STRUCTURE, WAR_MACHINE_STATS, buildingLabel, TOOL_TYPES, WEAPON_TYPES
 } from '../../simulation/src/index.ts';
 import type { Building, BuildingTypeId, GoodType, RaceType, Settler, World } from '../../simulation/src/index.ts';
 import { SpriteBank, TREE_VARIANTS, lookOf } from './sprites.ts';
 import type { SettlerAnim, SettlerLook, Sprite as ArtSprite } from './sprites.ts';
 import type { SoundId } from './sound.ts';
 import { buildTerrain } from './terrain.ts';
+import { OWNER_COLORS } from './colors.ts';
 
 /** Pixels per tile in the flat (tile-space) drawing of the ground layer. */
 export const TILE = 20;
@@ -24,10 +25,6 @@ const MAX_SCALE = 3;
 const SIGN_COLORS: Record<number, number> = {
   [DEPOSIT_COAL]: 0x1e1e1e, [DEPOSIT_IRON]: 0xb8c4d0, [DEPOSIT_GOLD]: 0xf0c53a, [DEPOSIT_GEMS]: 0x4fc3e8, [DEPOSIT_SULFUR]: 0xc8d84a
 };
-
-/** Border and banner colour per player: you, then the computer. */
-/** One colour per player, for borders, flags and the soldiers' ground marks. */
-const OWNER_COLORS = [0xe3a33b, 0xd05a5a, 0x8fb3d9, 0x9b7fbf, 0x6fae6a, 0xd98f4e, 0x5fb8b0, 0xc77aa6];
 
 const GOOD_COLORS: Record<GoodType, number> = {
   log: 0x7a4d24, plank: 0xd8a85e, stone: 0xa3a39b, grain: 0xe3c35a, flour: 0xf4efe2, water: 0x5d93bf,
@@ -100,7 +97,19 @@ interface BuildingView {
 const COLLAPSE_MS = 1500;
 
 /** Most piles the castle's stockpile shows on the ground around it. */
-const CASTLE_PILES = 40;
+const CASTLE_PILES = 48;
+/**
+ * The castle's stockpile lies in four heaps in front of it, each of one kind of goods: wood beside the door, stone and
+ * what mines bring, food and drink, and tools and weapons along the right-hand wall.
+ */
+const CASTLE_PILE_GROUPS: readonly (readonly GoodType[])[] = [
+  ['log', 'plank'],
+  ['stone', 'coal', 'iron_ore', 'iron', 'gold_ore', 'gold', 'sulfur', 'gems', 'gunpowder'],
+  ['grain', 'flour', 'water', 'bread', 'fish', 'pig', 'meat', 'wine', 'beer', 'rice', 'rice_wine', 'honey', 'mead'],
+  [...TOOL_TYPES, ...WEAPON_TYPES]
+];
+/** Distance between piles inside a heap, in tiles: close enough to read as one heap. */
+const HEAP_SPACING = 0.62;
 /** Goods drawn per pile: a pile of eight, as storage holds them. */
 const PILE_SIZE = 8;
 /** Where the items of a pile sit, in screen pixels from its foot: two layers of four. */
@@ -261,13 +270,6 @@ export class MapView {
         }
       }
       g.stroke({ width: 2, color: OWNER_COLORS[owner - 1], alpha: 0.9 });
-    }
-    // Pioneer posts on land claimed by pioneers, one post per 3×3 tiles where military land does not cover it.
-    for (let i = 0; i < world.pioneerLand.length; i++) {
-      const owner = world.pioneerLand[i];
-      const x = i % world.width, y = Math.floor(i / world.width);
-      if (owner === 0 || world.militaryLand[i] !== 0 || world.territory[i] !== owner || x % 3 !== 1 || y % 3 !== 1) continue;
-      g.circle(x * TILE + TILE / 2, y * TILE + TILE / 2, 3).fill(OWNER_COLORS[owner - 1]).stroke({ width: 1, color: 0x1b2420 });
     }
   }
 
@@ -467,15 +469,31 @@ export class MapView {
     };
     if (!isCastle && !isStore) add(b.isComplete ? b.input : b.delivered);
     const inputPiles = piles.length;
-    if (b.isComplete) add(b.stock);
+    // The castle's piles, by heap: each pile's heap and its place in that heap.
+    const heapOf: { heap: number; index: number }[] = [];
+    if (isCastle && b.isComplete) {
+      CASTLE_PILE_GROUPS.forEach((goods, heap) => {
+        const before = piles.length;
+        add(Object.fromEntries(goods.map((g) => [g, b.stock[g]])));
+        for (let j = before; j < piles.length; j++) heapOf.push({ heap, index: j - before });
+      });
+    } else if (b.isComplete) add(b.stock);
     let k = 0;
     const want = piles.reduce((n, p) => n + p.count, 0);
     while (v.piles.children.length < want) v.piles.addChild(new Sprite());
     // Slots along the front edge of the yard: inputs from the left, made goods from the right; storage fills rows;
     // the castle's stockpile lies around it on the ground, nearest its door first.
-    const yard = isCastle ? this.castleYard(b) : [];
+    const heaps = isCastle ? this.castleHeaps(b) : [];
     const slot = (index: number, isOutput: boolean) => {
-      if (isCastle) return yard[index % Math.max(1, yard.length)] ?? { x: b.doorX, y: b.doorY + 1 };
+      if (isCastle) {
+        const { heap, index: n } = heapOf[index] ?? { heap: 0, index };
+        // A full heap spills into the next one that has room.
+        for (let h = 0; h < heaps.length; h++) {
+          const spots = heaps[(heap + h) % heaps.length];
+          if (n < spots.length) return spots[n];
+        }
+        return { x: b.doorX + 0.5, y: b.doorY + 1.5 };
+      }
       if (isStore) return { x: b.x + 0.5 + (index % b.size), y: b.y + b.size - 0.55 - Math.floor(index / b.size) * 0.8 };
       // A construction site's materials wait in the open along its right front edge, clear of the crew on the site.
       if (!b.isComplete) return { x: b.x + b.size + 0.55, y: b.y + b.size - 0.5 - index * 0.75 };
@@ -500,28 +518,42 @@ export class MapView {
     v.piles.zIndex = b.x + b.y + b.size + 0.1;
   }
 
-  private readonly yards = new Map<number, { x: number; y: number }[]>();
-  /** Spots for the castle's stockpile: open tiles one and two out from its front walls, keeping the way to its door free. */
-  private castleYard(b: Building): { x: number; y: number }[] {
-    const known = this.yards.get(b.id);
+  private readonly heaps = new Map<number, { x: number; y: number }[][]>();
+  /**
+   * Spots for the castle's four heaps, each a tight cluster of piles on open ground in front of the castle: two in
+   * front of its door wall, either side of the way in, and two along its right-hand wall. Nearest the castle first.
+   */
+  private castleHeaps(b: Building): { x: number; y: number }[][] {
+    const known = this.heaps.get(b.id);
     if (known && this.world.tick % 50 !== 0) return known;
-    const w = this.world, spots: { x: number; y: number; d: number }[] = [];
-    for (let y = b.y - 2; y <= b.y + b.size + 1; y++) {
-      for (let x = b.x - 2; x <= b.x + b.size + 1; x++) {
-        if (x >= b.x && x < b.x + b.size && y >= b.y && y < b.y + b.size) continue;
-        if (Math.abs(x - b.doorX) <= 1 && y >= b.y + b.size) continue;
-        // Only the castle's two front sides, which are drawn in front of it.
-        if (x + y < b.x + b.y + b.size) continue;
-        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-        const i = tileIndex(w, x, y);
-        if (w.footprint[i] !== 0 || w.door[i] !== 0 || w.terrain[i] === TERRAIN_WATER || w.rock[i] !== 0 || w.tree[i] >= 0) continue;
-        spots.push({ x: x + 0.5, y: y + 0.5, d: Math.hypot(x - b.doorX, y - b.doorY) });
+    const w = this.world, s = b.size;
+    const isOpen = (x: number, y: number) => {
+      const tx = Math.floor(x), ty = Math.floor(y);
+      if (tx < 0 || ty < 0 || tx >= w.width || ty >= w.height) return false;
+      if (Math.abs(tx - b.doorX) <= 1 && ty >= b.y + s) return false;
+      const i = tileIndex(w, tx, ty);
+      return w.footprint[i] === 0 && w.door[i] === 0 && w.terrain[i] !== TERRAIN_WATER && w.rock[i] === 0 && w.tree[i] < 0;
+    };
+    // Each heap: a corner to grow from and the two directions it grows in (across, then away from the wall).
+    const front = b.y + s + 0.35, side = b.x + s + 0.35;
+    const regions: { x: number; y: number; ax: number; ay: number; bx: number; by: number }[] = [
+      { x: b.doorX - 1.35, y: front, ax: -1, ay: 0, bx: 0, by: 1 },
+      { x: b.doorX + 2.35, y: front, ax: 1, ay: 0, bx: 0, by: 1 },
+      { x: side, y: b.y + s - 0.4, ax: 0, ay: -1, bx: 1, by: 0 },
+      { x: side, y: b.y + s / 2 - 0.9, ax: 0, ay: -1, bx: 1, by: 0 }
+    ];
+    const heaps = regions.map((r) => {
+      const spots: { x: number; y: number }[] = [];
+      for (let depth = 0; depth < 4 && spots.length < 12; depth++) {
+        for (let across = 0; across < 4 && spots.length < 12; across++) {
+          const x = r.x + (r.ax * across + r.bx * depth) * HEAP_SPACING, y = r.y + (r.ay * across + r.by * depth) * HEAP_SPACING;
+          if (isOpen(x, y)) spots.push({ x, y });
+        }
       }
-    }
-    spots.sort((p, q) => p.d - q.d || p.x - q.x);
-    const yard = spots.map(({ x, y }) => ({ x, y }));
-    this.yards.set(b.id, yard);
-    return yard;
+      return spots;
+    });
+    this.heaps.set(b.id, heaps);
+    return heaps;
   }
 
   /** A finished mill's sails: turning a quarter in 8 steps while the miller grinds, at rest otherwise. */
