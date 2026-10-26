@@ -214,3 +214,21 @@ test('phase 1 state survives saving and loading', () => {
   run(world, 300); run(copy, 300);
   assert.deepEqual(saveGame(copy), saveGame(world));
 });
+
+test('a work area may reach past the border, as long as part of it is on your land', () => {
+  const world = createMatch(5, 'calm', 'small', 'romans', 'romans');
+  const castle = castleOf(world, 0)!;
+  let hut = null;
+  for (let r = 6; r < 12 && !hut; r++) for (let dx = -r; dx <= r && !hut; dx++) if (placementProblem(world, 0, 'woodcutter', castle.x + dx, castle.y + r) === null) {
+    hut = newBuilding(world, 'woodcutter', 0, castle.x + dx, castle.y + r);
+  }
+  hut!.isComplete = true;
+  // Walk down from the hut to the first tile off our land: just outside the border.
+  let y = hut!.doorY;
+  while (y < world.height - 1 && world.territory[tileIndex(world, hut!.doorX, y)] === 1) y++;
+  assert.notEqual(world.territory[tileIndex(world, hut!.doorX, y)], 1, 'a tile past the border');
+  assert.equal(command(world, { type: 'setWorkArea', playerId: 0, buildingId: hut!.id, x: hut!.doorX, y }).isAccepted, true, 'centre just outside: accepted');
+  // Far beyond the border, with none of the area on our land.
+  const far = command(world, { type: 'setWorkArea', playerId: 0, buildingId: hut!.id, x: hut!.doorX, y: Math.max(0, hut!.doorY - 30) });
+  assert.equal(far.isAccepted, false);
+});

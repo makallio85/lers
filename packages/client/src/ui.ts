@@ -221,7 +221,7 @@ export function renderSettlersPanel(world: World, view: SettlersViewId, owner: n
   for (const s of world.settlers) {
     if (s.owner !== owner) continue;
     counts.set(s.settlerType, (counts.get(s.settlerType) ?? 0) + 1);
-    if (s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying) idle++;
+    if (s.settlerType === 'carrier' && (s.phase === 'idle' || s.phase === 'leaving') && !s.carrying) idle++;
   }
   const rows = (Object.keys(SETTLER_PLURALS) as SettlerType[])
     .filter((t) => counts.has(t))
@@ -238,7 +238,7 @@ export function renderMilitaryPanel(world: World, view: MilitaryViewId, owner: n
   const soldiers = world.settlers.filter((s) => s.owner === owner && isSoldierType(s.settlerType));
   if (view === 'recruiting') {
     const hasBarracks = world.buildings.some((b) => b.owner === owner && b.typeId === 'barracks' && b.isComplete);
-    const free = world.settlers.filter((s) => s.owner === owner && s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying).length;
+    const free = world.settlers.filter((s) => s.owner === owner && s.settlerType === 'carrier' && (s.phase === 'idle' || s.phase === 'leaving') && !s.carrying).length;
     const weapons = WEAPON_TYPES.map((w) => `<div class="tile-stat"><span class="muted">${GOOD_LABELS[w]}</span><b>${storedOf(world, owner, w)}</b></div>`).join('');
     const alive = new Set(soldiers.map((s) => s.id));
     const groupRows = [...groups].sort((a, b) => a[0] - b[0]).map(([n, ids]) => {
@@ -353,7 +353,7 @@ const BAR_GOODS: GoodType[] = ['log', 'plank', 'stone', 'bread', 'fish', 'meat',
 
 export function renderStock(world: World, owner: number): string {
   if (!castleOf(world, owner)) return '';
-  const idle = world.settlers.filter((s) => s.owner === owner && s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying).length;
+  const idle = world.settlers.filter((s) => s.owner === owner && s.settlerType === 'carrier' && (s.phase === 'idle' || s.phase === 'leaving') && !s.carrying).length;
   const soldiers = world.settlers.filter((s) => s.owner === owner && isSoldierType(s.settlerType)).length;
   const goods = BAR_GOODS.map((g) => {
     const n = storedOf(world, owner, g);
