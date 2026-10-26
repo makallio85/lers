@@ -184,7 +184,9 @@ Issue #12, phase 6, following the manual.
 
 The map shows what the simulation holds, so a player can read the settlement without opening cards.
 
-- **Standing settlers keep a tile each.** A soldier, war machine, specialist or priest standing still on a tile another one holds, or in a doorway, steps to the nearest free tile, so groups stand next to each other. The one with the lower id keeps its place, the same for every player.
+- **Settlers stay in the world** unless they occupy a building: its worker, its garrison, or soldiers going in. Idle carriers, builders and diggers wait outside, within four tiles of the nearest storage area on their land; the starting settlers stand in front of the castle; recruits step out of the barracks and new settlers out of their residence.
+- **Standing settlers keep a tile each.** One standing still on a tile another one holds, in a doorway, or where a building has since been put up steps to the nearest free tile, so groups stand next to each other. Soldiers, war machines, specialists and priests keep their place before idle civilians, then the lower id, the same for every player.
+- **Entrances connect over own land.** A new building may not cut any of the player's buildings off from the castle over the player's own land, which is where carriers walk. Before, it only had to leave them reachable over any land, so a building could split home territory and strand a mine. A new worker fetches its tool from a storage area on the workplace's own stretch of land.
 - **Walkers are drawn apart.** Settlers closer than their size are drawn pushed apart, never into a building; war machines and ships take more room. Only the drawing moves, not the simulation.
 - **Goods lie where they are.** A building's goods are piled in its yard, one item per good up to piles of eight: what it waits to work on at the front left, what it made at the front right. Storage areas show their piles across the yard, and construction sites show their delivered materials. The castle keeps its goods inside.
 - **Carried goods** are drawn large enough to tell what each carrier and donkey carries.
