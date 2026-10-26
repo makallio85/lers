@@ -481,7 +481,7 @@ export function recomputeTerritory(world: World): void {
 }
 
 export const DEFAULT_MIN_CARRIER_PERCENT = 30;
-export const DEFAULT_MAX_CREW_PERCENT = 25;
+export const DEFAULT_MAX_CREW_PERCENT = 35;
 
 export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'aggressive', raceType: RaceType = 'romans', teamId = id,
   difficultyType: BotDifficultyType = 'normal'): PlayerState {

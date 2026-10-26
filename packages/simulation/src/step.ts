@@ -1088,8 +1088,9 @@ function warnAboutBlockedBuildings(world: World): void {
 // ---------------------------------------------------------------- occupations and specialists
 
 /**
- * Keeps the share of diggers and builders under the player's maximum, and makes new ones from free
- * carriers (taking a shovel or hammer from storage) when sites wait for them and carriers can spare it.
+ * Makes diggers and builders from free carriers (taking a shovel or hammer from storage) when sites wait for
+ * them, within the player's share of crew and while carriers can spare it. A digger or builder keeps its tool
+ * and its job for good, as in the original; the share only limits new ones.
  */
 function applyOccupations(world: World, player: PlayerState): void {
   const own = world.settlers.filter((s) => s.owner === player.id && !isUnitType(s.settlerType));
@@ -1119,31 +1120,17 @@ function applyOccupations(world: World, player: PlayerState): void {
   const atHome = waiting.filter((b) => landRegion(world, b.doorX, b.doorY) === home);
   const needsDigger = atHome.some((b) => b.blockedReason === 'Waiting for a digger');
   const needsBuilder = atHome.some((b) => b.blockedReason === 'Waiting for a builder');
-  if (crew * 100 > own.length * player.maxCrewPercent) {
-    // Too many (carriers became workers or soldiers): an idle digger or builder at home goes back to carrying
-    // and returns the tool. Never the last of a kind a site waits for, and the kind no site waits for first.
-    const isSpare = (s: Settler) => (s.settlerType === 'digger' || s.settlerType === 'builder') && s.phase === 'idle' && landRegion(world, s.x, s.y) === home
-      && !(player.maxCrewPercent > 0 && countOf(s.settlerType) === 1 && (s.settlerType === 'digger' ? needsDigger : needsBuilder));
-    const isUnneeded = (s: Settler) => s.settlerType === 'digger' ? !needsDigger : !needsBuilder;
-    const spare = own.find((s) => isSpare(s) && isUnneeded(s)) ?? own.find(isSpare);
-    if (spare) {
-      castle.stock[spare.settlerType === 'digger' ? 'shovel' : 'hammer']++;
-      spare.settlerType = 'carrier';
-    }
-    return;
-  }
-  const needed: SettlerType | null = needsDigger ? 'digger' : needsBuilder ? 'builder' : null;
+  // Diggers first, as levelling comes first; but with no shovel left, a builder for a site that is ready.
+  const hasTool = (t: SettlerType) => {
+    const tool = t === 'digger' ? 'shovel' : 'hammer';
+    return world.buildings.some((b) => b.owner === player.id && isSupplyBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
+  };
+  const candidates = ([needsDigger ? 'digger' : null, needsBuilder ? 'builder' : null] as (SettlerType | null)[]).filter((t): t is SettlerType => t !== null);
+  const needed = candidates.find(hasTool) ?? null;
   if (!needed) return;
   // The first digger and the first builder always come when a site waits, whatever the share (unless it is none).
   const isFirst = countOf(needed) === 0 && player.maxCrewPercent > 0;
-  if (!isFirst && (crew + 1) * 100 > own.length * player.maxCrewPercent) {
-    // At the share: an idle one of the other kind, which no site waits for, makes room.
-    const other: SettlerType = needed === 'digger' ? 'builder' : 'digger';
-    const isOtherNeeded = other === 'digger' ? needsDigger : needsBuilder;
-    const idleOther = isOtherNeeded ? undefined : own.find((s) => s.settlerType === other && s.phase === 'idle' && landRegion(world, s.x, s.y) === home);
-    if (idleOther) { castle.stock[other === 'digger' ? 'shovel' : 'hammer']++; idleOther.settlerType = 'carrier'; }
-    return;
-  }
+  if (!isFirst && (crew + 1) * 100 > own.length * player.maxCrewPercent) return;
   if ((carriers - 1) * 100 < own.length * player.minCarrierPercent && !isFirst) return;
   const tool = needed === 'digger' ? 'shovel' : 'hammer';
   const store = world.buildings.find((b) => b.owner === player.id && isSupplyBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
