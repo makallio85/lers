@@ -347,7 +347,8 @@ export class MapView {
     for (let i = 0; i < world.tree.length; i++) {
       const tx = i % world.width, ty = Math.floor(i / world.width);
       const cx = tx * TILE + TILE / 2, cy = ty * TILE + TILE / 2;
-      if (prospect && prospect[i] === 1 && world.rock[i] === 0 && tx % 2 === 0 && ty % 2 === 0) {
+      // On every other tile, in a checkerboard: close together, still each one readable.
+      if (prospect && prospect[i] === 1 && world.rock[i] === 0 && (tx + ty) % 2 === 0) {
         // A standing sign: a post with a flag in the ore's colour, or a bare cross-piece where there is none.
         const p = iso(tx + 0.5, ty + 0.5);
         const hasOre = world.deposit[i] !== 0 && world.depositAmount[i] > 0;
