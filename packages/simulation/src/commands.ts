@@ -570,6 +570,18 @@ function demolish(world: World, b: Building): void {
     castle.stock[good] += Math.floor(materials * DEMOLISH_REFUND) + b.stock[good] + b.input[good];
   }
   const garrison = new Set(b.garrison);
+  // A tower the player pulls down leaves its land the player's: the land it holds is kept, like land pioneers claimed,
+  // until an enemy tower takes it. (A tower lost to the enemy loses its land, as before.)
+  if (claimsTerritory(b)) {
+    const r = type.territoryRadius, cx = b.x + b.size / 2, cy = b.y + b.size / 2;
+    for (let y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+      for (let x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+        if (!inBounds(world, x, y)) continue;
+        const i = tileIndex(world, x, y);
+        if (world.territory[i] === b.owner + 1) world.pioneerLand[i] = b.owner + 1;
+      }
+    }
+  }
   removeBuilding(world, b);
   for (const s of world.settlers) {
     if (garrison.has(s.id)) {

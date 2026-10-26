@@ -190,3 +190,18 @@ test('soldiers can be sent into land nobody has explored', () => {
   assert.equal(world.vision[0][tileIndex(world, far.x, far.y)], 0, 'not explored yet');
   assert.equal(command(world, { type: 'moveSoldiers', playerId: 0, soldierIds: [s.id], x: far.x, y: far.y }).isAccepted, true);
 });
+
+test('demolishing your own tower keeps the land it held', () => {
+  const world = createMatch(4);
+  run(world, 10);
+  const castle = castleOf(world, 0)!;
+  const tower = newBuilding(world, 'guard_tower_small', 0, castle.x - 12, castle.y);
+  tower.isComplete = true; tower.levelProgress = 1; tower.buildProgress = 1;
+  const guard = soldierAt(world, 0, 'swordsman', tower.doorX, tower.doorY);
+  tower.garrison = [guard.id]; tower.isOccupied = true; guard.homeId = tower.id; guard.phase = 'inside'; guard.isInside = true;
+  recomputeTerritory(world);
+  const owned = () => world.territory.reduce((n, t) => n + (t === 1 ? 1 : 0), 0);
+  const before = owned();
+  assert.equal(command(world, { type: 'demolishBuilding', playerId: 0, buildingId: tower.id }).isAccepted, true);
+  assert.equal(owned(), before, 'no land lost');
+});

@@ -195,6 +195,8 @@ The map shows what the simulation holds, so a player can read the settlement wit
   - A storage area's piles fill its yard.
   - A construction site's delivered materials wait in the open along its right front edge, until a builder uses them.
   - The castle's stock is the starting stockpile, piled on the ground around its two front sides, as in The Settlers III.
+- **Geologists' signs** stand on the mountain where they looked: a post with a flag in the ore's colour (coal black, iron steel, gold yellow, gems blue, sulfur green-yellow), or a bare cross-piece where there is no ore.
+- **Demolishing your own tower keeps its land:** the land it held stays yours, like land pioneers claimed, until an enemy tower takes it. A tower captured or destroyed by the enemy loses its land as before.
 - **Goods traffic:** a selected building's card shows what is arriving and what is leaving, and on the map the carriers bringing it goods have a green ring, those coming to take goods away an orange one.
 - **Carried goods** are drawn large enough to tell what each carrier and donkey carries.
 - **Work shows:** woodcutters, builders, stonecutters and geologists swing their tool; diggers, pioneers and farmers bend down to dig, sow and plant. Tools are drawn half again as large as life so they read at normal zoom.
