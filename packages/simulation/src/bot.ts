@@ -1,4 +1,4 @@
-import { BUILDING_TYPES, GOOD_NAMES, TOOL_TYPES, buildingCost, isBuildableBy, isSoldierType, mapSizeTypeOf } from './definitions.ts';
+import { BUILDING_TYPES, GOOD_NAMES, TOOL_TYPES, WAR_MACHINE_STATS, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
 import type { BuildingTypeId, GoodType, MapSizeType, ToolType } from './definitions.ts';
 import type { Command } from './commands.ts';
 import type { ObservedBuilding, Observation, OwnBuilding } from './vision.ts';
@@ -64,6 +64,8 @@ export interface BotSpotFinder {
   prospectTile(): { x: number; y: number } | null;
   /** Whether the bot's settlers can walk from the castle to this tile (or next to it). */
   canReach(x: number, y: number): boolean;
+  /** Whether a war machine standing here can roll to open ground within `range` tiles of a point. */
+  canFireAt(fromX: number, fromY: number, x: number, y: number, range: number): boolean;
   /** The explored, walkable tile closest to the given side of the map, for scouting with the army. */
   frontTile(towardX: number): { x: number; y: number } | null;
 }
@@ -77,6 +79,8 @@ const BUILD_PLAN: readonly BuildingTypeId[] = [
   'farm', 'waterworks', 'mill', 'bakery', 'fisher',
   'coal_mine', 'iron_mine', 'smelter', 'pig_farm', 'slaughterhouse',
   'weaponsmith', 'barracks', 'toolsmith', 'storage', 'gold_mine', 'gold_smelter', 'healer',
+  // Each people's war machine hall (only its own is built), and the Asians' gunpowder for the cannon.
+  'catapult_hall', 'ballista_hall', 'cannon_hall', 'gunpowder_maker', 'gong_hall',
   'woodcutter', 'forester', 'coal_mine', 'farm', 'bakery', 'mill', 'fisher', 'iron_mine', 'coal_mine',
   'weaponsmith', 'sawmill', 'farm', 'stonecutter'
 ];
@@ -106,9 +110,14 @@ function isUseful(typeId: BuildingTypeId, count: (t: BuildingTypeId) => number):
     case 'gold_smelter': return count('gold_mine') > count('gold_smelter') && count('coal_mine') > 1;
     case 'weaponsmith': case 'toolsmith': return count('smelter') > 0;
     case 'barracks': return count('weaponsmith') > count('barracks');
+    case 'catapult_hall': case 'ballista_hall': case 'cannon_hall': case 'gong_hall': return count('barracks') > 0 && count('smelter') > 0;
+    case 'gunpowder_maker': return count('cannon_hall') > 0;
     default: return true;
   }
 }
+
+/** The bot builds its war machine hall from this minute of the match. */
+const WAR_MACHINE_HALL_MINUTES = 40;
 
 /** Workplaces whose resource is gone for good; the bot clears them, as the manual advises players to. */
 const EXHAUSTED_REASONS = ['The deposit is used up', 'No rocks nearby'];
@@ -203,14 +212,30 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       for (const typeId of BUILD_PLAN) {
         planned.set(typeId, (planned.get(typeId) ?? 0) + 1);
         if (!isBuildableBy(typeId, obs.player.raceType) || count(typeId) >= planned.get(typeId)! || !isUseful(typeId, count) || !hasToolFor(typeId)) continue;
+        // A hall without its machinist would only soak up the iron the smiths need: order a hammer and wait for it.
+        // War machines are a late tool: before that, iron goes to weapons.
+        if (BUILDING_TYPES[typeId].warMachine && obs.tick < WAR_MACHINE_HALL_MINUTES * TICKS_PER_MINUTE) continue;
+        if (BUILDING_TYPES[typeId].warMachine && stored('hammer') === 0) {
+          if ((obs.player.productionOrders.hammer ?? 0) === 0 && turn % 10 === 0) {
+            commands.push({ type: 'setProductionOrder', playerId: me, good: 'hammer', count: 1 });
+            note(`order hammer for ${typeId}`);
+          }
+          continue;
+        }
         if (place(typeId, NEEDS[typeId] ?? 'castle')) break;
       }
     }
   }
 
   // 2. Geologists: keep two, and send idle ones to mountains nobody has marked yet.
+  // Geologists carry a hammer. A toolsmith or machinist waiting for one gets a geologist's back (otherwise
+  // no new hammers can ever be made), and new geologists are only taken on while hammers are spare.
   const geologists = obs.ownSpecialists.filter((s) => s.settlerType === 'geologist');
-  if (geologists.length < GEOLOGISTS && turn % 10 === 0) {
+  const isHammerWanted = obs.ownBuildings.some((b) => b.isComplete && missingTool(b) === 'hammer');
+  if (isHammerWanted && geologists.length > 0 && turn % 5 === 0) {
+    commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: geologists.length - 1 });
+    note('a geologist gives back his hammer');
+  } else if (!isHammerWanted && geologists.length < GEOLOGISTS && stored('hammer') > reserveOf('hammer', 'woodcutter') && turn % 10 === 0) {
     commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: GEOLOGISTS });
   }
   const idleGeologists = geologists.filter((s) => s.phase === 'idle');
@@ -232,7 +257,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   }
 
   // 4. Army. Intruders on own land are driven out at once, whatever the bot type.
-  let free = obs.ownSoldiers.filter((s) => s.phase === 'idle' || s.phase === 'moving');
+  const machines = obs.ownSoldiers.filter((s) => isWarMachineType(s.settlerType));
+  let free = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && (s.phase === 'idle' || s.phase === 'moving'));
   const intruders = obs.otherSoldiers.filter((s) => isOnOwnLand(obs, s.x, s.y));
   if (intruders.length > 0 && free.length > 0) {
     const target = intruders[0];
@@ -246,7 +272,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   // Then attack the nearest weakly held building in sight once the army is big enough; otherwise gather at the front.
   const mapSize = mapSizeTypeOf(obs.width);
   const mayAttack = obs.tick >= settings.firstAttackMinutes[mapSize] * TICKS_PER_MINUTE;
-  const attacking = obs.ownSoldiers.filter((s) => s.phase === 'attacking').length;
+  const attacking = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && s.phase === 'attacking').length;
   const army = free.length + attacking;
   const mayTakeCastle = army >= settings.castleArmy && obs.tick >= settings.castleMinutes[mapSize] * TICKS_PER_MINUTE;
   // A building another visible tower of its owner covers cannot be taken yet; attacking it still thins out
@@ -286,6 +312,19 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       .filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0)
       .sort((a, b) => Math.abs(a.doorX - towardX) - Math.abs(b.doorX - towardX))[0];
     if (front) commands.push({ type: 'moveSoldiers', playerId: me, soldierIds: free.map((s) => s.id), x: front.doorX, y: front.doorY + 2 });
+  }
+  // War machines join once attacks are allowed: idle ones go for the most strongly held tower in reach,
+  // which soldiers would find hardest, the castle only once it may be taken.
+  const idleMachines = machines.filter((m) => m.phase === 'idle');
+  const first = idleMachines[0];
+  const range = first && isWarMachineType(first.settlerType) ? WAR_MACHINE_STATS[first.settlerType].range : 0;
+  const machineTargets = !first ? [] : targets.filter((t) => (t.typeId !== 'castle' || mayTakeCastle)
+    && spots.canFireAt(Math.round(first.x), Math.round(first.y), t.x + (t.size - 1) / 2, t.y + (t.size - 1) / 2, range));
+  if (mayAttack && idleMachines.length > 0 && machineTargets.length > 0 && turn % 3 === 0) {
+    const mx = first.x, my = first.y;
+    machineTargets.sort((a, b) => (b.garrisonCount * 8 - Math.hypot(b.doorX - mx, b.doorY - my)) - (a.garrisonCount * 8 - Math.hypot(a.doorX - mx, a.doorY - my)) || a.id - b.id);
+    commands.push({ type: 'attackBuilding', playerId: me, soldierIds: idleMachines.map((m) => m.id), buildingId: machineTargets[0].id });
+    note(`machines: ${idleMachines.length} against ${machineTargets[0].typeId} #${machineTargets[0].id}`);
   }
   return commands;
 }

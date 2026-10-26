@@ -2,7 +2,8 @@ import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Matrix, Sprite, Text, Texture } from 'pixi.js';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
-  TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, tileIndex
+  TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, tileIndex,
+  BUILDING_STRUCTURE, WAR_MACHINE_STATS
 } from '../../simulation/src/index.ts';
 import type { Building, BuildingTypeId, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { SpriteBank, TREE_VARIANTS, lookOf } from './sprites.ts';
@@ -376,6 +377,13 @@ export class MapView {
           .fill(OWNER_COLORS[b.owner]).stroke({ width: 1, color: 0x1b2420 });
       }
     }
+    const structure = BUILDING_STRUCTURE[b.typeId];
+    if (structure && b.damage > 0) {
+      // Battered by war machines: what is left of the structure, above the building.
+      const left = Math.max(0, 1 - b.damage / structure);
+      g.roundRect(base.x - 22, top - 30, 44, 6, 3).fill({ color: 0x0f1412, alpha: 0.8 });
+      g.roundRect(base.x - 21, top - 29, 42 * left, 4, 2).fill(0xe8763a);
+    }
     if (b.isComplete && b.isPaused) g.rect(base.x - 6, top - 18, 4, 11).fill(0xece6d6).rect(base.x + 2, top - 18, 4, 11).fill(0xece6d6);
     if (!b.isComplete) {
       const p = b.levelProgress < 1 ? b.levelProgress : b.buildProgress;
@@ -406,8 +414,8 @@ export class MapView {
       marks.circle(gx, gy, TILE * 0.28).fill({ color: OWNER_COLORS[s.owner], alpha: s.owner === this.viewer ? 0.35 : 0.6 });
       if (selected.has(s.id)) marks.circle(gx, gy, TILE * 0.42).stroke({ width: 2, color: 0xffffff });
       if (!this.drawSettlerSprite(s, tx, ty, now)) this.drawSettlerShape(s, tx, ty);
-      if (isSoldierType(s.settlerType) || s.settlerType === 'thief') {
-        const max = isSoldierType(s.settlerType) ? SOLDIER_STATS[s.settlerType].health : 30;
+      if (isSoldierType(s.settlerType) || isWarMachineType(s.settlerType) || s.settlerType === 'thief') {
+        const max = isSoldierType(s.settlerType) ? SOLDIER_STATS[s.settlerType].health : isWarMachineType(s.settlerType) ? WAR_MACHINE_STATS[s.settlerType].health : 30;
         if (s.health < max) {
           const p = iso(tx, ty);
           bars.rect(p.x - 9, p.y - 34, 18, 3).fill(0x1b2420);
@@ -437,6 +445,11 @@ export class MapView {
       v.dir = (Math.round(Math.atan2(dx, dy) / (Math.PI / 4)) + 8) % 8;
       v.walked = now;
     }
+    if (!isMoving && isWarMachineType(s.settlerType) && s.phase === 'attacking') {
+      // Standing to fire: turn toward the target.
+      const target = this.world.buildings.find((b) => b.id === s.attackId);
+      if (target) v.dir = (Math.round(Math.atan2(target.x + target.size / 2 - 0.5 - s.x, target.y + target.size / 2 - 0.5 - s.y) / (Math.PI / 4)) + 8) % 8;
+    }
     // An enemy thief looks like a carrier to everyone but its owner.
     const type = s.settlerType === 'thief' && s.owner !== this.viewer ? 'carrier' : s.settlerType;
     const look = lookOf(type), race = this.raceOf(s.owner);
@@ -444,7 +457,13 @@ export class MapView {
     let anim: SettlerAnim = s.carrying && this.bank.hasAnim(race, look, 'carry') ? 'carry' : 'walk';
     if (!isWalking && WORK_PHASES.has(s.phase) && this.bank.hasAnim(race, look, 'work')) anim = 'work';
     if (!isWalking && isSoldierType(s.settlerType) && s.enemyId !== null) anim = 'attack';
-    const frame = anim === 'walk' || anim === 'carry' ? (isWalking ? Math.floor(now / 85) : 0) : Math.floor(now / 110);
+    // A war machine shows its firing movement for a moment after each shot.
+    if (!isWalking && isWarMachineType(s.settlerType) && s.phase === 'attacking' && s.cooldown > WAR_MACHINE_STATS[s.settlerType].cooldown - 12) anim = 'attack';
+    let frame = anim === 'walk' || anim === 'carry' ? (isWalking ? Math.floor(now / 85) : 0) : Math.floor(now / 110);
+    if (anim === 'attack' && isWarMachineType(s.settlerType)) {
+      // Machines play their shot once, from the moment it was fired (ticks since the shot, two per frame).
+      frame = Math.min(5, Math.floor((WAR_MACHINE_STATS[s.settlerType].cooldown - s.cooldown) / 2)) - s.id;
+    }
     const art = this.bank.settler(race, look, anim, v.dir, frame + s.id);
     if (!art) return false;
     this.place(v.body, art, 0, 0);

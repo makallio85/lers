@@ -32,7 +32,10 @@ function prepare(n: number): void {
  * and including the goal, or null when unreachable. The goal itself may be blocked (a tree or a rock
  * the settler works on); every other tile must be walkable, and diagonals may not cut blocked corners.
  */
-export function findPath(world: World, start: number, goal: number, maxVisited = 40_000): number[] | null {
+export function findPath(
+  world: World, start: number, goal: number, maxVisited = 40_000,
+  isPassable: (world: World, index: number) => boolean = isWalkable
+): number[] | null {
   if (start === goal) return [];
   const { width } = world;
   prepare(world.width * world.height);
@@ -91,9 +94,9 @@ export function findPath(world: World, start: number, goal: number, maxVisited =
       const nx = cx + dx, ny = cy + dy;
       if (nx < 0 || ny < 0 || nx >= width || ny >= world.height) continue;
       const next = ny * width + nx;
-      if (next !== goal && !isWalkable(world, next)) continue;
+      if (next !== goal && !isPassable(world, next)) continue;
       if (dx !== 0 && dy !== 0
-          && (!isWalkable(world, cy * width + nx) || !isWalkable(world, ny * width + cx))) continue;
+          && (!isPassable(world, cy * width + nx) || !isPassable(world, ny * width + cx))) continue;
       const g = gScore[current] + cost;
       if (stamp[next] === generation && g >= gScore[next]) continue;
       stamp[next] = generation; gScore[next] = g; cameFrom[next] = current;
@@ -107,7 +110,9 @@ export function findPath(world: World, start: number, goal: number, maxVisited =
  * Every tile settlers can reach from `start` (8 directions, no corner cutting), as a membership test.
  * Used to check that a new building leaves all entrances reachable.
  */
-export function reachableFrom(world: World, start: number): (tile: number) => boolean {
+export function reachableFrom(
+  world: World, start: number, isPassable: (world: World, index: number) => boolean = isWalkable
+): (tile: number) => boolean {
   const { width, height } = world;
   const seen = new Uint8Array(width * height);
   const queue = new Int32Array(width * height);
@@ -120,8 +125,8 @@ export function reachableFrom(world: World, start: number): (tile: number) => bo
       const nx = cx + dx, ny = cy + dy;
       if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
       const next = ny * width + nx;
-      if (seen[next] || !isWalkable(world, next)) continue;
-      if (dx !== 0 && dy !== 0 && (!isWalkable(world, cy * width + nx) || !isWalkable(world, ny * width + cx))) continue;
+      if (seen[next] || !isPassable(world, next)) continue;
+      if (dx !== 0 && dy !== 0 && (!isPassable(world, cy * width + nx) || !isPassable(world, ny * width + cx))) continue;
       seen[next] = 1; queue[tail++] = next;
     }
   }

@@ -1,9 +1,9 @@
 import {
   BUILDING_TYPES, FAVOURITE_FOOD_MEALS, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OTHER_FOOD_MEALS,
-  SETTLER_LABELS, SOLDIER_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, goodCount, isSoldierType,
+  SETTLER_LABELS, SOLDIER_STATS, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, goodCount, isSoldierType, isUnitType,
   favouriteFoodOf, isSpecialistType, totalGoods
 } from './definitions.ts';
-import type { BuildingTypeId, GoodType, SettlerType } from './definitions.ts';
+import type { BuildingTypeId, GoodType, SettlerType, WarMachineType } from './definitions.ts';
 import { applyCommand } from './commands.ts';
 import type { Command, CommandResult } from './commands.ts';
 import { releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
@@ -79,9 +79,9 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   if (world.tick % HEAL_TICKS === 0) healSoldiers(world);
   fillGarrisons(world);
   sendDefenders(world);
-  for (const s of world.settlers) if (!isSoldierType(s.settlerType)) updateSettler(world, s);
-  // Soldiers act in alternating order each tick, so no player always strikes first.
-  const soldiers = world.settlers.filter((s) => isSoldierType(s.settlerType));
+  for (const s of world.settlers) if (!isUnitType(s.settlerType)) updateSettler(world, s);
+  // Soldiers and war machines act in alternating order each tick, so no player always strikes first.
+  const soldiers = world.settlers.filter((s) => isUnitType(s.settlerType));
   if (world.tick % 2 === 1) soldiers.reverse();
   for (const s of soldiers) updateSoldier(world, s);
   removeDead(world);
@@ -367,7 +367,7 @@ function recruitSoldiers(world: World): void {
     const player = playerOf(world, b.owner);
     if (!player) continue;
     // Recruiting keeps the carrier share the player set in Occupations, so transport never stops entirely.
-    const civilians = world.settlers.filter((s) => s.owner === b.owner && !isSoldierType(s.settlerType));
+    const civilians = world.settlers.filter((s) => s.owner === b.owner && !isUnitType(s.settlerType));
     let carriers = civilians.filter((s) => s.settlerType === 'carrier').length;
     for (const weapon of WEAPON_TYPES) {
       while (b.input[weapon] > 0 && (player.isRecruitingAutomatic || player.recruitsLeft > 0)) {
@@ -611,6 +611,7 @@ function mineTile(world: World, home: Building, deposit: number): number | null 
 function decideWork(world: World, s: Settler, home: Building, type: SettlerType): void {
   if (home.isPaused) { setBlocked(world, home, 'Paused'); s.timer = 10; return; }
   const buildingType = BUILDING_TYPES[home.typeId];
+  if (buildingType.warMachine) return decideWarMachine(world, s, home, buildingType.warMachine);
   // Workers with nothing to make, such as the healer, simply stay at their post.
   if (!isGatherType(type) && !buildingType.recipe) { s.timer = 20; return; }
   const recipe = buildingType.recipe;
@@ -661,6 +662,23 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
   world.claim[target] = s.id + 1;
   s.targetTile = target;
   s.phase = 'toTarget';
+}
+
+/** A machinist builds the hall's war machine once every part is in, while fewer than the limit are out. */
+function decideWarMachine(world: World, s: Settler, home: Building, machine: WarMachineType): void {
+  const out = world.settlers.filter((m) => m.homeId === home.id && m.settlerType === machine && m.health > 0).length;
+  if (out >= WAR_MACHINES_PER_HALL) { setBlocked(world, home, null); s.timer = 40; return; }
+  const parts = WAR_MACHINE_STATS[machine].parts;
+  const missing = GOOD_TYPES.filter((g) => (parts[g] ?? 0) > home.input[g]);
+  if (missing.length > 0) {
+    setBlocked(world, home, `Waiting: no ${missing.map((g) => GOOD_NAMES[g][1]).join(' or ')}`);
+    s.timer = 20;
+    return;
+  }
+  for (const g of GOOD_TYPES) home.input[g] -= parts[g] ?? 0;
+  setBlocked(world, home, null);
+  s.good = null;
+  s.phase = 'working'; s.timer = WAR_MACHINE_STATS[machine].buildTicks;
 }
 
 function isFreeLand(world: World, i: number): boolean {
@@ -737,6 +755,14 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
 }
 
 function finishWork(world: World, s: Settler, home: Building, type: SettlerType): void {
+  const machine = BUILDING_TYPES[home.typeId].warMachine;
+  if (machine) {
+    const m = newSettler(world, home.owner, machine, home.doorX, home.doorY);
+    m.isInside = false; m.homeId = home.id;
+    pushMessage(world, home.owner, `${SETTLER_LABELS[machine]} ready`, `It waits at the ${BUILDING_TYPES[home.typeId].label.toLowerCase()} for your orders.`, false, home.id);
+    s.phase = 'inside'; s.timer = 5;
+    return;
+  }
   const recipe = BUILDING_TYPES[home.typeId].recipe;
   if (!isGatherType(type) && recipe) {
     const output = s.good ?? recipe.output;
@@ -787,7 +813,7 @@ function warnAboutBlockedBuildings(world: World): void {
  * carriers (taking a shovel or hammer from storage) when sites wait for them and carriers can spare it.
  */
 function applyOccupations(world: World, player: PlayerState): void {
-  const own = world.settlers.filter((s) => s.owner === player.id && !isSoldierType(s.settlerType));
+  const own = world.settlers.filter((s) => s.owner === player.id && !isUnitType(s.settlerType));
   if (own.length === 0) return;
   const countOf = (t: SettlerType) => own.filter((s) => s.settlerType === t).length;
   const crew = countOf('digger') + countOf('builder');

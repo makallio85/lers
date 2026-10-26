@@ -6,7 +6,7 @@ import type { BotType } from './bot.ts';
 import type { Building, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 function raceType(value: unknown): RaceType {
   if (typeof value !== 'string' || !(RACE_TYPES as readonly string[]).includes(value)) fail('a people is unknown');
@@ -191,7 +191,8 @@ export function loadGame(data: unknown): World {
       workY: raw.workY === null ? null : int(raw.workY, 0, height - 1, 'work area'),
       residentsLeft: int(raw.residentsLeft, 0, 1000, 'residents'),
       blockedReason: raw.blockedReason === null ? null : text(raw.blockedReason, 'blocked reason'),
-      blockedSince: nullableInt(raw.blockedSince, 'blocked time'), hasWarned: bool(raw.hasWarned, 'warning state')
+      blockedSince: nullableInt(raw.blockedSince, 'blocked time'), hasWarned: bool(raw.hasWarned, 'warning state'),
+      damage: num(raw.damage, 0, 100_000, 'building damage')
     };
   });
 
@@ -216,7 +217,7 @@ export function loadGame(data: unknown): World {
       workCentre: int(raw.workCentre, -1, n - 1, 'specialist work area'),
       waypoints: intArray(raw.waypoints, Array.isArray(raw.waypoints) && raw.waypoints.length <= 20 ? raw.waypoints.length : -1, 0, n - 1, 'waypoints'),
       isPatrolling: bool(raw.isPatrolling, 'patrol'), isHolding: bool(raw.isHolding, 'hold position'),
-      isIgnoringEnemies: bool(raw.isIgnoringEnemies, 'move without fighting')
+      isIgnoringEnemies: bool(raw.isIgnoringEnemies, 'move without fighting'), ammo: int(raw.ammo, 0, 100, 'ammunition')
     };
   });
 
