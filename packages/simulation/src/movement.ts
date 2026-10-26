@@ -1,4 +1,5 @@
-import { WAR_MACHINE_SPEED_SHARE, isWarMachineType } from './definitions.ts';
+import { WAR_MACHINE_SPEED_SHARE, isSpecialistType, isUnitType, isWarMachineType } from './definitions.ts';
+import type { SettlerType } from './definitions.ts';
 import { findPath } from './pathfinding.ts';
 import { TERRAIN_MOUNTAIN, isWalkable, tileIndex } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
@@ -16,11 +17,21 @@ export function doorTile(world: World, b: Building): number {
 
 /** Searches at most `maxVisited` tiles: short local trips pass a small limit so unreachable targets fail fast. */
 export function walkTo(world: World, s: Settler, goal: number, maxVisited = 12_000): boolean {
-  const path = findPath(world, tileOf(world, s), goal, maxVisited, isWarMachineType(s.settlerType) ? isMachinePassable : isWalkable);
+  const start = tileOf(world, s);
+  const passable = isWarMachineType(s.settlerType) ? isMachinePassable
+    // Civilians keep to their own land; one standing outside it (its land was lost) may walk back in.
+    : isCivilianType(s.settlerType) && world.territory[start] === s.owner + 1 ? (w: World, i: number) => w.territory[i] === s.owner + 1 && isWalkable(w, i)
+    : isWalkable;
+  const path = findPath(world, start, goal, maxVisited, passable);
   if (path === null) return false;
   s.path = path;
   s.isInside = false;
   return true;
+}
+
+/** Civilians stay on their own land, as in the original; soldiers, specialists, priests and donkeys may leave it. */
+export function isCivilianType(type: SettlerType): boolean {
+  return !isUnitType(type) && !isSpecialistType(type) && type !== 'priest';
 }
 
 /** War machines need open ground: as in the original, they cannot cross forest, rocks or mountains. */

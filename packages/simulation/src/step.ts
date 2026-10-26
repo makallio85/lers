@@ -10,6 +10,7 @@ import type { Command, CommandResult } from './commands.ts';
 import { releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
 import { WALK_SPEED, advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
 import { updateVision } from './vision.ts';
+import { landRegion } from './regions.ts';
 import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
@@ -133,10 +134,13 @@ function becomeIdle(s: Settler): void {
   s.fromId = null; s.toId = null; s.good = null; s.homeId = null; s.path = [];
 }
 
+/** The nearest idle settler of a type that can walk there: on the same stretch of its owner's land. */
 function nearestIdle(world: World, type: SettlerType, owner: number, x: number, y: number): Settler | null {
+  const region = landRegion(world, x, y);
   let best: Settler | null = null, bestDistance = Infinity;
   for (const s of world.settlers) {
     if (!isIdle(s, type) || s.owner !== owner) continue;
+    if (region !== 0 && landRegion(world, s.x, s.y) !== region) continue;
     const d = distance(s.x, s.y, x, y);
     if (d < bestDistance) { bestDistance = d; best = s; }
   }
@@ -147,17 +151,21 @@ function nearestIdle(world: World, type: SettlerType, owner: number, x: number, 
  * The nearest storage with room for a good. With `respectFlags`, goods the player does not store get none;
  * without it (goods that must go somewhere), the castle is the fallback.
  */
-function storageFor(world: World, owner: number, good: GoodType, x: number, y: number, respectFlags: boolean): Building | null {
+function storageFor(world: World, owner: number, good: GoodType, x: number, y: number, respectFlags: boolean, isAnyLand = false): Building | null {
   const player = playerOf(world, owner);
   if (respectFlags && player && !player.isStored[good]) return null;
+  // Only storage on the same stretch of land: carriers do not cross foreign land.
+  const region = landRegion(world, x, y);
+  const isReachable = (b: Building) => isAnyLand || region === 0 || landRegion(world, b.doorX, b.doorY) === region;
   let best: Building | null = null, bestDistance = Infinity;
   for (const b of world.buildings) {
-    if (b.owner !== owner || !isStorageBuilding(b)) continue;
+    if (b.owner !== owner || !isStorageBuilding(b) || !isReachable(b)) continue;
     if (storedTotal(b) >= BUILDING_TYPES[b.typeId].storageCapacity) continue;
     const d = distance(b.doorX, b.doorY, x, y);
     if (d < bestDistance) { bestDistance = d; best = b; }
   }
-  return best ?? castleOf(world, owner) ?? null;
+  const castle = castleOf(world, owner);
+  return best ?? (castle && isReachable(castle) ? castle : null);
 }
 
 // ---------------------------------------------------------------- logistics
@@ -213,9 +221,10 @@ function runLogistics(world: World): void {
     || order(a) - order(b) || shareScore(a) - shareScore(b) || a.building.id - b.building.id);
 
   const send = (from: Building, to: Building, good: GoodType): boolean => {
+    const region = landRegion(world, from.doorX, from.doorY);
     let best = -1, bestDistance = Infinity;
     for (let k = 0; k < carriers.length; k++) {
-      if (carriers[k].owner !== from.owner) continue;
+      if (carriers[k].owner !== from.owner || landRegion(world, carriers[k].x, carriers[k].y) !== region) continue;
       const d = distance(carriers[k].x, carriers[k].y, from.doorX, from.doorY);
       if (d < bestDistance) { bestDistance = d; best = k; }
     }
@@ -232,9 +241,11 @@ function runLogistics(world: World): void {
   for (const request of requests) {
     if (carriers.length === 0) return;
     const to = request.building;
+    const toRegion = landRegion(world, to.doorX, to.doorY);
     let from: Building | null = null, fromDistance = Infinity;
     for (const b of world.buildings) {
       if (b === to || !b.isComplete || b.owner !== to.owner || isMilitaryBuilding(b) && !isStorageBuilding(b)) continue;
+      if (landRegion(world, b.doorX, b.doorY) !== toRegion) continue;
       if (b.stock[request.good] - b.reserved[request.good] <= 0) continue;
       const d = distance(b.doorX, b.doorY, to.doorX, to.doorY);
       if (d < fromDistance) { fromDistance = d; from = b; }
@@ -973,7 +984,8 @@ function updateThief(world: World, s: Settler): void {
   if (s.carrying) {
     // Heading home with the loot.
     if (s.path.length === 0) {
-      const home = storageFor(world, s.owner, s.carrying, s.x, s.y, false);
+      // A thief walks home across any land.
+      const home = storageFor(world, s.owner, s.carrying, s.x, s.y, false, true);
       if (!home || (tileOf(world, s) !== doorTile(world, home) && !walkTo(world, s, doorTile(world, home)))) { s.phase = 'idle'; return; }
       s.toId = home.id;
     }
