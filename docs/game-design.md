@@ -199,6 +199,7 @@ The map shows what the simulation holds, so a player can read the settlement wit
 - **Demolished buildings collapse:** a building that is demolished, burnt down or brought down sinks into the ground in a cloud of dust. One that only goes out of sight just disappears.
 - **Carriers bend** to pick up and put down their loads.
 - **Sound:** chops, hammer blows, picks on stone, spades in earth, swords and bows, falls, collapsing buildings and war machine shots play for what is on screen, quieter toward its edges and panned to their side. The interface clicks, warns, and chimes when a building is finished or the match ends. Sound starts after the first tap or click, as browsers require, and can be turned off in the menu. The sounds are Kenney's CC0 packs, converted by `art/sounds.sh`.
+- **Empty towers are manned:** a finished tower or castle with nobody inside takes a free soldier, or, when there is none, one from the nearest of its owner's garrisons that holds two or more.
 - **Garrisons stand on the walls:** the soldiers inside a tower or castle, by type, up to two on a small tower, four on a large one and six on the castle.
 
 ## Pace
@@ -213,6 +214,8 @@ At 1× the game runs at the pace of The Settlers III at normal speed, which has 
 | Small hut: levelling, then building | about 60 s + 40 s | 60 s + 40 s with one digger and one builder |
 | Tree, sapling to full size | about 4.5 min | 4.5 min |
 | Forester planting one sapling | about 4 s | 4 s |
+
+The match keeps running when the browser tab is in the background: the game catches up on the time that passed whenever the browser wakes it, which it does at least once a minute.
 
 Workshops and mines were not timed. Their times are three times the earlier values, the same factor the sawmill needed. The 2× and 4× speeds stay for test games.
 
