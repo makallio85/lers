@@ -2,7 +2,9 @@ import {
   BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_REACH,
   RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType, isUnitType, isWarMachineType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodType, SpecialistType, ToolType } from './definitions.ts';
+import type { BuildingTypeId, GoodType, SoldierType, SpecialistType, SpellType, ToolType } from './definitions.ts';
+import { SOLDIER_TYPES, SPELL_STATS, SPELL_TYPES } from './definitions.ts';
+import { castSpell, promote, promotionProblem, spellProblem } from './magic.ts';
 import { isMachinePassable } from './movement.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
 import { hasExplored, hasExploredBuilding } from './vision.ts';
@@ -38,6 +40,8 @@ export type Command =
   | { type: 'setOccupations'; playerId: number; minCarrierPercent: number; maxCrewPercent: number }
   | { type: 'setSpecialists'; playerId: number; specialistType: SpecialistType; count: number }
   | { type: 'moveSpecialists'; playerId: number; settlerIds: number[]; x: number; y: number }
+  | { type: 'castSpell'; playerId: number; priestId: number; spell: SpellType; x: number; y: number }
+  | { type: 'promoteSoldiers'; playerId: number; soldierType: SoldierType }
   | { type: 'surrender'; playerId: number };
 
 export type CommandResult = { isAccepted: true; buildingId?: number } | { isAccepted: false; reason: string };
@@ -362,6 +366,24 @@ export function applyCommand(world: World, command: Command): CommandResult {
       player.maxCrewPercent = command.maxCrewPercent;
       return accept();
     }
+    case 'castSpell': {
+      if (!(SPELL_TYPES as readonly string[]).includes(command.spell)) return refuse('Unknown spell');
+      const priest = Number.isInteger(command.priestId) ? world.settlers.find((s) => s.id === command.priestId) : undefined;
+      if (!priest || priest.owner !== command.playerId || priest.settlerType !== 'priest' || priest.isInside) return refuse('Choose one of your priests');
+      if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
+      if (!hasExplored(world, command.playerId, command.x, command.y) && !SPELL_STATS[command.spell].isRanged) return refuse('You have not explored that land');
+      const problem = spellProblem(world, priest, command.spell, command.x, command.y);
+      if (problem) return refuse(problem);
+      castSpell(world, priest, command.spell, command.x, command.y);
+      return accept();
+    }
+    case 'promoteSoldiers': {
+      if (!(SOLDIER_TYPES as readonly string[]).includes(command.soldierType)) return refuse('Unknown soldier type');
+      const problem = promotionProblem(world, command.playerId, command.soldierType);
+      if (problem) return refuse(problem);
+      promote(world, command.playerId, command.soldierType);
+      return accept();
+    }
     case 'setSpecialists': {
       if (!(SPECIALIST_TYPES as readonly string[]).includes(command.specialistType) || !isIntIn(command.count, 0, MAX_SPECIALISTS)) {
         return refuse('Malformed command');
@@ -375,8 +397,8 @@ export function applyCommand(world: World, command: Command): CommandResult {
       const ids = new Set(command.settlerIds);
       if (ids.size !== command.settlerIds.length) return refuse('Malformed command');
       const specialists = world.settlers.filter((s) => ids.has(s.id));
-      if (specialists.length !== ids.size || specialists.some((s) => s.owner !== command.playerId || !isSpecialistType(s.settlerType))) {
-        return refuse('Choose your own geologists or pioneers');
+      if (specialists.length !== ids.size || specialists.some((s) => s.owner !== command.playerId || !(isSpecialistType(s.settlerType) || s.settlerType === 'priest'))) {
+        return refuse('Choose your own geologists, pioneers, thieves or priests');
       }
       if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
       if (!hasExplored(world, command.playerId, command.x, command.y)) return refuse('You have not explored that land');

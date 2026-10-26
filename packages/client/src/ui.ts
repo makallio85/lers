@@ -2,17 +2,18 @@ import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
   GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
   costTotal, distributedGoods, goodCount, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
-  BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES
+  BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES,
+  OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel
 } from '../../simulation/src/index.ts';
 import type {
-  BotType, Building, BuildingGroupType, MapSizeType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, World
+  BotType, Building, BuildingGroupType, MapSizeType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
 } from '../../simulation/src/index.ts';
 
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
 export type GoodsViewId = 'inventory' | 'tools' | 'distribution' | 'transport';
-export type MilitaryViewId = 'recruiting' | 'soldiers' | 'garrisons';
+export type MilitaryViewId = 'recruiting' | 'soldiers' | 'garrisons' | 'ranks';
 export type SettlersViewId = 'counts' | 'occupations' | 'specialists';
-export type OrderMode = 'select' | 'move' | 'attack' | 'waypoint' | 'patrol' | 'free' | null;
+export type OrderMode = 'select' | 'move' | 'attack' | 'waypoint' | 'patrol' | 'free' | 'spell' | null;
 
 const ICONS: Record<TabId | 'warning' | 'info', string> = {
   build: '<path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M10 21v-6h4v6"/>',
@@ -50,7 +51,7 @@ export const SETTLERS_VIEWS: { id: SettlersViewId; label: string; key: string }[
 ];
 
 const MILITARY_VIEWS: { id: MilitaryViewId; label: string }[] = [
-  { id: 'recruiting', label: 'Recruiting' }, { id: 'soldiers', label: 'Soldiers' }, { id: 'garrisons', label: 'Garrisons' }
+  { id: 'recruiting', label: 'Recruiting' }, { id: 'soldiers', label: 'Soldiers' }, { id: 'garrisons', label: 'Garrisons' }, { id: 'ranks', label: 'Ranks' }
 ];
 
 function escapeHtml(text: string): string {
@@ -82,7 +83,7 @@ export function renderBuildPanel(groupType: BuildingGroupType, selected: Buildin
   const types = Object.values(BUILDING_TYPES).filter((t) => t.groupType === groupType && isBuildableBy(t.id, race));
   const cards = types.map((t) => `
     <button type="button" class="building-card ${t.races ? 'is-own' : ''}" data-action="select-type" data-type="${t.id}" aria-pressed="${t.id === selected}" ${t.isAvailable ? '' : 'disabled'}>
-      <span class="name">${t.label}</span>
+      <span class="name">${buildingLabel(t.id, race)}</span>
       <span class="cost">${t.isAvailable ? costText(buildingCost(t.id, race)) : 'Coming later'}</span>
       ${t.races ? `<span class="own-tag">${t.races.map((r) => RACE_SETTINGS[r].label).join(' and ')} only</span>` : ''}
     </button>`).join('');
@@ -92,7 +93,7 @@ export function renderBuildPanel(groupType: BuildingGroupType, selected: Buildin
     <div class="groups" role="tablist" aria-label="Building groups">${groups}</div>
     <div class="buildings">${cards}</div>
     <div class="detail">
-      <div class="detail-head"><span class="detail-title">${t.label}</span><span class="muted">${t.size}×${t.size} tiles</span></div>
+      <div class="detail-head"><span class="detail-title">${buildingLabel(t.id, race)}</span><span class="muted">${t.size}×${t.size} tiles</span></div>
       <dl class="facts">
         <dt>Worker</dt><dd>${t.workerLabel}</dd>
         <dt>Uses</dt><dd>${t.usesLabel}</dd>
@@ -279,6 +280,26 @@ export function renderMilitaryPanel(world: World, view: MilitaryViewId, owner: n
       </div>
       <p class="empty">Soldiers outside buildings can be selected and sent to move or attack. Soldiers in towers defend them.</p>`;
   }
+  if (view === 'ranks') {
+    const drink = GOOD_LABELS[RACE_DRINKS[player.raceType]].toLowerCase();
+    const rows = SOLDIER_TYPES.map((t) => {
+      const rank = player.soldierRanks[t];
+      const isTop = rank >= RANK_LABELS.length - 1;
+      const cost = isTop ? 0 : PROMOTION_COSTS[rank];
+      const label = isTop ? 'Top rank' : `${RANK_LABELS[rank + 1]} · ${cost} manna`;
+      return `<li class="rank-row"><span class="grow">${SETTLER_PLURALS[t]}<span class="muted block">${RANK_LABELS[rank]}</span></span>
+        <button type="button" class="${!isTop && player.manna >= cost ? 'primary' : 'secondary'}" data-action="promote" data-type="${t}" ${isTop || player.manna < cost ? 'disabled' : ''}>${label}</button></li>`;
+    }).join('');
+    return `${tabs}
+      <div class="strength-block">
+        <span class="menu-label">Manna</span>
+        <div class="strength-value"><b>${player.manna}</b><span class="muted">from ${drink} offered at your small temples</span></div>
+        <span class="muted">Pays for promotions and for your priests' spells.</span>
+      </div>
+      <h2 class="section-title">Ranks of new recruits</h2>
+      <ul class="list">${rows}</ul>
+      <p class="empty">As in the original, a promotion applies to soldiers recruited from now on. Each rank adds ${Math.round(RANK_BONUS * 100)} % health and strength.</p>`;
+  }
   const military = world.buildings.filter((b) => b.owner === owner && b.isComplete && isMilitaryBuilding(b));
   const rows = military.map((b) => {
     const cap = BUILDING_TYPES[b.typeId].garrisonCapacity;
@@ -432,6 +453,14 @@ function buildingStatus(world: World, b: Building): { text: string; isWarning: b
   const worker = settlerById(world, b.workerId);
   if (type.worker && !worker) return { text: 'Waiting for a worker', isWarning: false };
   if (worker && (worker.phase === 'toWork' || worker.phase === 'toTool')) return { text: 'Worker on the way', isWarning: false };
+  if (b.typeId === 'small_temple' && worker?.phase === 'working') {
+    const drink = GOOD_LABELS[RACE_DRINKS[world.players[b.owner].raceType]].toLowerCase();
+    return { text: `Offering ${drink} · ${Math.floor((1 - worker.timer / OFFERING_TICKS) * 100)}%`, isWarning: false };
+  }
+  if (b.typeId === 'large_temple') {
+    const left = Math.max(0, PRIEST_TICKS - b.timer);
+    return { text: `Next priest in ${formatClock(left)}`, isWarning: false };
+  }
   if (type.warMachine && worker?.phase === 'working') {
     const done = 1 - worker.timer / WAR_MACHINE_STATS[type.warMachine].buildTicks;
     return { text: `Building a ${SETTLER_LABELS[type.warMachine].toLowerCase()} · ${Math.floor(done * 100)}%`, isWarning: false };
@@ -464,7 +493,7 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
     const canAttack = isMilitaryBuilding(b) && b.isComplete;
     const cover = canAttack ? coveringBuilding(world, b) : null;
     return `
-      <div class="detail-head"><span class="detail-title">Enemy ${type.label.toLowerCase()}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
+      <div class="detail-head"><span class="detail-title">Enemy ${buildingLabel(b.typeId, world.players[b.owner].raceType).toLowerCase()}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
       ${canAttack ? `<span>${b.garrison.length} ${b.garrison.length === 1 ? 'defender' : 'defenders'} inside</span>`
         : `<span class="muted">${isMilitaryBuilding(b) ? 'Still being built' : 'Not a military building'}</span>`}
       ${b.damage > 0 && BUILDING_STRUCTURE[b.typeId] ? structureBar(b) : ''}
@@ -517,15 +546,46 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
         <button type="button" class="secondary" data-action="demolish">${b.isComplete ? 'Demolish' : 'Cancel construction'}</button>
       </div>`;
   return `
-    <div class="detail-head"><span class="detail-title">${type.label}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
+    <div class="detail-head"><span class="detail-title">${buildingLabel(b.typeId, world.players[b.owner].raceType)}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
     <span class="${status.isWarning ? 'status-warning' : ''}">${escapeHtml(status.text)}</span>
     ${lines.length ? `<dl class="facts">${lines.join('')}</dl>` : ''}
     ${garrison}
     ${actions}`;
 }
 
+/** What the priest bar needs to know: the player's manna, people and the spell being aimed. */
+export interface PriestBarState { manna: number; race: RaceType; spell: SpellType | null }
+
+/** The bar for selected priests: their people's spells with costs, and Move. */
+function renderPriestBar(priests: Settler[], mode: OrderMode, isTouch: boolean, magic: PriestBarState): string {
+  const ready = priests.filter((p) => p.timer === 0).length;
+  const summary = priests.length === 1 ? 'Priest selected' : `${priests.length} priests selected`;
+  const detail = `${magic.manna} manna · ${ready === priests.length ? 'ready to cast' : ready > 0 ? `${ready} ready, the others resting` : 'resting after a spell'}`;
+  const buttons = RACE_SPELLS[magic.race].map((spell) => {
+    const stats = SPELL_STATS[spell];
+    const isOn = mode === 'spell' && magic.spell === spell;
+    return `<button type="button" class="order-mode spell" data-action="cast-mode" data-spell="${spell}" aria-pressed="${isOn}" ${magic.manna < stats.cost ? 'disabled' : ''}
+      title="${escapeHtml(stats.summary)}"><b>${stats.label}</b><span>${stats.cost} manna</span></button>`;
+  }).join('');
+  const aimed = mode === 'spell' && magic.spell ? SPELL_STATS[magic.spell] : null;
+  const hint = aimed
+    ? `${isTouch ? 'Tap' : 'Click'} the spot${aimed.isRanged ? ', anywhere on the map' : `: within the dashed ring (${SPELL_RANGE} tiles)`}. ${aimed.label}: ${aimed.summary.toLowerCase()}.`
+    : mode === 'move' ? 'Tap or click where they should go'
+    : 'Choose a spell, then tap the spot. Far sight and Blight work at any distance.';
+  return `
+    <div class="order-summary"><strong>${summary}</strong><span class="muted">${detail}</span></div>
+    <div class="order-buttons" role="toolbar" aria-label="Spells">
+      ${buttons}
+      <button type="button" class="order-mode" data-action="order-mode" data-mode="move" aria-pressed="${mode === 'move'}">Move</button>
+      <button type="button" class="order-mode" data-action="clear-selection">Clear</button>
+    </div>
+    <span class="order-hint muted">${hint}</span>`;
+}
+
 /** The order bar: what is selected and what to do with it. Order modes make every order reachable by touch. */
-export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boolean, strength: number): string {
+export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boolean, strength: number, magic?: PriestBarState): string {
+  const priests = units.filter((s) => s.settlerType === 'priest');
+  if (magic && priests.length > 0 && priests.length === units.length) return renderPriestBar(priests, mode, isTouch, magic);
   const soldiers = units.filter((s) => isSoldierType(s.settlerType));
   const machines = units.filter((s) => isWarMachineType(s.settlerType));
   const fighters = units.filter((s) => isUnitType(s.settlerType));

@@ -15,7 +15,7 @@ SIZES = {
     'distillery': 3, 'beekeeper': 2, 'mead_maker': 3, 'donkey_ranch': 3, 'guard_tower_small': 2, 'guard_tower_large': 3, 'castle': 4,
     'lookout': 2, 'barracks': 3, 'weaponsmith': 3, 'gunpowder_maker': 3, 'residence_small': 2, 'residence_medium': 3,
     'residence_large': 4, 'storage': 3, 'healer': 2, 'marketplace': 3,
-    'catapult_hall': 3, 'ballista_hall': 3, 'cannon_hall': 3, 'gong_hall': 3}
+    'catapult_hall': 3, 'ballista_hall': 3, 'cannon_hall': 3, 'gong_hall': 3, 'small_temple': 2, 'large_temple': 3}
 ONLY = {'gem_mine': ('egyptians', 'amazons'), 'sulfur_mine': ('asians', 'amazons'), 'charcoal_maker': ('romans',), 'alchemist': ('amazons',),
         'winery': ('romans',), 'brewery': ('egyptians',), 'rice_farm': ('asians',), 'distillery': ('asians',), 'beekeeper': ('amazons',),
         'mead_maker': ('amazons',), 'gunpowder_maker': ('asians',),
@@ -443,6 +443,8 @@ def recipe(b, typeId):
             gong = bpy.context.object; gong.rotation_euler = (0, math.pi / 2, 0); gong.data.materials.append(b.GOLD)
         s.put(SURV + 'workbench-anvil.glb', -0.95, -0.95, 0, 0, 0.8)
         for i in range(3): s.box(-0.35 + i * 0.18, -1.15, 0, 0.14, 0.07, 0.06, b.IRON)
+    elif typeId in ('small_temple', 'large_temple'):
+        temple(b, typeId == 'large_temple')
     else:
         raise KeyError(typeId)
 
@@ -480,6 +482,57 @@ def castle(b):
         b.body_amazons(1.9, 1.9, -0.1, 0.35, 1, 'gable', False)
         b.tower_amazons(0.9, 3.2, 1.0, -0.6)
         b.banner(-1.3, -1.0, 1.6, b.GREEN)
+
+
+def temple(b, large):
+    """Each people's temples: Roman columns, the Egyptian sphinx and pyramid, Asian pagodas, Amazon round halls."""
+    s, R = b.s, b.race
+    k = 1.35 if large else 1.0
+    MARBLE = s.mat('marble', 'e8e2d6', noise=4); GOLDEN = b.GOLD
+    if R == 'romans':
+        s.box(0, 0.1, 0, 1.7 * k, 1.3 * k, 0.12, b.STONE); s.box(0, 0.1, 0.12, 1.5 * k, 1.1 * k, 0.1, b.STONE)
+        cols = 5 if large else 4
+        for i in range(cols):
+            x = -0.65 * k + i * 1.3 * k / (cols - 1)
+            for y in (-0.4 * k, 0.6 * k): s.cyl(x, y, 0.22, 0.07 * k, 0.95 * k, MARBLE, 14)
+        s.box(0, 0.1, 0.22, 1.1 * k, 0.7 * k, 0.8 * k, s.mat('cella', 'd8ccb0', noise=5))
+        s.box(0, 0.1, 0.22 + 0.95 * k, 1.55 * k, 1.15 * k, 0.1, MARBLE)
+        s.gable(0, 0.1, 0.32 + 0.95 * k, 1.5 * k, 1.1 * k, 0.4 * k, b.REDTILE, along_x=False, over=0.05)
+        if large: s.sphere(0, 0.1, 0.9 + 0.95 * k, 0.32, MARBLE, 0.7)
+        s.box(0, -0.66 * k, 0, 0.6, 0.3, 0.06, b.STONE)
+    elif R == 'egyptians':
+        if large:
+            s.taper(0, 0.1, 0, 2.5, 0.06, 2.1, b.SAND)
+            s.taper(0, 0.1, 1.9, 0.3, 0.02, 0.26, GOLDEN)
+            s.box(0.2, -1.17, 0, 0.35, 0.06, 0.45, b.SLIT)
+        else:
+            s.box(0, 0.15, 0, 1.6, 0.8, 0.16, b.SANDDARK)
+            s.box(0.1, 0.2, 0.16, 1.1, 0.5, 0.42, b.SAND)
+            s.box(-0.5, 0.2, 0.16, 0.45, 0.48, 0.78, b.SAND); s.box(-0.5, 0.2, 0.94, 0.5, 0.56, 0.16, b.BLUE)
+            for dy in (-0.15, 0.15): s.box(-0.8, 0.2 + dy, 0.16, 0.3, 0.14, 0.12, b.SAND)
+            s.box(-0.74, 0.2, 0.62, 0.06, 0.3, 0.12, b.SLIT)
+    elif R == 'asians':
+        s.box(0, 0.1, 0, 1.6 * k, 1.6 * k, 0.16, b.PLINTH)
+        z = 0.16
+        for t in range(3 if large else 2):
+            w = (1.1 - 0.24 * t) * k; h = 0.55 * k
+            s.box(0, 0.1, z, w, w, h, b.LACQUER if t == 0 else b.PLASTER)
+            s.curved_roof(0, 0.1, z + h - 0.04, w * 0.82, w * 0.82, 0.32 * k, 0.15, b.TILE, thick=0.04)
+            z += h + 0.16
+        s.cyl(0, 0.1, z - 0.12, 0.04, 0.55, GOLDEN)
+        for side in (-1, 1): s.box(side * 0.75 * k, -0.62 * k, 0, 0.1, 0.1, 0.9, b.LACQUER)
+        s.box(0, -0.62 * k, 0.86, 1.6 * k, 0.12, 0.1, b.LACQUER)
+    else:
+        r = 0.7 * k
+        s.cyl(0, 0.1, 0, r, 0.7, b.BARK, 28)
+        s.cone(0, 0.1, 0.65, r * 1.4, r * 1.9, b.STRAW, 32)
+        s.cyl(0, 0.1, 0.65 + r * 1.8, 0.05, 0.5, b.DARKWOOD, 8); s.sphere(0, 0.1, 1.18 + r * 1.8, 0.1, s.mat('gem', '40c0c8', rough=0.2))
+        n = 10 if large else 6
+        for i in range(n):
+            a = i * 2 * math.pi / n; s.box((r + 0.45) * math.cos(a), 0.1 + (r + 0.45) * math.sin(a), 0, 0.12, 0.12, 0.45 + 0.15 * (i % 2), b.STONE, math.degrees(a))
+        s.box(0.3, -r + 0.05, 0, 0.32, 0.06, 0.5, b.DARKWOOD)
+    # Offerings at the door: the people's drink in jars.
+    for i in range(2): s.cyl(0.75 + i * 0.2, -0.85 if not large else -1.2, 0, 0.07, 0.18, s.mat('jar', 'a86a3a', rough=0.4))
 
 
 def scaffold(n):

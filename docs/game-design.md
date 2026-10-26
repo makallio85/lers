@@ -111,6 +111,43 @@ Each people has a war machine hall (Military group) where a machinist with a ham
 
 Hall costs are the manual's. The roles follow the original's setup text: the catapult misses most, the cannon is the strongest per shot, and the gong brings a tower down with one blow. The other numbers are our own. A building's structure is 120 for a small tower, 80 for a lookout, 240 for a large tower and 480 for the castle. When it reaches zero the building falls, its soldiers step outside, and the owner's buildings on land another player now holds are destroyed, as when a tower is captured. Destroying the castle wins the match. The computer builds its hall from minute 40, once it has a barracks, a smelter and a hammer (it orders one when needed, and a geologist hands his back if the toolsmith or the hall lacks one). It sends idle machines at the most strongly held tower they can reach. In 13 bot-vs-bot matches (small and medium maps) every match ended, in 33–112 minutes, with up to 23 machines built and 12 towers shot down in one match. Short aggressive matches often end before any machine is ready.
 
+## Temples, priests and magic
+
+Issue #12, phase 4. The roles follow the manual; the names, numbers and effects are our own.
+
+- **Temples** (Misc. group, the manual's costs). Romans and Amazons build a small and a large temple, the Egyptians a sphinx and a pyramid, the Asians a small and a large pagoda.
+  - A temple servant at the small temple offers the people's drink (wine, beer, rice wine or mead). Every 20 seconds one offering becomes one manna.
+  - The large temple ordains a free carrier as a priest every 5 minutes, keeping the player's carrier share.
+- **Priests** are selected and moved like geologists. A priest casts on a spot within 6 tiles; Far sight and Blight work at any distance. Each spell costs manna, and the priest rests 10 seconds after casting.
+- **Spells:** each people knows 8 of these 11.
+
+| Spell | Effect | Manna |
+|---|---|---|
+| Far sight | Shows 15 tiles around the spot for a minute | 5 |
+| Grow forest | Grown trees on free grass within 3 tiles | 6 |
+| Raise stones | Rocks on free grass within 2 tiles | 6 |
+| Harvest | Fields within 8 tiles ripen and young trees grow up | 8 |
+| Transmute | In the nearest own storage: Romans 10 fish → meat, Egyptians 6 stone → iron, Asians 4 iron → gold, Amazons 3 stone → gold | 10 |
+| Gift | In the nearest own storage: Romans 12 planks, Egyptians 4 gems, Asians 10 rice, Amazons 10 honey | 8 |
+| Shield | Own soldiers within 6 tiles take half damage for a minute | 12 |
+| Fury | Own soldiers within 6 tiles hit twice as hard for a minute | 15 |
+| Freeze | Enemy soldiers within 5 tiles cannot act for 15 seconds | 12 |
+| Persuade | Up to 3 enemy soldiers within 4 tiles change sides | 25 |
+| Blight | Enemy mines within 6 tiles work at half speed for 5 minutes | 15 |
+
+| People | Spells |
+|---|---|
+| Romans | Far sight, grow forest, harvest, transmute, gift, shield, fury, persuade |
+| Egyptians | Far sight, raise stones, harvest, transmute, gift, shield, freeze, persuade |
+| Asians | Far sight, grow forest, harvest, transmute, gift, fury, freeze, blight |
+| Amazons | Far sight, grow forest, raise stones, transmute, gift, shield, freeze, blight |
+
+- **Ranks:** private, sergeant and captain, set per soldier type.
+  - Promotion costs 10 manna to sergeant and 20 to captain.
+  - As in the manual, it applies to soldiers recruited afterwards; those already serving keep their rank.
+  - Each rank adds 25 % health and damage.
+- **Computer player:** after the barracks it builds its people's drink maker and a small temple, and later a large temple. It promotes whenever it has the manna. In two 60–81 minute bot matches on medium maps, every people reached sergeant or captain. Casting spells is still to come for the computer; its priests wait.
+
 ## Pace
 
 At 1× the game runs at the pace of The Settlers III at normal speed, which has no speed setting of its own. These values were timed by watching the original run (screenshots and a stopwatch, nothing decompiled), on 2026-10-25:

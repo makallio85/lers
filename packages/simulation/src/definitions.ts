@@ -77,7 +77,7 @@ export const WAR_MACHINE_TYPES = ['catapult', 'ballista', 'cannon', 'war_gong'] 
 export type WarMachineType = (typeof WAR_MACHINE_TYPES)[number];
 
 export type SettlerType =
-  | 'carrier' | 'digger' | 'builder' | SoldierType | WarMachineType | 'machinist'
+  | 'carrier' | 'digger' | 'builder' | SoldierType | WarMachineType | 'machinist' | 'temple_servant' | 'priest'
   | 'woodcutter' | 'forester' | 'carpenter' | 'stonecutter'
   | 'farmer' | 'miller' | 'baker' | 'waterworker' | 'fisher' | 'pig_farmer' | 'butcher'
   | 'miner' | 'smelter' | 'smith' | 'healer'
@@ -114,7 +114,8 @@ export const SETTLER_LABELS: Record<SettlerType, string> = {
   healer: 'Healer', geologist: 'Geologist', pioneer: 'Pioneer', thief: 'Thief',
   wine_grower: 'Wine grower', charcoal_maker: 'Charcoal maker', brewer: 'Brewer', rice_farmer: 'Rice farmer', distiller: 'Distiller',
   gunpowder_maker: 'Gunpowder maker', beekeeper: 'Beekeeper', mead_maker: 'Mead maker', alchemist: 'Alchemist',
-  machinist: 'Machinist', catapult: 'Catapult', ballista: 'Ballista', cannon: 'Cannon', war_gong: 'War gong'
+  machinist: 'Machinist', catapult: 'Catapult', ballista: 'Ballista', cannon: 'Cannon', war_gong: 'War gong',
+  temple_servant: 'Temple servant', priest: 'Priest'
 };
 
 export const SETTLER_PLURALS: Record<SettlerType, string> = {
@@ -126,7 +127,8 @@ export const SETTLER_PLURALS: Record<SettlerType, string> = {
   healer: 'Healers', geologist: 'Geologists', pioneer: 'Pioneers', thief: 'Thieves',
   wine_grower: 'Wine growers', charcoal_maker: 'Charcoal makers', brewer: 'Brewers', rice_farmer: 'Rice farmers', distiller: 'Distillers',
   gunpowder_maker: 'Gunpowder makers', beekeeper: 'Beekeepers', mead_maker: 'Mead makers', alchemist: 'Alchemists',
-  machinist: 'Machinists', catapult: 'Catapults', ballista: 'Ballistas', cannon: 'Cannons', war_gong: 'War gongs'
+  machinist: 'Machinists', catapult: 'Catapults', ballista: 'Ballistas', cannon: 'Cannons', war_gong: 'War gongs',
+  temple_servant: 'Temple servants', priest: 'Priests'
 };
 
 export function isSoldierType(type: SettlerType): type is SoldierType {
@@ -215,7 +217,7 @@ export type BuildingTypeId =
   | 'farm' | 'mill' | 'bakery' | 'waterworks' | 'fisher' | 'pig_farm' | 'slaughterhouse' | 'donkey_ranch'
   | 'winery' | 'brewery' | 'rice_farm' | 'distillery' | 'beekeeper' | 'mead_maker'
   | 'guard_tower_small' | 'guard_tower_large' | 'castle' | 'lookout' | 'barracks' | 'weaponsmith' | 'gunpowder_maker'
-  | 'catapult_hall' | 'ballista_hall' | 'cannon_hall' | 'gong_hall'
+  | 'catapult_hall' | 'ballista_hall' | 'cannon_hall' | 'gong_hall' | 'small_temple' | 'large_temple'
   | 'residence_small' | 'residence_medium' | 'residence_large' | 'storage' | 'healer' | 'marketplace';
 
 /**
@@ -287,10 +289,13 @@ export interface BuildingType {
   races?: readonly RaceType[];
   /** War machine halls: the machine they build. */
   warMachine: WarMachineType | null;
+  /** The building's name for each people where it differs, such as the Egyptians' sphinx for the small temple. */
+  raceLabels: Partial<Record<RaceType, string>>;
 }
 
 interface BuildingOptions {
   warMachine?: WarMachineType;
+  raceLabels?: Partial<Record<RaceType, string>>;
   worker?: SettlerType;
   tool?: ToolType;
   recipe?: Recipe;
@@ -320,7 +325,7 @@ function building(
     mine: options.mine ?? null, placementType: options.placementType ?? 'land', territoryRadius: options.territoryRadius ?? 0,
     garrisonCapacity: options.garrisonCapacity ?? 0, residents: options.residents ?? 0, visionRadius: options.visionRadius ?? 0,
     storageCapacity: options.storageCapacity ?? 0, workerLabel, usesLabel, makesLabel, isAvailable: options.isAvailable ?? true,
-    races: options.races, warMachine: options.warMachine ?? null
+    races: options.races, warMachine: options.warMachine ?? null, raceLabels: options.raceLabels ?? {}
   };
 }
 
@@ -421,6 +426,12 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   cannon_hall: warMachineHall('cannon_hall', 'Cannon hall', 'asians', 'cannon', 9, 3),
   gong_hall: warMachineHall('gong_hall', 'Gong hall', 'amazons', 'war_gong', 8, 10),
 
+  small_temple: building('small_temple', 'Small temple', 'misc', 2, 5, 8, 'Temple servant', 'Your people\'s drink', 'Manna',
+    { worker: 'temple_servant', inputLimits: { wine: 4, beer: 4, rice_wine: 4, mead: 4 },
+      raceLabels: { egyptians: 'Sphinx', asians: 'Small pagoda' } }),
+  large_temple: building('large_temple', 'Large temple', 'misc', 3, 8, 14, 'None', 'Free settlers', 'A priest every 5 minutes',
+    { raceLabels: { egyptians: 'Pyramid', asians: 'Large pagoda' } }),
+
   residence_small: building('residence_small', 'Small residence', 'misc', 2, 2, 3, 'None', 'Nothing', '10 settlers', { residents: 10 }),
   residence_medium: building('residence_medium', 'Medium residence', 'misc', 3, 5, 8, 'None', 'Nothing', '20 settlers', { residents: 20 }),
   residence_large: building('residence_large', 'Large residence', 'misc', 4, 15, 24, 'None', 'Nothing', '40 settlers', { residents: 40 }),
@@ -502,7 +513,9 @@ const RACE_COSTS: Partial<Record<BuildingTypeId, Record<RaceType, readonly [numb
   barracks: { romans: [4, 5], egyptians: [3, 6], asians: [6, 3], amazons: [6, 4] },
   healer: { romans: [3, 3], egyptians: [2, 4], asians: [4, 2], amazons: [5, 2] },
   gem_mine: { romans: [5, 3], egyptians: [5, 3], asians: [5, 3], amazons: [3, 2] },
-  sulfur_mine: { romans: [5, 1], egyptians: [5, 1], asians: [5, 1], amazons: [3, 2] }
+  sulfur_mine: { romans: [5, 1], egyptians: [5, 1], asians: [5, 1], amazons: [3, 2] },
+  small_temple: { romans: [5, 8], egyptians: [2, 10], asians: [9, 4], amazons: [7, 6] },
+  large_temple: { romans: [8, 14], egyptians: [6, 20], asians: [15, 6], amazons: [13, 11] }
 };
 
 /** What a building costs for a player of this race. */
@@ -521,3 +534,79 @@ export function isBuildableBy(typeId: BuildingTypeId, race: RaceType): boolean {
 export function favouriteFoodOf(mine: MineRule, race: RaceType): FoodType {
   return mine.favouriteByRace?.[race] ?? mine.favouriteFood;
 }
+
+
+/** A building's name for a player of this people. */
+export function buildingLabel(typeId: BuildingTypeId, race: RaceType): string {
+  return BUILDING_TYPES[typeId].raceLabels[race] ?? BUILDING_TYPES[typeId].label;
+}
+
+// ---------------------------------------------------------------- temples, priests, spells and ranks
+
+/** The drink each people offers at its small temple. */
+export const RACE_DRINKS: Record<RaceType, GoodType> = { romans: 'wine', egyptians: 'beer', asians: 'rice_wine', amazons: 'mead' };
+/** Ticks one offering takes; each gives the player one manna. */
+export const OFFERING_TICKS = 200;
+/** A large temple turns a free carrier into a priest this often (5 minutes). */
+export const PRIEST_TICKS = 3000;
+/** A priest casts on a spot this close, apart from the spells that work at any distance. */
+export const SPELL_RANGE = 6;
+/** Ticks a priest rests after casting. */
+export const PRIEST_REST_TICKS = 100;
+
+export const SPELL_TYPES = [
+  'far_sight', 'grow_forest', 'raise_stones', 'harvest', 'transmute', 'gift', 'shield', 'fury', 'freeze', 'persuade', 'blight'
+] as const;
+export type SpellType = (typeof SPELL_TYPES)[number];
+
+export interface SpellStats {
+  label: string;
+  /** What it does, for the spell bar. */
+  summary: string;
+  cost: number;
+  /** Tiles around the spot it works on. */
+  radius: number;
+  /** Ticks it lasts, for spells with a lasting effect. */
+  duration: number;
+  /** Works at any distance from the priest. */
+  isRanged: boolean;
+}
+
+export const SPELL_STATS: Record<SpellType, SpellStats> = {
+  far_sight: { label: 'Far sight', summary: 'Shows the land around the spot for a minute', cost: 5, radius: 15, duration: 600, isRanged: true },
+  grow_forest: { label: 'Grow forest', summary: 'Grown trees on free grass around the spot', cost: 6, radius: 3, duration: 0, isRanged: false },
+  raise_stones: { label: 'Raise stones', summary: 'Rocks for stonecutters on free grass around the spot', cost: 6, radius: 2, duration: 0, isRanged: false },
+  harvest: { label: 'Harvest', summary: 'Fields ripen and young trees grow up at once', cost: 8, radius: 8, duration: 0, isRanged: false },
+  transmute: { label: 'Transmute', summary: 'Turns goods in your nearest storage into others', cost: 10, radius: 0, duration: 0, isRanged: false },
+  gift: { label: 'Gift', summary: 'Goods appear in your nearest storage', cost: 8, radius: 0, duration: 0, isRanged: false },
+  shield: { label: 'Shield', summary: 'Your soldiers here take half damage for a minute', cost: 12, radius: 6, duration: 600, isRanged: false },
+  fury: { label: 'Fury', summary: 'Your soldiers here hit twice as hard for a minute', cost: 15, radius: 6, duration: 600, isRanged: false },
+  freeze: { label: 'Freeze', summary: 'Enemy soldiers here cannot act for 15 seconds', cost: 12, radius: 5, duration: 150, isRanged: false },
+  persuade: { label: 'Persuade', summary: 'Up to 3 enemy soldiers here change sides', cost: 25, radius: 4, duration: 0, isRanged: false },
+  blight: { label: 'Blight', summary: 'Enemy mines here produce half as much for 5 minutes', cost: 15, radius: 6, duration: 3000, isRanged: true }
+};
+
+/** Each people's eight spells, in the original's families. */
+export const RACE_SPELLS: Record<RaceType, readonly SpellType[]> = {
+  romans: ['far_sight', 'grow_forest', 'harvest', 'transmute', 'gift', 'shield', 'fury', 'persuade'],
+  egyptians: ['far_sight', 'raise_stones', 'harvest', 'transmute', 'gift', 'shield', 'freeze', 'persuade'],
+  asians: ['far_sight', 'grow_forest', 'harvest', 'transmute', 'gift', 'fury', 'freeze', 'blight'],
+  amazons: ['far_sight', 'grow_forest', 'raise_stones', 'transmute', 'gift', 'shield', 'freeze', 'blight']
+};
+/** What Transmute turns into what, and how much at most, by people. */
+export const RACE_TRANSMUTES: Record<RaceType, { from: GoodType; to: GoodType; amount: number }> = {
+  romans: { from: 'fish', to: 'meat', amount: 10 },
+  egyptians: { from: 'stone', to: 'iron', amount: 6 },
+  asians: { from: 'iron', to: 'gold', amount: 4 },
+  amazons: { from: 'stone', to: 'gold', amount: 3 }
+};
+/** What Gift brings, by people. */
+export const RACE_GIFTS: Record<RaceType, Partial<GoodAmounts>> = {
+  romans: { plank: 12 }, egyptians: { gems: 4 }, asians: { rice: 10 }, amazons: { honey: 10 }
+};
+
+export const RANK_LABELS = ['Private', 'Sergeant', 'Captain'] as const;
+/** Manna to raise a soldier type from rank n to n + 1. */
+export const PROMOTION_COSTS = [10, 20] as const;
+/** Each rank adds this share to a soldier's health and damage. */
+export const RANK_BONUS = 0.25;
