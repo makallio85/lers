@@ -1,5 +1,5 @@
 import {
-  BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_REACH,
+  BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH,
   RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType, isUnitType, isWarMachineType
 } from './definitions.ts';
 import type { BuildingTypeId, GoodType, ShipType, SoldierType, SpecialistType, SpellType, ToolType, TradeModeType } from './definitions.ts';
@@ -389,7 +389,15 @@ export function applyCommand(world: World, command: Command): CommandResult {
       if (!b || !(WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId)) return refuse('This building has no work area');
       if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
       if (Math.hypot(command.x - b.doorX, command.y - b.doorY) > WORK_AREA_REACH) return refuse('Too far from the building');
-      if (world.territory[tileIndex(world, command.x, command.y)] !== command.playerId + 1) return refuse('Outside your territory');
+      // The area may reach past the border; its worker uses the part on the player's own land, so some must be.
+      const radius = WORK_AREA_RADIUS[b.typeId as (typeof WORK_AREA_BUILDINGS)[number]];
+      let isTouchingOwnLand = false;
+      for (let y = command.y - radius; y <= command.y + radius && !isTouchingOwnLand; y++) {
+        for (let x = command.x - radius; x <= command.x + radius && !isTouchingOwnLand; x++) {
+          if (inBounds(world, x, y) && Math.hypot(x - command.x, y - command.y) <= radius && world.territory[tileIndex(world, x, y)] === command.playerId + 1) isTouchingOwnLand = true;
+        }
+      }
+      if (!isTouchingOwnLand) return refuse('The work area must reach your territory');
       b.workX = command.x; b.workY = command.y;
       return accept();
     }

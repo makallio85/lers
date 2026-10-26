@@ -290,7 +290,7 @@ function renderHint(): void {
   const workSite = buildingById(world, ui.workAreaFor);
   if (!ui.placing && workSite) {
     els.hint.hidden = false;
-    setHtml(els.hint, `<span>Work area of the ${BUILDING_TYPES[workSite.typeId].label.toLowerCase()}</span><span>Tap or click where it should work, on your land.</span>
+    setHtml(els.hint, `<span>Work area of the ${BUILDING_TYPES[workSite.typeId].label.toLowerCase()}</span><span>Tap or click where it should work. It may reach past your border; only the part on your land is worked.</span>
       <button type="button" class="secondary" data-action="cancel-work-area">Cancel</button>`);
     return;
   }
