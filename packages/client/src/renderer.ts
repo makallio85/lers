@@ -1004,23 +1004,31 @@ export class MapView {
     return { x: p.x * this.scale + this.camera.x, y: p.y * this.scale + this.camera.y };
   }
 
-  /** The visible building whose picture is under a point on screen, front-most first. */
+  /** The visible building whose picture is under a point on screen, the front-most one. */
   buildingAtScreen(clientX: number, clientY: number): Building | undefined {
+    return this.buildingsAtScreen(clientX, clientY)[0];
+  }
+
+  /**
+   * Every visible building whose picture covers a point on screen, front-most first. Only solid pixels count, so a
+   * building seen through a gap in a bigger one in front of it, or past its edge, is found.
+   */
+  buildingsAtScreen(clientX: number, clientY: number): Building[] {
     const rect = this.app.canvas.getBoundingClientRect();
     const px = clientX - rect.left, py = clientY - rect.top;
-    let best: Building | undefined, bestZ = -Infinity;
+    const hits: { b: Building; z: number }[] = [];
     for (const b of this.world.buildings) {
       const v = this.buildingViews.get(b.id);
-      if (!v || !v.body.visible || !v.root.visible) continue;
+      if (!v || !v.body.visible || !v.root.visible || !v.body.texture) continue;
       const bounds = v.body.getBounds();
       if (px < bounds.x || px > bounds.x + bounds.width || py < bounds.y || py > bounds.y + bounds.height) continue;
-      // Only the building itself counts, not the empty corners of its picture.
       const local = v.body.toLocal({ x: px, y: py });
-      const ax = local.x + v.body.anchor.x * v.body.texture.width, ay = local.y + v.body.anchor.y * v.body.texture.height;
-      if (ax < v.body.texture.width * 0.12 || ax > v.body.texture.width * 0.88 || ay > v.body.texture.height * 0.92) continue;
-      if (v.root.zIndex > bestZ) { bestZ = v.root.zIndex; best = b; }
+      const tw = v.body.texture.width, th = v.body.texture.height;
+      const ax = local.x + v.body.anchor.x * tw, ay = local.y + v.body.anchor.y * th;
+      if (!isSolidAt(v.body.texture, ax, ay)) continue;
+      hits.push({ b, z: v.root.zIndex });
     }
-    return best;
+    return hits.sort((p, q) => q.z - p.z).map((h) => h.b);
   }
 
   panBy(dx: number, dy: number): void {
@@ -1072,4 +1080,39 @@ export class MapView {
     this.camera.x = Math.min(margin - minX, Math.max(width - maxX - margin, this.camera.x));
     this.camera.y = Math.min(margin + 120 * s, Math.max(height - maxY - margin, this.camera.y));
   }
+}
+
+/** Each picture's alpha, read once, so clicks can tell the building from the empty parts of its picture. */
+const alphaCache = new WeakMap<Texture, { w: number; h: number; alpha: Uint8ClampedArray } | null>();
+const ALPHA_STEP = 2;
+
+function isSolidAt(texture: Texture, x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= texture.width || y >= texture.height) return false;
+  let entry = alphaCache.get(texture);
+  if (entry === undefined) {
+    entry = readAlpha(texture);
+    alphaCache.set(texture, entry);
+  }
+  // Without readable pixels, fall back to the middle of the picture.
+  if (!entry) return x > texture.width * 0.12 && x < texture.width * 0.88 && y < texture.height * 0.92;
+  const cx = Math.min(entry.w - 1, Math.floor(x / ALPHA_STEP)), cy = Math.min(entry.h - 1, Math.floor(y / ALPHA_STEP));
+  return entry.alpha[cy * entry.w + cx] > 40;
+}
+
+function readAlpha(texture: Texture): { w: number; h: number; alpha: Uint8ClampedArray } | null {
+  const resource = texture.source?.resource as CanvasImageSource | undefined;
+  if (!resource || typeof document === 'undefined') return null;
+  try {
+    const w = Math.max(1, Math.ceil(texture.width / ALPHA_STEP)), h = Math.max(1, Math.ceil(texture.height / ALPHA_STEP));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    const f = texture.frame;
+    ctx.drawImage(resource, f.x, f.y, f.width, f.height, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const alpha = new Uint8ClampedArray(w * h);
+    for (let i = 0; i < w * h; i++) alpha[i] = data[i * 4 + 3];
+    return { w, h, alpha };
+  } catch { return null; }
 }
