@@ -255,7 +255,7 @@ export function renderSettlersPanel(world: World, view: SettlersViewId, owner: n
         <div class="share-row"><span>Carriers, at least</span>${slider('minCarrier', player.minCarrierPercent, 'Carriers, at least')}<span class="num">${player.minCarrierPercent}%</span></div>
         <p class="empty">Now ${pct(carriers)}%. New diggers and builders are only made from carriers while this share stays.</p>
         <div class="share-row"><span>Diggers and builders, at most</span>${slider('maxCrew', player.maxCrewPercent, 'Diggers and builders, at most')}<span class="num">${player.maxCrewPercent}%</span></div>
-        <p class="empty">Now ${pct(crew)}%. Above it, idle diggers and builders go back to carrying. Lower it once the settlement stands.</p>
+        <p class="empty">Now ${pct(crew)}%. No new diggers or builders above it; those you have keep their tools and jobs.</p>
       </div>`;
   }
   if (view === 'specialists') {

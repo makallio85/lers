@@ -130,7 +130,7 @@ test('occupations limit diggers and builders, and free carriers become new ones 
   const before = crew();
   command(world, { type: 'setOccupations', playerId: 0, minCarrierPercent: 30, maxCrewPercent: 0 });
   run(world, 600);
-  assert.ok(crew() < before, 'idle diggers and builders go back to carrying');
+  assert.equal(crew(), before, 'diggers and builders keep their tools and jobs; the share only limits new ones');
   assert.equal(command(world, { type: 'setOccupations', playerId: 0, minCarrierPercent: 101, maxCrewPercent: 0 }).isAccepted, false);
 
   // Many sites and a generous share: new crew appear from free carriers, each taking a tool.
