@@ -3,7 +3,7 @@ import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, buildingCost, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, DEPOSIT_SULFUR, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
   WAR_MACHINE_STATS, consumersOf, distributedGoods, emptyGoods, isSoldierType, isWarMachineType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SettlerType, SoldierType } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SettlerType, SoldierType, TradeModeType } from './definitions.ts';
 import { createRandom } from './random.ts';
 
 export const TICKS_PER_SECOND = 10;
@@ -83,6 +83,19 @@ export interface Building {
   timer: number;
   /** Mines under a Blight spell produce half as much until this tick; 0 otherwise. */
   blightUntil: number;
+  /** Marketplaces only: where caravans go, and how goods are collected for them. */
+  tradeRoute: TradeRoute | null;
+  tradeMode: TradeModeType;
+}
+
+/** A marketplace's land route: its end, up to 3 tiles to pass on the way, and how much of each good to send. */
+export interface TradeRoute {
+  x: number;
+  y: number;
+  /** Tile indices, in order. */
+  waypoints: number[];
+  /** Amount still to send per good; TRADE_UNLIMITED for as much as there is. */
+  goods: Partial<Record<GoodType, number>>;
 }
 
 export type SettlerPhase =
@@ -135,6 +148,8 @@ export interface Settler {
   shieldUntil: number;
   furyUntil: number;
   frozenUntil: number;
+  /** Donkeys only: how many of the carried good they have on their back. */
+  cargo: number;
 }
 
 export interface PlayerStats {
@@ -309,7 +324,8 @@ export function newBuilding(world: World, typeId: BuildingTypeId, owner: number,
     levelProgress: 0, buildProgress: 0, diggerId: null, builderId: null, workerId: null,
     garrison: [], garrisonWanted: typeId === 'castle' ? 3 : Math.min(1, type.garrisonCapacity), isOccupied: false, meals: 0,
     isPaused: false, isPriority: false, workX: null, workY: null, residentsLeft: 0,
-    blockedReason: null, blockedSince: null, hasWarned: false, damage: 0, timer: 0, blightUntil: 0
+    blockedReason: null, blockedSince: null, hasWarned: false, damage: 0, timer: 0, blightUntil: 0,
+    tradeRoute: null, tradeMode: 'surplus'
   };
   for (let dy = 0; dy < size; dy++) {
     for (let dx = 0; dx < size; dx++) {
@@ -343,7 +359,7 @@ export function newSettler(world: World, owner: number, settlerType: SettlerType
     cooldown: 0, enemyId: null, attackId: null,
     workCentre: -1, waypoints: [], isPatrolling: false, isHolding: false, isIgnoringEnemies: false,
     ammo: isWarMachineType(settlerType) ? WAR_MACHINE_STATS[settlerType].shots : 0,
-    rank: 0, shieldUntil: 0, furyUntil: 0, frozenUntil: 0
+    rank: 0, shieldUntil: 0, furyUntil: 0, frozenUntil: 0, cargo: 0
   };
   world.settlers.push(s);
   return s;

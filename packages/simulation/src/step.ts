@@ -1,6 +1,6 @@
 import {
   BUILDING_TYPES, FAVOURITE_FOOD_MEALS, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OFFERING_TICKS, OTHER_FOOD_MEALS, PRIEST_TICKS, RACE_DRINKS,
-  buildingLabel,
+  buildingLabel, TRADE_SURPLUS_RESERVE,
   SETTLER_LABELS, SOLDIER_STATS, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, goodCount, isSoldierType, isUnitType,
   favouriteFoodOf, isSpecialistType, totalGoods
 } from './definitions.ts';
@@ -11,6 +11,7 @@ import { releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from 
 import { WALK_SPEED, advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
 import { updateVision } from './vision.ts';
 import { landRegion } from './regions.ts';
+import { decideBreeding, finishBreeding, marketplaceWants, updateDonkey } from './trade.ts';
 import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
@@ -170,7 +171,16 @@ function storageFor(world: World, owner: number, good: GoodType, x: number, y: n
 
 // ---------------------------------------------------------------- logistics
 
-interface Request { building: Building; good: GoodType; isConstruction: boolean; share: number }
+interface Request {
+  building: Building;
+  good: GoodType;
+  isConstruction: boolean;
+  share: number;
+  /** A marketplace collecting ahead of construction sites. */
+  isUrgent?: boolean;
+  /** A marketplace collecting only what storage has to spare. */
+  isSurplusOnly?: boolean;
+}
 
 function distributionShare(player: PlayerState | undefined, good: GoodType, typeId: BuildingTypeId): number {
   const shares = player?.distribution[good];
@@ -200,6 +210,15 @@ function runLogistics(world: World): void {
       }
       continue;
     }
+    if (b.typeId === 'marketplace') {
+      const wants = marketplaceWants(b);
+      for (const good of GOOD_TYPES) {
+        for (let k = 0; k < (wants[good] ?? 0); k++) {
+          requests.push({ building: b, good, isConstruction: false, share: 1, isUrgent: b.tradeMode === 'construction', isSurplusOnly: b.tradeMode === 'surplus' });
+        }
+      }
+      continue;
+    }
     const limits = BUILDING_TYPES[b.typeId].inputLimits;
     const player = playerOf(world, b.owner);
     for (const good of GOOD_TYPES) {
@@ -216,7 +235,7 @@ function runLogistics(world: World): void {
     const counts = playerOf(world, r.building.owner)?.distributionCount[r.good];
     return ((counts?.[r.building.typeId] ?? 0) + 1) / r.share;
   };
-  requests.sort((a, b) => Number(b.isConstruction) - Number(a.isConstruction)
+  requests.sort((a, b) => Number(b.isUrgent === true) - Number(a.isUrgent === true) || Number(b.isConstruction) - Number(a.isConstruction)
     || (a.isConstruction ? Number(b.building.isPriority) - Number(a.building.isPriority) || a.building.id - b.building.id : 0)
     || order(a) - order(b) || shareScore(a) - shareScore(b) || a.building.id - b.building.id);
 
@@ -246,7 +265,9 @@ function runLogistics(world: World): void {
     for (const b of world.buildings) {
       if (b === to || !b.isComplete || b.owner !== to.owner || isMilitaryBuilding(b) && !isStorageBuilding(b)) continue;
       if (landRegion(world, b.doorX, b.doorY) !== toRegion) continue;
-      if (b.stock[request.good] - b.reserved[request.good] <= 0) continue;
+      // "Only surplus" leaves each storage a reserve for the settlement.
+      const spare = request.isSurplusOnly ? (isStorageBuilding(b) ? TRADE_SURPLUS_RESERVE : 0) : 0;
+      if (b.stock[request.good] - b.reserved[request.good] <= spare) continue;
       const d = distance(b.doorX, b.doorY, to.doorX, to.doorY);
       if (d < fromDistance) { fromDistance = d; from = b; }
     }
@@ -420,6 +441,7 @@ function recruitSoldiers(world: World): void {
 // ---------------------------------------------------------------- settler behaviour
 
 function updateSettler(world: World, s: Settler): void {
+  if (s.settlerType === 'donkey') return updateDonkey(world, s);
   if (s.settlerType === 'priest') {
     // Priests rest after casting; otherwise they only walk where they are sent.
     if (s.timer > 0) s.timer--;
@@ -660,6 +682,12 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
   const buildingType = BUILDING_TYPES[home.typeId];
   if (buildingType.warMachine) return decideWarMachine(world, s, home, buildingType.warMachine);
   if (home.typeId === 'small_temple') return decideOffering(world, s, home);
+  if (home.typeId === 'donkey_ranch') {
+    const problem = decideBreeding(world, s, home);
+    setBlocked(world, home, problem);
+    if (problem) s.timer = 20;
+    return;
+  }
   // Workers with nothing to make, such as the healer, simply stay at their post.
   if (!isGatherType(type) && !buildingType.recipe) { s.timer = 20; return; }
   const recipe = buildingType.recipe;
@@ -814,6 +842,11 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
 }
 
 function finishWork(world: World, s: Settler, home: Building, type: SettlerType): void {
+  if (home.typeId === 'donkey_ranch') {
+    finishBreeding(world, home);
+    s.phase = 'inside'; s.timer = 5;
+    return;
+  }
   if (home.typeId === 'small_temple') {
     const player = playerOf(world, home.owner);
     if (player) player.manna++;

@@ -31,7 +31,7 @@ export function walkTo(world: World, s: Settler, goal: number, maxVisited = 12_0
 
 /** Civilians stay on their own land, as in the original; soldiers, specialists, priests and donkeys may leave it. */
 export function isCivilianType(type: SettlerType): boolean {
-  return !isUnitType(type) && !isSpecialistType(type) && type !== 'priest';
+  return !isUnitType(type) && !isSpecialistType(type) && type !== 'priest' && type !== 'donkey';
 }
 
 /** War machines need open ground: as in the original, they cannot cross forest, rocks or mountains. */

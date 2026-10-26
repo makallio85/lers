@@ -77,7 +77,7 @@ export const WAR_MACHINE_TYPES = ['catapult', 'ballista', 'cannon', 'war_gong'] 
 export type WarMachineType = (typeof WAR_MACHINE_TYPES)[number];
 
 export type SettlerType =
-  | 'carrier' | 'digger' | 'builder' | SoldierType | WarMachineType | 'machinist' | 'temple_servant' | 'priest'
+  | 'carrier' | 'digger' | 'builder' | SoldierType | WarMachineType | 'machinist' | 'temple_servant' | 'priest' | 'breeder' | 'donkey'
   | 'woodcutter' | 'forester' | 'carpenter' | 'stonecutter'
   | 'farmer' | 'miller' | 'baker' | 'waterworker' | 'fisher' | 'pig_farmer' | 'butcher'
   | 'miner' | 'smelter' | 'smith' | 'healer'
@@ -115,7 +115,7 @@ export const SETTLER_LABELS: Record<SettlerType, string> = {
   wine_grower: 'Wine grower', charcoal_maker: 'Charcoal maker', brewer: 'Brewer', rice_farmer: 'Rice farmer', distiller: 'Distiller',
   gunpowder_maker: 'Gunpowder maker', beekeeper: 'Beekeeper', mead_maker: 'Mead maker', alchemist: 'Alchemist',
   machinist: 'Machinist', catapult: 'Catapult', ballista: 'Ballista', cannon: 'Cannon', war_gong: 'War gong',
-  temple_servant: 'Temple servant', priest: 'Priest'
+  temple_servant: 'Temple servant', priest: 'Priest', breeder: 'Breeder', donkey: 'Donkey'
 };
 
 export const SETTLER_PLURALS: Record<SettlerType, string> = {
@@ -128,7 +128,7 @@ export const SETTLER_PLURALS: Record<SettlerType, string> = {
   wine_grower: 'Wine growers', charcoal_maker: 'Charcoal makers', brewer: 'Brewers', rice_farmer: 'Rice farmers', distiller: 'Distillers',
   gunpowder_maker: 'Gunpowder makers', beekeeper: 'Beekeepers', mead_maker: 'Mead makers', alchemist: 'Alchemists',
   machinist: 'Machinists', catapult: 'Catapults', ballista: 'Ballistas', cannon: 'Cannons', war_gong: 'War gongs',
-  temple_servant: 'Temple servants', priest: 'Priests'
+  temple_servant: 'Temple servants', priest: 'Priests', breeder: 'Breeders', donkey: 'Donkeys'
 };
 
 export function isSoldierType(type: SettlerType): type is SoldierType {
@@ -404,7 +404,8 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
     { worker: 'beekeeper', races: ['amazons'], recipe: { inputs: {}, output: 'honey', ticks: 270 } }),
   mead_maker: building('mead_maker', 'Mead maker', 'food', 3, 6, 4, 'Mead maker', 'Honey, water', 'Mead',
     { worker: 'mead_maker', races: ['amazons'], recipe: { inputs: { honey: 1, water: 1 }, output: 'mead', ticks: 240 } }),
-  donkey_ranch: building('donkey_ranch', 'Donkey ranch', 'food', 3, 4, 4, 'Breeder', 'Grain, water', 'Donkeys', LATER),
+  donkey_ranch: building('donkey_ranch', 'Donkey ranch', 'food', 3, 4, 4, 'Breeder', 'Grain, water', 'Donkeys for marketplaces',
+    { worker: 'breeder', inputLimits: { grain: 4, water: 4 } }),
 
   guard_tower_small: building('guard_tower_small', 'Small tower', 'military', 2, 2, 3, 'Up to 3 soldiers', 'Soldiers', 'Territory (small)',
     { territoryRadius: 9, garrisonCapacity: 3 }),
@@ -437,7 +438,7 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   residence_large: building('residence_large', 'Large residence', 'misc', 4, 15, 24, 'None', 'Nothing', '40 settlers', { residents: 40 }),
   storage: building('storage', 'Storage area', 'misc', 3, 2, 2, 'None', 'Goods marked for storage', 'Holds 48 goods', { storageCapacity: 48 }),
   healer: building('healer', 'Healer', 'misc', 2, 3, 3, 'Healer', 'Nothing', 'Heals soldiers nearby', { worker: 'healer' }),
-  marketplace: building('marketplace', 'Marketplace', 'misc', 3, 1, 5, 'Donkeys', 'Goods', 'Trade', LATER)
+  marketplace: building('marketplace', 'Marketplace', 'misc', 3, 1, 5, 'Donkeys', 'Goods for its route', 'Caravans to a far storage')
 };
 
 export function costTotal(cost: Partial<GoodAmounts>): number {
@@ -610,3 +611,27 @@ export const RANK_LABELS = ['Private', 'Sergeant', 'Captain'] as const;
 export const PROMOTION_COSTS = [10, 20] as const;
 /** Each rank adds this share to a soldier's health and damage. */
 export const RANK_BONUS = 0.25;
+
+
+// ---------------------------------------------------------------- trade
+
+/** How a marketplace collects goods for its route, as in the original's three trade route settings. */
+export const TRADE_MODE_TYPES = ['surplus', 'construction', 'suspended'] as const;
+export type TradeModeType = (typeof TRADE_MODE_TYPES)[number];
+export const TRADE_MODE_LABELS: Record<TradeModeType, string> = {
+  surplus: 'Only surplus', construction: 'Ahead of construction sites', suspended: 'Suspended'
+};
+/** A trade route amount meaning "as much as there is". */
+export const TRADE_UNLIMITED = -1;
+/** Goods one donkey carries per trip, all of one kind. */
+export const DONKEY_LOAD = 8;
+/** Donkeys a marketplace works with. */
+export const DONKEYS_PER_MARKETPLACE = 4;
+/** Ticks a breeder needs to raise one donkey, from one grain and one water. */
+export const DONKEY_TICKS = 600;
+/** A caravan unloads at the player's storage within this many tiles of the route's end. */
+export const TRADE_UNLOAD_RADIUS = 12;
+/** In "only surplus" mode a storage keeps this many of each good for the settlement. */
+export const TRADE_SURPLUS_RESERVE = 8;
+/** At most this many waypoints before the route's end. */
+export const MAX_TRADE_WAYPOINTS = 3;

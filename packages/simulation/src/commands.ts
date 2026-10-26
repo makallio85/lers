@@ -2,8 +2,8 @@ import {
   BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_REACH,
   RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType, isUnitType, isWarMachineType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodType, SoldierType, SpecialistType, SpellType, ToolType } from './definitions.ts';
-import { SOLDIER_TYPES, SPELL_STATS, SPELL_TYPES } from './definitions.ts';
+import type { BuildingTypeId, GoodType, SoldierType, SpecialistType, SpellType, ToolType, TradeModeType } from './definitions.ts';
+import { MAX_TRADE_WAYPOINTS, SOLDIER_TYPES, SPELL_STATS, SPELL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED } from './definitions.ts';
 import { castSpell, promote, promotionProblem, spellProblem } from './magic.ts';
 import { isMachinePassable } from './movement.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
@@ -42,6 +42,9 @@ export type Command =
   | { type: 'moveSpecialists'; playerId: number; settlerIds: number[]; x: number; y: number }
   | { type: 'castSpell'; playerId: number; priestId: number; spell: SpellType; x: number; y: number }
   | { type: 'promoteSoldiers'; playerId: number; soldierType: SoldierType }
+  | { type: 'setTradeRoute'; playerId: number; buildingId: number; x: number; y: number; waypoints: { x: number; y: number }[] }
+  | { type: 'setTradeGood'; playerId: number; buildingId: number; good: GoodType; amount: number }
+  | { type: 'setTradeMode'; playerId: number; buildingId: number; mode: TradeModeType }
   | { type: 'surrender'; playerId: number };
 
 export type CommandResult = { isAccepted: true; buildingId?: number } | { isAccepted: false; reason: string };
@@ -375,6 +378,35 @@ export function applyCommand(world: World, command: Command): CommandResult {
       const problem = spellProblem(world, priest, command.spell, command.x, command.y);
       if (problem) return refuse(problem);
       castSpell(world, priest, command.spell, command.x, command.y);
+      return accept();
+    }
+    case 'setTradeRoute': {
+      const b = ownBuilding(world, command.playerId, command.buildingId);
+      if (!b || b.typeId !== 'marketplace' || !b.isComplete) return refuse('Choose one of your marketplaces');
+      if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
+      if (!Array.isArray(command.waypoints) || command.waypoints.length > MAX_TRADE_WAYPOINTS) return refuse(`At most ${MAX_TRADE_WAYPOINTS} waypoints`);
+      const waypoints: number[] = [];
+      for (const w of command.waypoints) {
+        if (!w || !Number.isInteger(w.x) || !Number.isInteger(w.y) || !inBounds(world, w.x, w.y)) return refuse('Invalid waypoint');
+        // As in the original, waypoints must be land the player can see or has seen.
+        if (!hasExplored(world, command.playerId, w.x, w.y)) return refuse('Waypoints must be on explored land');
+        waypoints.push(tileIndex(world, w.x, w.y));
+      }
+      b.tradeRoute = { x: command.x, y: command.y, waypoints, goods: b.tradeRoute?.goods ?? {} };
+      return accept();
+    }
+    case 'setTradeGood': {
+      const b = ownBuilding(world, command.playerId, command.buildingId);
+      if (!b || b.typeId !== 'marketplace' || !b.tradeRoute) return refuse('Set the marketplace\'s route first');
+      if (!isKnownGood(command.good) || !isIntIn(command.amount, TRADE_UNLIMITED, 10_000)) return refuse('Malformed command');
+      b.tradeRoute.goods[command.good] = command.amount;
+      return accept();
+    }
+    case 'setTradeMode': {
+      const b = ownBuilding(world, command.playerId, command.buildingId);
+      if (!b || b.typeId !== 'marketplace') return refuse('Choose one of your marketplaces');
+      if (!(TRADE_MODE_TYPES as readonly string[]).includes(command.mode)) return refuse('Malformed command');
+      b.tradeMode = command.mode;
       return accept();
     }
     case 'promoteSoldiers': {
