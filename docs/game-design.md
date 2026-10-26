@@ -61,6 +61,23 @@ These follow The Settlers III as described in its manual (issue #12, phase 1).
 - **Work areas:** woodcutters, stonecutters, foresters, fishers and farms work around a point the player sets, up to 14 tiles from the building and on their own land.
 - **Construction sites:** "Build first" puts a site ahead of all others for materials and crew. Pausing a site suspends it: it gets no materials and no crew until it is resumed.
 
+## Military depth
+
+These follow The Settlers III as described in its manual (issue #12, phase 2).
+
+- **Strength outside your own land:** on its own land a soldier always hits at full strength. Outside it, strength is 60 % with no gold. It rises with the gold bars in the player's storage, reaching full strength at 20 bars.
+- **Healer:** a healer's hut with its healer inside heals the owner's soldiers within 8 tiles who are not fighting, 4 health every second. Tab selects the wounded soldiers outside.
+- **Orders:**
+  - **Waypoints:** Shift + right-click, or the Waypoint button, adds a stop after the current move. Up to 8 stops are queued.
+  - **Patrol:** Alt + right-click walks back and forth between where the soldiers stood and the chosen spot.
+  - **Hold position:** H. Soldiers stay put and fight only what comes into reach.
+  - **Move, no fighting:** soldiers walk on without stopping until they arrive.
+  - **Groups:** Alt + 1–9 saves a group (Ctrl + 1–9 as well), and 1–9 selects it.
+- **Capture rule:** a tower or castle cannot be taken while another occupied military building of its owner covers it with its land. It can still be attacked, and its defenders fight. Once it stands empty, its attackers move on to the building that covers it.
+- **Castle warning:** the owner gets a warning, at most once a minute, when enemy soldiers reach the castle.
+- **Thief:** a free carrier becomes a thief without a tool. Sent near an enemy store, it takes one good and carries it home at half speed. It prefers gold, then weapons, iron and tools. To the enemy it looks like a carrier until an enemy soldier comes within 3 tiles. Soldiers then attack it like a soldier, and it survives about two hits.
+- **Ranks and promotion** cost manna in the original, so they come with temples in phase 4.
+
 ## Pace
 
 At 1× the game runs at the pace of The Settlers III at normal speed, which has no speed setting of its own. These values were timed by watching the original run (screenshots and a stopwatch, nothing decompiled), on 2026-10-25:

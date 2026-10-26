@@ -76,7 +76,7 @@ const BUILD_PLAN: readonly BuildingTypeId[] = [
   'woodcutter', 'stonecutter', 'sawmill', 'forester', 'woodcutter', 'stonecutter',
   'farm', 'waterworks', 'mill', 'bakery', 'fisher',
   'coal_mine', 'iron_mine', 'smelter', 'pig_farm', 'slaughterhouse',
-  'weaponsmith', 'barracks', 'toolsmith', 'storage', 'gold_mine', 'gold_smelter',
+  'weaponsmith', 'barracks', 'toolsmith', 'storage', 'gold_mine', 'gold_smelter', 'healer',
   'woodcutter', 'forester', 'coal_mine', 'farm', 'bakery', 'mill', 'fisher', 'iron_mine', 'coal_mine',
   'weaponsmith', 'sawmill', 'farm', 'stonecutter'
 ];
@@ -237,13 +237,18 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const attacking = obs.ownSoldiers.filter((s) => s.phase === 'attacking').length;
   const army = free.length + attacking;
   const mayTakeCastle = army >= settings.castleArmy && obs.tick >= settings.castleMinutes[mapSize] * TICKS_PER_MINUTE;
+  // A building another visible tower of its owner covers cannot be taken yet; attacking it still thins out
+  // its defenders, so it is a target, but a later one.
+  const isCovered = (t: ObservedBuilding) => obs.otherBuildings.some((o) => o.id !== t.id && o.owner === t.owner && o.isComplete
+    && (o.typeId === 'castle' || o.garrisonCount > 0) && BUILDING_TYPES[o.typeId].territoryRadius > 0
+    && Math.hypot(o.x + o.size / 2 - (t.x + t.size / 2), o.y + o.size / 2 - (t.y + t.size / 2)) <= BUILDING_TYPES[o.typeId].territoryRadius);
   const targets = obs.otherBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0 && spots.canReach(b.doorX, b.doorY)
     && (b.typeId !== 'castle' || mayTakeCastle || obs.otherBuildings.every((o) => o.typeId === 'castle' || BUILDING_TYPES[o.typeId].garrisonCapacity === 0)));
   if (mayAttack && targets.length > 0 && army >= settings.attackArmy && free.length > 0) {
     const cx = free.reduce((sum, s) => sum + s.x, 0) / free.length;
     const cy = free.reduce((sum, s) => sum + s.y, 0) / free.length;
     // Near and weakly held first; a large army goes for the castle to end the match.
-    const cost = (t: (typeof targets)[number]) => Math.hypot(t.doorX - cx, t.doorY - cy) + t.garrisonCount * 6
+    const cost = (t: (typeof targets)[number]) => Math.hypot(t.doorX - cx, t.doorY - cy) + t.garrisonCount * 6 + (isCovered(t) ? 30 : 0)
       - (t.typeId === 'castle' && mayTakeCastle ? 40 : 0);
     targets.sort((a, b) => cost(a) - cost(b) || a.id - b.id);
     const target = targets[0];

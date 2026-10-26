@@ -118,9 +118,10 @@ test('taking an undefended tower changes its owner and destroys the loser\'s bui
   const world = createMatch(4);
   const enemyCastle = castleOf(world, 1)!;
   // An enemy tower with nobody inside, and an enemy woodcutter next to it.
-  const tower = finished(world, 'guard_tower_small', 1, enemyCastle.x - 8, enemyCastle.y);
+  // Far enough from the castle that the castle's land does not cover it.
+  const tower = finished(world, 'guard_tower_small', 1, enemyCastle.x - 20, enemyCastle.y);
   tower.garrisonWanted = 0;
-  const hut = finished(world, 'woodcutter', 1, enemyCastle.x - 8, enemyCastle.y + 4);
+  const hut = finished(world, 'woodcutter', 1, enemyCastle.x - 20, enemyCastle.y + 4);
   const attacker = newSettler(world, 0, 'swordsman', tower.doorX, tower.doorY);
   attacker.isInside = false; attacker.phase = 'attacking'; attacker.attackId = tower.id;
   // Remove the castle's defenders from the picture so only the tower matters.

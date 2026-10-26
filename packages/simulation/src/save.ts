@@ -6,7 +6,7 @@ import type { BotType } from './bot.ts';
 import type { Building, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 
 function botType(value: unknown): BotType {
   if (typeof value !== 'string' || !(BOT_TYPES as readonly string[]).includes(value)) fail('a bot type is unknown');
@@ -17,7 +17,7 @@ const PHASES: readonly SettlerPhase[] = [
   'idle', 'toPickup', 'toDrop', 'toStore', 'toSite', 'leveling', 'building',
   'toTool', 'toWork', 'inside', 'toTarget', 'working', 'returning',
   'toRecruit', 'toGarrison', 'defending', 'moving', 'attacking',
-  'prospecting', 'claiming'
+  'prospecting', 'claiming', 'stealing'
 ];
 const MADE_GOODS: readonly string[] = [...TOOL_TYPES, ...WEAPON_TYPES];
 const STAT_KEYS: readonly (keyof PlayerStats)[] = [
@@ -208,7 +208,10 @@ export function loadGame(data: unknown): World {
       targetTile: int(raw.targetTile, -1, n - 1, 'settler target tile'), isInside: bool(raw.isInside, 'settler inside'),
       health: num(raw.health, 0, 1000, 'health'), cooldown: int(raw.cooldown, 0, 1000, 'cooldown'),
       enemyId: nullableInt(raw.enemyId, 'enemy'), attackId: nullableInt(raw.attackId, 'attack target'),
-      workCentre: int(raw.workCentre, -1, n - 1, 'specialist work area')
+      workCentre: int(raw.workCentre, -1, n - 1, 'specialist work area'),
+      waypoints: intArray(raw.waypoints, Array.isArray(raw.waypoints) && raw.waypoints.length <= 20 ? raw.waypoints.length : -1, 0, n - 1, 'waypoints'),
+      isPatrolling: bool(raw.isPatrolling, 'patrol'), isHolding: bool(raw.isHolding, 'hold position'),
+      isIgnoringEnemies: bool(raw.isIgnoringEnemies, 'move without fighting')
     };
   });
 

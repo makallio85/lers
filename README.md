@@ -38,7 +38,7 @@ Add `?seed=<number>` to the address to replay the same map.
 Controls:
 - Map: arrow keys, right- or middle-drag to scroll (one finger on touch screens); mouse wheel or pinch to zoom; click the minimap to jump.
 - Build: Q/W/E/R open the build groups (Resources, Food, Military, Misc.), A/S/D/F the goods views, as in The Settlers III. Choose a building, then click a green marker (touch: tap to position, then press Place). Esc or right-click cancels.
-- Soldiers: left-drag a box (touch: Select, then drag), click one soldier, or use All in view. Right-click moves them, or attacks when you right-click an enemy tower or castle; the Move and Attack buttons do the same by touch. Ctrl+1–9 saves a group, 1–9 selects it.
+- Soldiers: left-drag a box (touch: Select, then drag), click one soldier, or use All in view. Right-click moves them, or attacks when you right-click an enemy tower or castle; the Move and Attack buttons do the same by touch. Shift + right-click adds a waypoint, Alt + right-click patrols, H holds position, Tab selects the wounded. Alt+1–9 (or Ctrl+1–9) saves a group, 1–9 selects it.
 - Settlers: Z/X/C open Counts, Occupations and Specialists. Specialists (geologists, pioneers) are selected and sent like soldiers. On a gatherer's card, Set work area and then a click moves where it works; a construction site has Build first and Suspend.
 - Space pauses; 1×, 2× and 4× set the speed (1× is the pace of The Settlers III). Menu saves, loads, starts a new match (map size: small, medium or large; opponent: calm or aggressive) or a sandbox, and surrenders.
 

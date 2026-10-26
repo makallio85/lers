@@ -72,13 +72,15 @@ export type SettlerType =
   | 'carrier' | 'digger' | 'builder' | SoldierType
   | 'woodcutter' | 'forester' | 'carpenter' | 'stonecutter'
   | 'farmer' | 'miller' | 'baker' | 'waterworker' | 'fisher' | 'pig_farmer' | 'butcher'
-  | 'miner' | 'smelter' | 'smith' | SpecialistType;
+  | 'miner' | 'smelter' | 'smith' | 'healer' | SpecialistType;
 
 /** Settlers the player makes from free carriers in the Settlers tab and sends out by hand. */
-export const SPECIALIST_TYPES = ['geologist', 'pioneer'] as const;
+export const SPECIALIST_TYPES = ['geologist', 'pioneer', 'thief'] as const;
 export type SpecialistType = (typeof SPECIALIST_TYPES)[number];
-/** The tool a carrier takes from storage to become each specialist; it goes back when the specialist does. */
-export const SPECIALIST_TOOLS: Record<SpecialistType, ToolType> = { geologist: 'hammer', pioneer: 'shovel' };
+/** The tool a carrier takes from storage to become each specialist (none for a thief); it goes back when the specialist does. */
+export const SPECIALIST_TOOLS: Record<SpecialistType, ToolType | null> = { geologist: 'hammer', pioneer: 'shovel', thief: null };
+/** A thief can take this many hits; soldiers who come close see through the disguise. */
+export const THIEF_HEALTH = 30;
 
 export function isSpecialistType(type: SettlerType): type is SpecialistType {
   return (SPECIALIST_TYPES as readonly string[]).includes(type);
@@ -90,7 +92,7 @@ export const SETTLER_LABELS: Record<SettlerType, string> = {
   woodcutter: 'Woodcutter', forester: 'Forester', carpenter: 'Carpenter', stonecutter: 'Stonecutter',
   farmer: 'Farmer', miller: 'Miller', baker: 'Baker', waterworker: 'Waterworker', fisher: 'Fisher',
   pig_farmer: 'Pig farmer', butcher: 'Butcher', miner: 'Miner', smelter: 'Smelter', smith: 'Smith',
-  geologist: 'Geologist', pioneer: 'Pioneer'
+  healer: 'Healer', geologist: 'Geologist', pioneer: 'Pioneer', thief: 'Thief'
 };
 
 export const SETTLER_PLURALS: Record<SettlerType, string> = {
@@ -99,7 +101,7 @@ export const SETTLER_PLURALS: Record<SettlerType, string> = {
   woodcutter: 'Woodcutters', forester: 'Foresters', carpenter: 'Carpenters', stonecutter: 'Stonecutters',
   farmer: 'Farmers', miller: 'Millers', baker: 'Bakers', waterworker: 'Waterworkers', fisher: 'Fishers',
   pig_farmer: 'Pig farmers', butcher: 'Butchers', miner: 'Miners', smelter: 'Smelters', smith: 'Smiths',
-  geologist: 'Geologists', pioneer: 'Pioneers'
+  healer: 'Healers', geologist: 'Geologists', pioneer: 'Pioneers', thief: 'Thieves'
 };
 
 export function isSoldierType(type: SettlerType): type is SoldierType {
@@ -124,6 +126,16 @@ export const SOLDIER_STATS: Record<SoldierType, SoldierStats> = {
 };
 
 export const WEAPON_SOLDIERS: Record<WeaponType, SoldierType> = { sword: 'swordsman', spear: 'spearman', bow: 'bowman' };
+
+/**
+ * On their own land soldiers always fight at full strength. Outside it, as in the original game, strength
+ * depends on the gold bars the player has in storage: this share with none, full strength from this many bars.
+ */
+export const OUTSIDE_MIN_STRENGTH = 0.6;
+export const GOLD_FOR_FULL_STRENGTH = 20;
+/** A healer's hut heals the owner's soldiers within this many tiles who are not fighting. */
+export const HEAL_RADIUS = 8;
+export const HEAL_PER_ROUND = 4;
 
 export type BuildingGroupType = 'resources' | 'food' | 'military' | 'misc';
 
@@ -291,7 +303,7 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   residence_medium: building('residence_medium', 'Medium residence', 'misc', 3, 5, 8, 'None', 'Nothing', '20 settlers', { residents: 20 }),
   residence_large: building('residence_large', 'Large residence', 'misc', 4, 15, 24, 'None', 'Nothing', '40 settlers', { residents: 40 }),
   storage: building('storage', 'Storage area', 'misc', 3, 2, 2, 'None', 'Goods marked for storage', 'Holds 48 goods', { storageCapacity: 48 }),
-  healer: building('healer', 'Healer', 'misc', 2, 3, 3, 'Healer', 'Nothing', 'Heals soldiers', LATER),
+  healer: building('healer', 'Healer', 'misc', 2, 3, 3, 'Healer', 'Nothing', 'Heals soldiers nearby', { worker: 'healer' }),
   marketplace: building('marketplace', 'Marketplace', 'misc', 3, 1, 5, 'Donkeys', 'Goods', 'Trade', LATER)
 };
 
