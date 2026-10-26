@@ -49,6 +49,8 @@ export interface Ghost {
 }
 
 export interface ViewState {
+  /** How fast the game runs: 0 while paused or over, so everything on the map holds still. */
+  speed: number;
   ghost: Ghost | null;
   /** Top-left tiles where the building being placed fits. */
   markers: readonly number[];
@@ -171,6 +173,9 @@ export class MapView {
   private fogCanvas = document.createElement('canvas');
   private mapVersion = -1;
   private territoryVersion = -1;
+  /** Milliseconds of game time shown so far: the clock every animation runs on, still while the game is paused. */
+  private clock = 0;
+  private lastRender: number | undefined;
   private fogKey = -1;
   private growthKey = -1;
   private world: World;
@@ -416,7 +421,7 @@ export class MapView {
     // A building that leaves the world (demolished, burnt down or brought down by war machines) collapses:
     // it sinks into a cloud of dust and fades. One that only went out of sight just disappears.
     const existing = new Set(world.buildings.map((b) => b.id));
-    const now = performance.now();
+    const now = this.clock;
     for (const [id, v] of this.buildingViews) {
       if (alive.has(id)) continue;
       if (!existing.has(id) && v.body.visible && v.body.texture) {
@@ -561,7 +566,7 @@ export class MapView {
     if (b.typeId !== 'mill' || !b.isComplete) { v.sails.visible = false; return; }
     const worker = b.workerId === null ? undefined : this.world.settlers.find((s) => s.id === b.workerId);
     const isTurning = !!worker && worker.phase === 'working' && !b.isPaused;
-    const frame = isTurning ? Math.floor(performance.now() / 90) % 8 : b.id % 8;
+    const frame = isTurning ? Math.floor(this.clock / 90) % 8 : b.id % 8;
     const art = this.bank.buildingPart(this.raceOf(b.owner), `mill_sails_${frame}`);
     v.sails.visible = !!art && v.body.visible;
     if (art) this.place(v.sails, art, cx, cy);
@@ -627,7 +632,7 @@ export class MapView {
       const worker = b.workerId === null ? undefined : this.world.settlers.find((s) => s.id === b.workerId);
       if (worker && worker.phase === 'working' && !b.isPaused) {
         // Smoke rising from the roof while the fire is lit: three puffs that grow and fade as they climb.
-        const now = performance.now();
+        const now = this.clock;
         for (let k = 0; k < 3; k++) {
           const t = (now / 1600 + k / 3 + b.id * 0.17) % 1;
           g.circle(base.x + b.size * 4 + Math.sin(t * 4 + k) * 4, top + 14 - t * 40, 4 + t * 8).fill({ color: 0xd9d4ca, alpha: 0.75 * (1 - t) });
@@ -982,7 +987,10 @@ export class MapView {
   }
 
   render(alpha: number, state: ViewState): void {
-    const now = performance.now();
+    const real = performance.now();
+    this.clock += Math.min(250, real - (this.lastRender ?? real)) * state.speed;
+    this.lastRender = real;
+    const now = this.clock;
     if (this.territoryVersion !== this.world.territoryVersion) {
       this.territoryVersion = this.world.territoryVersion;
       this.drawTerritory();
