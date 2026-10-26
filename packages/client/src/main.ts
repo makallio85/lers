@@ -2,9 +2,9 @@ import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
-  placementProblem, saveGame, stepMatch, tileIndex, updateVision
+  placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS
 } from '../../simulation/src/index.ts';
-import type { BotType, MapSizeType, RaceType, SpecialistType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotType, MapSizeType, RaceType, SoldierType, SpecialistType, SpellType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
@@ -90,6 +90,8 @@ const ui = {
   selectedSoldiers: new Set<number>(),
   groups: new Map<number, number[]>(),
   orderMode: null as OrderMode,
+  /** The spell a selected priest is aiming, while the order mode is 'spell'. */
+  spell: null as SpellType | null,
   selectionBox: null as { x0: number; y0: number; x1: number; y1: number } | null,
   speed: 1,
   isDrawerOpen: true,
@@ -193,7 +195,7 @@ function renderHint(): void {
     return;
   }
   if (!ui.placing) { els.hint.hidden = true; return; }
-  const label = BUILDING_TYPES[ui.placing].label;
+  const label = buildingLabel(ui.placing, world.players[PLAYER].raceType);
   const problem = performance.now() < ui.problemUntil ? ui.problem : ui.ghost && !ui.ghost.isValid ? ui.ghostProblem : null;
   const instructions = ui.markers.length === 0 ? 'No free spot in your territory fits this building.'
     : ui.isTouchPlacement
@@ -207,7 +209,7 @@ function renderHint(): void {
 
 /** Settlers the player can select and send: soldiers, war machines and specialists outside buildings. */
 function isOwnUnit(s: Settler): boolean {
-  return s.owner === PLAYER && !s.isInside && (isUnitType(s.settlerType) ? s.health > 0 : isSpecialistType(s.settlerType));
+  return s.owner === PLAYER && !s.isInside && (isUnitType(s.settlerType) ? s.health > 0 : isSpecialistType(s.settlerType) || s.settlerType === 'priest');
 }
 
 function selectedSoldierList(): Settler[] {
@@ -232,7 +234,8 @@ function renderOrders(): void {
   const soldiers = selectedSoldierList();
   const isShown = world.winner === null && !ui.placing && (soldiers.length > 0 || ui.orderMode !== null || (isMatch() && ui.tab === 'military'));
   els.orders.hidden = !isShown;
-  if (isShown) els.orders.innerHTML = renderOrderBar(soldiers, ui.orderMode, isTouchDevice(), outsideStrength(storedGold(world, PLAYER)));
+  if (isShown) els.orders.innerHTML = renderOrderBar(soldiers, ui.orderMode, isTouchDevice(), outsideStrength(storedGold(world, PLAYER)),
+    { manna: world.players[PLAYER].manna, race: world.players[PLAYER].raceType, spell: ui.spell });
 }
 
 function renderEnd(): void {
@@ -447,7 +450,7 @@ function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
 function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'auto' | 'waypoint' | 'patrol' | 'free'): void {
   const units = selectedSoldierList();
   const soldierIds = units.filter((s) => isUnitType(s.settlerType)).map((s) => s.id);
-  const specialistIds = units.filter((s) => isSpecialistType(s.settlerType)).map((s) => s.id);
+  const specialistIds = units.filter((s) => isSpecialistType(s.settlerType) || s.settlerType === 'priest').map((s) => s.id);
   if (units.length === 0) return;
   const b = buildingAt(clientX, clientY);
   const tile = view.screenToTile(clientX, clientY);
@@ -472,6 +475,20 @@ function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'au
   }
   // Waypoint mode stays on, so the player can tap one spot after another until Done.
   if (mode !== 'waypoint' || ui.orderMode !== 'waypoint') ui.orderMode = null;
+  renderOrders();
+}
+
+/** Casts the aimed spell on the spot with the selected priest that can (the nearest one first). */
+function castAt(clientX: number, clientY: number): void {
+  const spell = ui.spell;
+  if (!spell) return;
+  const tile = view.screenToTile(clientX, clientY);
+  const priests = selectedSoldierList().filter((s) => s.settlerType === 'priest')
+    .sort((a, b) => Math.hypot(a.x - tile.x, a.y - tile.y) - Math.hypot(b.x - tile.x, b.y - tile.y));
+  const able = priests.find((p) => spellProblem(world, p, spell, tile.x, tile.y) === null);
+  if (!able) { showProblem(priests.length ? spellProblem(world, priests[0], spell, tile.x, tile.y)! : 'Select a priest first'); return; }
+  submit({ type: 'castSpell', playerId: PLAYER, priestId: able.id, spell, x: tile.x, y: tile.y });
+  ui.orderMode = null; ui.spell = null;
   renderOrders();
 }
 
@@ -583,6 +600,7 @@ function endPointer(e: PointerEvent): void {
   }
   // As in the original: Shift + right-click adds a waypoint, Alt + right-click patrols.
   if (isRight) { orderAt(e.clientX, e.clientY, e.shiftKey ? 'waypoint' : e.altKey ? 'patrol' : 'auto'); return; }
+  if (ui.orderMode === 'spell') { castAt(e.clientX, e.clientY); return; }
   if (ui.orderMode && ui.orderMode !== 'select') { orderAt(e.clientX, e.clientY, ui.orderMode); return; }
   tapAt(e.clientX, e.clientY, e.shiftKey);
 }
@@ -764,6 +782,15 @@ document.addEventListener('click', (e) => {
       if (ids.length && castle) submit({ type: 'moveSoldiers', playerId: PLAYER, soldierIds: ids, x: castle.doorX, y: castle.doorY + 2 });
       break;
     }
+    case 'cast-mode': {
+      const spell = target.dataset.spell as SpellType;
+      const isOff = ui.orderMode === 'spell' && ui.spell === spell;
+      ui.orderMode = isOff ? null : 'spell'; ui.spell = isOff ? null : spell;
+      renderOrders(); break;
+    }
+    case 'promote':
+      submit({ type: 'promoteSoldiers', playerId: PLAYER, soldierType: target.dataset.type as SoldierType });
+      renderPanel(); break;
     case 'select-hall-machines': {
       const hall = buildingById(world, ui.selectedId);
       if (!hall) break;
@@ -867,10 +894,17 @@ function frame(now: number): void {
   }
   view.render(ui.speed > 0 && world.winner === null ? accumulator / TICK_MS : 1, {
     ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId, hoveredId: ui.hoveredId,
-    selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown()
+    selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown(), spellRange: spellRangeShown()
   });
   if (now - lastLive > 250) { lastLive = now; refreshLive(); }
   requestAnimationFrame(frame);
+}
+
+/** While a priest aims a spell that needs him near: how far he reaches. */
+function spellRangeShown(): { x: number; y: number; radius: number } | null {
+  if (ui.orderMode !== 'spell' || !ui.spell || SPELL_STATS[ui.spell].isRanged) return null;
+  const priest = selectedSoldierList().find((s) => s.settlerType === 'priest');
+  return priest ? { x: priest.x, y: priest.y, radius: SPELL_RANGE } : null;
 }
 
 /** The selected gatherer's work area, or the one being set. */
