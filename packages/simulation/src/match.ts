@@ -3,6 +3,7 @@ import type { BuildingTypeId, MapSizeType, RaceType } from './definitions.ts';
 import { BOT_DECISION_TICKS, decideBot } from './bot.ts';
 import type { BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
+import { isMachinePassable } from './movement.ts';
 import { reachableFrom } from './pathfinding.ts';
 import type { Command, CommandResult } from './commands.ts';
 import { step } from './step.ts';
@@ -88,9 +89,21 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
     .filter((b) => b.owner === playerId && BUILDING_TYPES[b.typeId].territoryRadius > 0)
     .map((b) => ({ x: b.doorX, y: b.doorY }));
 
+  const machineReach = new Map<number, (tile: number) => boolean>();
   return {
     canReach(x: number, y: number) {
       return isNearReachable(x, y);
+    },
+    canFireAt(fromX: number, fromY: number, x: number, y: number, range: number) {
+      const start = tileIndex(world, fromX, fromY);
+      let reach = machineReach.get(start);
+      if (!reach) { reach = reachableFrom(world, start, isMachinePassable); machineReach.set(start, reach); }
+      for (let ty = Math.floor(y - range); ty <= Math.ceil(y + range); ty++) {
+        for (let tx = Math.floor(x - range); tx <= Math.ceil(x + range); tx++) {
+          if (inBounds(world, tx, ty) && Math.hypot(tx - x, ty - y) <= range && reach(tileIndex(world, tx, ty))) return true;
+        }
+      }
+      return false;
     },
     prospectTile() {
       // The nearest seen mountain without signs yet, on own land first.

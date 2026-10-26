@@ -14,10 +14,12 @@ SIZES = {
     'bakery': 3, 'waterworks': 2, 'fisher': 2, 'pig_farm': 3, 'slaughterhouse': 3, 'winery': 3, 'brewery': 3, 'rice_farm': 3,
     'distillery': 3, 'beekeeper': 2, 'mead_maker': 3, 'donkey_ranch': 3, 'guard_tower_small': 2, 'guard_tower_large': 3, 'castle': 4,
     'lookout': 2, 'barracks': 3, 'weaponsmith': 3, 'gunpowder_maker': 3, 'residence_small': 2, 'residence_medium': 3,
-    'residence_large': 4, 'storage': 3, 'healer': 2, 'marketplace': 3}
+    'residence_large': 4, 'storage': 3, 'healer': 2, 'marketplace': 3,
+    'catapult_hall': 3, 'ballista_hall': 3, 'cannon_hall': 3, 'gong_hall': 3}
 ONLY = {'gem_mine': ('egyptians', 'amazons'), 'sulfur_mine': ('asians', 'amazons'), 'charcoal_maker': ('romans',), 'alchemist': ('amazons',),
         'winery': ('romans',), 'brewery': ('egyptians',), 'rice_farm': ('asians',), 'distillery': ('asians',), 'beekeeper': ('amazons',),
-        'mead_maker': ('amazons',), 'gunpowder_maker': ('asians',)}
+        'mead_maker': ('amazons',), 'gunpowder_maker': ('asians',),
+        'catapult_hall': ('romans',), 'ballista_hall': ('egyptians',), 'cannon_hall': ('asians',), 'gong_hall': ('amazons',)}
 CANVAS = {2: 640, 3: 832, 4: 1024}
 
 
@@ -423,6 +425,24 @@ def recipe(b, typeId):
         for (x, y, st) in [(-0.6, -0.5, 'stall-red'), (0.6, -0.5, 'stall-green'), (-0.6, 0.6, 'stall-green'), (0.6, 0.6, 'stall-red')]:
             s.put(TOWN + st + '.glb', x, y, 0, 0, 0.9)
         b.crates(-0.3, -1.2, 2); b.barrels(0.9, -1.2, 2); b.sacks(0.0, 0.0, 3)
+    elif typeId in ('catapult_hall', 'ballista_hall', 'cannon_hall', 'gong_hall'):
+        # A big workshop with its machine standing in the yard, and parts waiting.
+        b.body(2.2, 1.4, -0.35, 0.45, roof='high', wood=True)
+        if typeId in ('catapult_hall', 'ballista_hall'):
+            s.put(CASTLE + ('siege-catapult.glb' if typeId == 'catapult_hall' else 'siege-ballista.glb'), 0.75, -0.85, 0, 200, 0.5)
+        elif typeId == 'cannon_hall':
+            s.box(0.8, -0.85, 0.08, 0.5, 0.26, 0.08, b.WOOD)
+            for y in (-1.02, -0.68): s.cyl(0.7, y, 0.02, 0.14, 0.04, b.WOOD, 14, rot=(math.pi / 2, 0, 0)).location.z = 0.14
+            barrel = s.cyl(0.9, -0.85, 0.26, 0.075, 0.6, b.IRON, 16, rot=(0, math.pi / 2 - 0.2, 0)); barrel.location = (0.9, -0.85, 0.28)
+            b.barrels(-1.1, -1.0, 2)
+        else:
+            s.box(0.8, -0.85, 0.08, 0.55, 0.32, 0.07, b.WOOD)
+            for y in (-0.98, -0.72): s.box(0.8, y, 0.15, 0.04, 0.04, 0.6, b.WOOD)
+            s.box(0.8, -0.85, 0.74, 0.05, 0.34, 0.04, b.WOOD)
+            bpy.ops.mesh.primitive_cylinder_add(vertices=28, radius=0.24, depth=0.03, location=(0.8, -0.85, 0.45))
+            gong = bpy.context.object; gong.rotation_euler = (0, math.pi / 2, 0); gong.data.materials.append(b.GOLD)
+        s.put(SURV + 'workbench-anvil.glb', -0.95, -0.95, 0, 0, 0.8)
+        for i in range(3): s.box(-0.35 + i * 0.18, -1.15, 0, 0.14, 0.07, 0.06, b.IRON)
     else:
         raise KeyError(typeId)
 

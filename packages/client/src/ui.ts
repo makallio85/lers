@@ -1,7 +1,8 @@
 import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
   GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
-  costTotal, distributedGoods, goodCount, isMilitaryBuilding, isSoldierType, isStorageBuilding, settlerById
+  costTotal, distributedGoods, goodCount, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
+  BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES
 } from '../../simulation/src/index.ts';
 import type {
   BotType, Building, BuildingGroupType, MapSizeType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, World
@@ -431,12 +432,30 @@ function buildingStatus(world: World, b: Building): { text: string; isWarning: b
   const worker = settlerById(world, b.workerId);
   if (type.worker && !worker) return { text: 'Waiting for a worker', isWarning: false };
   if (worker && (worker.phase === 'toWork' || worker.phase === 'toTool')) return { text: 'Worker on the way', isWarning: false };
+  if (type.warMachine && worker?.phase === 'working') {
+    const done = 1 - worker.timer / WAR_MACHINE_STATS[type.warMachine].buildTicks;
+    return { text: `Building a ${SETTLER_LABELS[type.warMachine].toLowerCase()} · ${Math.floor(done * 100)}%`, isWarning: false };
+  }
+  if (type.warMachine) {
+    const out = machinesOf(world, b).length;
+    if (out >= WAR_MACHINES_PER_HALL) return { text: `All ${WAR_MACHINES_PER_HALL} ${SETTLER_PLURALS[type.warMachine].toLowerCase()} are out`, isWarning: false };
+  }
   if (b.typeId === 'healer') {
     const wounded = world.settlers.filter((s) => s.owner === b.owner && isSoldierType(s.settlerType) && !s.isInside
       && s.health < SOLDIER_STATS[s.settlerType].health && Math.hypot(s.x - b.doorX, s.y - b.doorY) <= HEAL_RADIUS).length;
     return { text: `Heals your soldiers within ${HEAL_RADIUS} tiles · ${wounded} wounded nearby`, isWarning: false };
   }
   return { text: 'Working', isWarning: false };
+}
+
+/** A hall's war machines in the field. */
+export function machinesOf(world: World, b: Building): Settler[] {
+  return world.settlers.filter((s) => s.homeId === b.id && isWarMachineType(s.settlerType) && s.health > 0 && !s.isInside);
+}
+
+function structureBar(b: Building): string {
+  const max = BUILDING_STRUCTURE[b.typeId]!, left = Math.max(0, max - b.damage);
+  return `<div class="structure"><span>Structure ${Math.round(left)} of ${max}</span><span class="bar" aria-hidden="true"><span style="width:${(left / max) * 100}%"></span></span></div>`;
 }
 
 export function renderSelection(world: World, b: Building, owner: number, isConfirmingDemolish: boolean, selectedSoldiers: number): string {
@@ -448,8 +467,9 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
       <div class="detail-head"><span class="detail-title">Enemy ${type.label.toLowerCase()}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
       ${canAttack ? `<span>${b.garrison.length} ${b.garrison.length === 1 ? 'defender' : 'defenders'} inside</span>`
         : `<span class="muted">${isMilitaryBuilding(b) ? 'Still being built' : 'Not a military building'}</span>`}
+      ${b.damage > 0 && BUILDING_STRUCTURE[b.typeId] ? structureBar(b) : ''}
       ${cover ? `<span class="status-warning">Covered by the ${BUILDING_TYPES[cover.typeId].label.toLowerCase()} behind it: it cannot be taken until that one falls. Attacking still fights its defenders.</span>` : ''}
-      ${canAttack ? `<div class="actions"><button type="button" class="primary" data-action="attack-selected" ${selectedSoldiers > 0 ? '' : 'disabled'}>${selectedSoldiers > 0 ? `Attack with ${selectedSoldiers} soldiers` : 'Select soldiers to attack'}</button></div>` : ''}`;
+      ${canAttack ? `<div class="actions"><button type="button" class="primary" data-action="attack-selected" ${selectedSoldiers > 0 ? '' : 'disabled'}>${selectedSoldiers > 0 ? `Attack with ${selectedSoldiers} selected` : 'Select soldiers or war machines to attack'}</button></div>` : ''}`;
   }
   const status = buildingStatus(world, b);
   const lines: string[] = [];
@@ -462,7 +482,14 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
     if (isMilitaryBuilding(b)) {
       lines.push(`<dt>Soldiers</dt><dd>${b.garrison.length} inside</dd>`);
     }
-    if (b.typeId !== 'castle') {
+    if (b.damage > 0 && BUILDING_STRUCTURE[b.typeId]) lines.push(`<dt>Structure</dt><dd>${Math.max(0, Math.round(BUILDING_STRUCTURE[b.typeId]! - b.damage))} of ${BUILDING_STRUCTURE[b.typeId]}</dd>`);
+    if (type.warMachine) {
+      const stats = WAR_MACHINE_STATS[type.warMachine];
+      lines.push(`<dt>${SETTLER_PLURALS[type.warMachine]} out</dt><dd>${machinesOf(world, b).length} of ${WAR_MACHINES_PER_HALL}</dd>`);
+      lines.push(`<dt>Ammunition (${GOOD_LABELS[stats.ammo].toLowerCase()})</dt><dd>${b.input[stats.ammo]}</dd>`);
+      const parts = GOOD_TYPES.filter((g) => stats.parts[g]).map((g) => `${GOOD_LABELS[g].toLowerCase()} ${Math.min(b.input[g], stats.parts[g]!)}/${stats.parts[g]}`);
+      lines.push(`<dt>Parts for the next one</dt><dd>${parts.join(' · ')}</dd>`);
+    } else if (b.typeId !== 'castle') {
       for (const g of GOOD_TYPES) {
         if (b.input[g] > 0) lines.push(`<dt>${GOOD_LABELS[g]} in</dt><dd>${b.input[g]}</dd>`);
         if (b.stock[g] > 0) lines.push(`<dt>${GOOD_LABELS[g]}</dt><dd>${b.stock[g]}${isStorageBuilding(b) ? '' : ' ready'}</dd>`);
@@ -486,6 +513,7 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
         ${!b.isComplete ? `<button type="button" class="${b.isPriority ? 'primary' : 'secondary'}" data-action="toggle-priority" aria-pressed="${b.isPriority}">Build first</button>` : ''}
         ${hasWorkArea ? `<button type="button" class="secondary" data-action="work-area">Set work area</button>` : ''}
         ${canPause ? `<button type="button" class="secondary" data-action="toggle-pause">${pauseLabel}</button>` : ''}
+        ${type.warMachine && b.isComplete ? `<button type="button" class="secondary" data-action="select-hall-machines" ${machinesOf(world, b).length ? '' : 'disabled'}>Select its ${SETTLER_PLURALS[type.warMachine].toLowerCase()}</button>` : ''}
         <button type="button" class="secondary" data-action="demolish">${b.isComplete ? 'Demolish' : 'Cancel construction'}</button>
       </div>`;
   return `
@@ -499,19 +527,31 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
 /** The order bar: what is selected and what to do with it. Order modes make every order reachable by touch. */
 export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boolean, strength: number): string {
   const soldiers = units.filter((s) => isSoldierType(s.settlerType));
-  const types: SettlerType[] = [...SOLDIER_TYPES, ...SPECIALIST_TYPES];
+  const machines = units.filter((s) => isWarMachineType(s.settlerType));
+  const fighters = units.filter((s) => isUnitType(s.settlerType));
+  const types: SettlerType[] = [...SOLDIER_TYPES, ...WAR_MACHINE_TYPES, ...SPECIALIST_TYPES];
   const byType = types.map((t) => ({ t, n: units.filter((s) => s.settlerType === t).length })).filter((x) => x.n > 0);
+  const onlyType = byType.length === 1 ? byType[0] : null;
   const summary = units.length === 0 ? 'Nobody selected'
-    : soldiers.length === units.length ? `${units.length} ${units.length === 1 ? 'soldier' : 'soldiers'} selected` : `${units.length} selected`;
-  const detail = [...byType.map((x) => `${x.n} ${(x.n === 1 ? SETTLER_LABELS[x.t] : SETTLER_PLURALS[x.t]).toLowerCase()}`),
+    : soldiers.length === units.length ? `${units.length} ${units.length === 1 ? 'soldier' : 'soldiers'} selected`
+    : onlyType && machines.length === units.length ? `${units.length} ${(units.length === 1 ? SETTLER_LABELS[onlyType.t] : SETTLER_PLURALS[onlyType.t]).toLowerCase()} selected`
+    : `${units.length} selected`;
+  const shots = machines.slice(0, 4).map((m) => {
+    const stats = WAR_MACHINE_STATS[m.settlerType as (typeof WAR_MACHINE_TYPES)[number]];
+    return m.phase === 'returning' ? 'reloading' : `${m.ammo} of ${stats.shots} shots`;
+  });
+  const detail = [...(machines.length === units.length ? [] : byType.map((x) => `${x.n} ${(x.n === 1 ? SETTLER_LABELS[x.t] : SETTLER_PLURALS[x.t]).toLowerCase()}`)),
+    ...shots, ...(machines.length > 0 ? ['they reload at their hall by themselves'] : []),
     ...(soldiers.length > 0 ? [`strength ${Math.round(strength * 100)} % outside your land`] : [])].join(' · ');
   const hint = mode === 'select' ? (isTouch ? 'Drag over soldiers to select them' : 'Drag a box around soldiers')
     : mode === 'move' ? 'Tap or click where they should go'
-    : mode === 'attack' ? 'Tap or click an enemy tower or castle'
+    : mode === 'attack' ? (machines.length > 0 ? 'Tap or click an enemy tower or castle to fire at it' : 'Tap or click an enemy tower or castle')
     : mode === 'waypoint' ? 'Tap or click each spot in turn, then press Done'
     : mode === 'patrol' ? 'Tap or click the far end of the patrol'
     : mode === 'free' ? 'Tap or click where they should go; they will not stop to fight'
-    : isTouch ? '' : 'Right-click: move or attack · Shift: waypoint · Alt: patrol · H: hold';
+    : isTouch ? (machines.length > 0 ? 'War machines need open ground: no forest, rocks or mountains' : '')
+    : machines.length > 0 ? 'Right-click an enemy tower or castle: fire at it · right-click ground: move · Shift: waypoint. War machines need open ground: no forest, rocks or mountains.'
+    : 'Right-click: move or attack · Shift: waypoint · Alt: patrol · H: hold';
   const modeButton = (id: Exclude<OrderMode, null>, label: string, isDisabled = false) =>
     `<button type="button" class="order-mode" data-action="order-mode" data-mode="${id}" aria-pressed="${mode === id}" ${isDisabled ? 'disabled' : ''}>${label}</button>`;
   return `
@@ -520,9 +560,9 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
       ${modeButton('select', 'Select')}
       <button type="button" class="order-mode" data-action="select-in-view">All in view</button>
       ${modeButton('move', 'Move', units.length === 0)}
-      ${modeButton('attack', 'Attack', soldiers.length === 0)}
-      ${mode === 'waypoint' ? `<button type="button" class="order-mode" data-action="order-mode" data-mode="waypoint" aria-pressed="true">Done</button>` : modeButton('waypoint', 'Waypoint', soldiers.length === 0)}
-      ${modeButton('patrol', 'Patrol', soldiers.length === 0)}
+      ${modeButton('attack', soldiers.length === 0 && machines.length > 0 ? 'Fire at' : 'Attack', fighters.length === 0)}
+      ${mode === 'waypoint' ? `<button type="button" class="order-mode" data-action="order-mode" data-mode="waypoint" aria-pressed="true">Done</button>` : modeButton('waypoint', 'Waypoint', fighters.length === 0)}
+      ${modeButton('patrol', 'Patrol', fighters.length === 0)}
       <button type="button" class="order-mode" data-action="hold" ${soldiers.length === 0 ? 'disabled' : ''} title="Key H">Hold</button>
       ${modeButton('free', 'Move, no fighting', soldiers.length === 0)}
       <button type="button" class="order-mode" data-action="back-to-towers" ${soldiers.length === 0 ? 'disabled' : ''} title="Back to the castle">Retreat</button>

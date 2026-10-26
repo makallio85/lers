@@ -1,8 +1,8 @@
+import { WAR_MACHINE_SPEED_SHARE, isWarMachineType } from './definitions.ts';
 import { findPath } from './pathfinding.ts';
-import { tileIndex } from './world.ts';
+import { TERRAIN_MOUNTAIN, isWalkable, tileIndex } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
 
-/** Tiles per tick (2.5 tiles per second). */
 /** Tiles per tick: 2.2 tiles a second, as settlers walk in The Settlers III. */
 export const WALK_SPEED = 0.22;
 
@@ -16,16 +16,21 @@ export function doorTile(world: World, b: Building): number {
 
 /** Searches at most `maxVisited` tiles: short local trips pass a small limit so unreachable targets fail fast. */
 export function walkTo(world: World, s: Settler, goal: number, maxVisited = 12_000): boolean {
-  const path = findPath(world, tileOf(world, s), goal, maxVisited);
+  const path = findPath(world, tileOf(world, s), goal, maxVisited, isWarMachineType(s.settlerType) ? isMachinePassable : isWalkable);
   if (path === null) return false;
   s.path = path;
   s.isInside = false;
   return true;
 }
 
-/** Moves along the path; true once the settler has arrived. */
+/** War machines need open ground: as in the original, they cannot cross forest, rocks or mountains. */
+export function isMachinePassable(world: World, index: number): boolean {
+  return isWalkable(world, index) && world.tree[index] < 0 && world.terrain[index] !== TERRAIN_MOUNTAIN;
+}
+
+/** Moves along the path; true once the settler has arrived. War machines go slower. */
 export function advance(world: World, s: Settler, speed = WALK_SPEED): boolean {
-  let budget = speed;
+  let budget = isWarMachineType(s.settlerType) ? speed * WAR_MACHINE_SPEED_SHARE : speed;
   while (budget > 0 && s.path.length > 0) {
     const next = s.path[0];
     const tx = next % world.width, ty = Math.floor(next / world.width);

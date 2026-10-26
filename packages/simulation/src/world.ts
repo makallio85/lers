@@ -1,7 +1,7 @@
 import type { BotType } from './bot.ts';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, buildingCost, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, DEPOSIT_SULFUR, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
-  consumersOf, distributedGoods, emptyGoods, isSoldierType
+  WAR_MACHINE_STATS, consumersOf, distributedGoods, emptyGoods, isSoldierType, isWarMachineType
 } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SettlerType } from './definitions.ts';
 import { createRandom } from './random.ts';
@@ -77,6 +77,8 @@ export interface Building {
   blockedReason: string | null;
   blockedSince: number | null;
   hasWarned: boolean;
+  /** Battering from war machines; the building falls when this reaches its structure (BUILDING_STRUCTURE). */
+  damage: number;
 }
 
 export type SettlerPhase =
@@ -121,6 +123,8 @@ export interface Settler {
   isHolding: boolean;
   /** Soldiers only: walk on without stopping to fight until they arrive. */
   isIgnoringEnemies: boolean;
+  /** War machines only: shots left before going back to the hall to reload. */
+  ammo: number;
 }
 
 export interface PlayerStats {
@@ -282,7 +286,7 @@ export function newBuilding(world: World, typeId: BuildingTypeId, owner: number,
     levelProgress: 0, buildProgress: 0, diggerId: null, builderId: null, workerId: null,
     garrison: [], garrisonWanted: typeId === 'castle' ? 3 : Math.min(1, type.garrisonCapacity), isOccupied: false, meals: 0,
     isPaused: false, isPriority: false, workX: null, workY: null, residentsLeft: 0,
-    blockedReason: null, blockedSince: null, hasWarned: false
+    blockedReason: null, blockedSince: null, hasWarned: false, damage: 0
   };
   for (let dy = 0; dy < size; dy++) {
     for (let dx = 0; dx < size; dx++) {
@@ -311,9 +315,11 @@ export function newSettler(world: World, owner: number, settlerType: SettlerType
   const s: Settler = {
     id: world.nextId++, owner, settlerType, x, y, prevX: x, prevY: y, path: [], phase: 'idle', timer: 0,
     carrying: null, fromId: null, toId: null, good: null, homeId: null, targetTile: -1, isInside: true,
-    health: isSoldierType(settlerType) ? SOLDIER_STATS[settlerType].health : settlerType === 'thief' ? THIEF_HEALTH : 0,
+    health: isSoldierType(settlerType) ? SOLDIER_STATS[settlerType].health : isWarMachineType(settlerType) ? WAR_MACHINE_STATS[settlerType].health
+      : settlerType === 'thief' ? THIEF_HEALTH : 0,
     cooldown: 0, enemyId: null, attackId: null,
-    workCentre: -1, waypoints: [], isPatrolling: false, isHolding: false, isIgnoringEnemies: false
+    workCentre: -1, waypoints: [], isPatrolling: false, isHolding: false, isIgnoringEnemies: false,
+    ammo: isWarMachineType(settlerType) ? WAR_MACHINE_STATS[settlerType].shots : 0
   };
   world.settlers.push(s);
   return s;

@@ -1,4 +1,4 @@
-import { BUILDING_TYPES, isSoldierType, isSpecialistType } from './definitions.ts';
+import { BUILDING_TYPES, isSpecialistType, isUnitType } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, SettlerType } from './definitions.ts';
 import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, siteCost, tileIndex } from './world.ts';
 import type { PlayerState, World } from './world.ts';
@@ -30,7 +30,7 @@ export function updateVision(world: World): void {
     }
     for (const s of world.settlers) {
       if (s.owner !== player.id || s.isInside) continue;
-      reveal(world, vision, s.x, s.y, isSoldierType(s.settlerType) ? SOLDIER_SIGHT : SETTLER_SIGHT);
+      reveal(world, vision, s.x, s.y, isUnitType(s.settlerType) ? SOLDIER_SIGHT : SETTLER_SIGHT);
     }
   }
 }
@@ -141,10 +141,10 @@ export function observe(world: World, playerId: number): Observation {
       if (isSpecialistType(s.settlerType)) {
         ownSpecialists.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.phase });
       }
-      if (isSoldierType(s.settlerType)) {
+      if (isUnitType(s.settlerType)) {
         ownSoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.isInside ? 'inside' : s.phase });
       }
-    } else if (isSoldierType(s.settlerType) && !s.isInside && canSee(world, playerId, s.x, s.y)) {
+    } else if (isUnitType(s.settlerType) && !s.isInside && canSee(world, playerId, s.x, s.y)) {
       otherSoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health });
     }
   }

@@ -95,8 +95,21 @@ The four peoples of the original game (issue #12, phase 3; the owner chose to fo
 - **Sulfur miners** eat rice, honey or bread, never meat or fish.
 - **Egyptians' strength:** gold counts half and gems double toward strength outside their own land.
 - **Choosing a people:** the player picks one when starting a match. The computer plays another one, chosen from the map seed.
-- **What the drinks are for:** wine, beer, rice wine and mead feed the temples in phase 4. Gunpowder feeds the cannon in the war machine step.
+- **What the drinks are for:** wine, beer, rice wine and mead feed the temples in phase 4. Gunpowder is the cannon's ammunition.
 - **Balance:** this is not tuned yet. In 8 bot-vs-bot matches per pair on small maps, Romans beat Egyptians 5:3 and Asians 6:2, and lost to Amazons 1:7. Playtests should guide the tuning.
+
+### War machines
+
+Each people has a war machine hall (Military group) where a machinist with a hammer builds its machine from parts. A hall keeps at most three of its machines in the field. As in the original, machines are selected and ordered like soldiers: move, waypoints, patrol, and "fire at" a tower or castle. They need open ground (no forest, rocks or mountains), move at 60 % of walking speed and never fight people. Soldiers can break them. Out of ammunition, a machine goes back to its hall, reloads from the ammunition delivered there, and returns to its target.
+
+| Machine (people) | Parts | Ammunition | Shots | Range | Damage | Hits | Hall cost |
+|---|---|---|---|---|---|---|---|
+| Catapult (Romans) | 2 iron, 3 planks, 2 stone | stone | 6 | 7 | 40 | 55 % | 5 planks, 7 stone |
+| Ballista (Egyptians) | 2 iron, 3 planks, 2 stone | plank | 6 | 9 | 40 | 70 % | 3 planks, 9 stone |
+| Cannon (Asians) | 3 iron, 2 coal | gunpowder | 4 | 8 | 65 | 80 % | 9 planks, 3 stone |
+| War gong (Amazons) | 2 iron, 2 planks, 1 gold | gold | 2 | 5 | 130 | 90 % | 8 planks, 10 stone |
+
+Hall costs are the manual's. The roles follow the original's setup text: the catapult misses most, the cannon is the strongest per shot, and the gong brings a tower down with one blow. The other numbers are our own. A building's structure is 120 for a small tower, 80 for a lookout, 240 for a large tower and 480 for the castle. When it reaches zero the building falls, its soldiers step outside, and the owner's buildings on land another player now holds are destroyed, as when a tower is captured. Destroying the castle wins the match. The computer builds its hall from minute 40, once it has a barracks, a smelter and a hammer (it orders one when needed, and a geologist hands his back if the toolsmith or the hall lacks one). It sends idle machines at the most strongly held tower they can reach. In 13 bot-vs-bot matches (small and medium maps) every match ended, in 33–112 minutes, with up to 23 machines built and 12 towers shot down in one match. Short aggressive matches often end before any machine is ready.
 
 ## Pace
 

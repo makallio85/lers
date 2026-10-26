@@ -10,3 +10,4 @@ coverage/
 .DS_Store
 art/.kits/
 art/.renders/
+art/blender/__pycache__/

@@ -251,3 +251,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 @media (orientation: portrait) and (max-width: 760px) {
   .rotate { display: flex; position: fixed; inset: 0; z-index: 10; align-items: center; justify-content: center; padding: 24px; background: var(--ground); font-size: 18px; text-align: center; }
 }
+
+/* A building battered by war machines: what is left of its structure. */
+.structure { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.structure .bar { display: block; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.structure .bar span { display: block; height: 100%; border-radius: 3px; background: var(--warning); }

@@ -1,10 +1,11 @@
 """Crops the Blender renders, packs settler frames into sheets and writes the client's sprite manifest.
 
-Usage: python3 art/pack.py   (needs Pillow with WebP support)
+Usage: python3 art/pack.py [look ...]   (needs Pillow with WebP support)
+With names given (settler looks such as catapult, or building types), only those are packed into the existing manifest.
 Reads art/.renders/, writes packages/client/public/art/ and packages/client/public/art/manifest.json.
 All sizes and anchors in the manifest are in render pixels, which are twice the on-screen size at zoom 1.
 """
-import json, os, glob
+import json, os, glob, sys
 from PIL import Image
 
 ART = os.path.dirname(os.path.abspath(__file__))
@@ -41,13 +42,18 @@ def save(im, rel):
 
 
 def main():
-    manifest = {'scale': 0.5, 'buildings': {}, 'nature': {}, 'goods': {}, 'settlers': {}}
+    only = set(sys.argv[1:])
+    if only:
+        manifest = json.load(open(os.path.join(OUT, 'manifest.json')))
+    else:
+        manifest = {'scale': 0.5, 'buildings': {}, 'nature': {}, 'goods': {}, 'settlers': {}}
     for png in sorted(glob.glob(os.path.join(RENDERS, 'buildings/*/*.png'))):
         group, name = png.split('/')[-2], os.path.basename(png)[:-4]
+        if only and name not in only: continue
         im, entry = crop(png)
         entry['file'] = save(im, f'buildings/{group}/{name}.webp')
         manifest['buildings'][f'{group}/{name}'] = entry
-    for kind in ('nature', 'goods'):
+    for kind in () if only else ('nature', 'goods'):
         for png in sorted(glob.glob(os.path.join(RENDERS, kind, '*.png'))):
             name = os.path.basename(png)[:-4]
             im, entry = crop(png)
@@ -55,6 +61,7 @@ def main():
             manifest[kind][name] = entry
     for meta_path in sorted(glob.glob(os.path.join(RENDERS, 'settlers/*/*.json'))):
         race, look = meta_path.split('/')[-2], os.path.basename(meta_path)[:-5]
+        if only and look not in only: continue
         meta = json.load(open(meta_path))
         cw, ch = meta['cell']
         frames = sum(meta['anims'].values())

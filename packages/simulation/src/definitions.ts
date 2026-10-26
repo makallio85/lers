@@ -72,8 +72,12 @@ export function totalGoods(amounts: GoodAmounts): number {
 export const SOLDIER_TYPES = ['swordsman', 'spearman', 'bowman'] as const;
 export type SoldierType = (typeof SOLDIER_TYPES)[number];
 
+/** War machines are units like soldiers: selected, moved and given orders, but they fire at buildings, not people. */
+export const WAR_MACHINE_TYPES = ['catapult', 'ballista', 'cannon', 'war_gong'] as const;
+export type WarMachineType = (typeof WAR_MACHINE_TYPES)[number];
+
 export type SettlerType =
-  | 'carrier' | 'digger' | 'builder' | SoldierType
+  | 'carrier' | 'digger' | 'builder' | SoldierType | WarMachineType | 'machinist'
   | 'woodcutter' | 'forester' | 'carpenter' | 'stonecutter'
   | 'farmer' | 'miller' | 'baker' | 'waterworker' | 'fisher' | 'pig_farmer' | 'butcher'
   | 'miner' | 'smelter' | 'smith' | 'healer'
@@ -88,6 +92,15 @@ export const SPECIALIST_TOOLS: Record<SpecialistType, ToolType | null> = { geolo
 /** A thief can take this many hits; soldiers who come close see through the disguise. */
 export const THIEF_HEALTH = 30;
 
+export function isWarMachineType(type: SettlerType): type is WarMachineType {
+  return (WAR_MACHINE_TYPES as readonly string[]).includes(type);
+}
+
+/** Units are what a player selects and moves on the map in groups: soldiers and war machines. */
+export function isUnitType(type: SettlerType): type is SoldierType | WarMachineType {
+  return isSoldierType(type) || isWarMachineType(type);
+}
+
 export function isSpecialistType(type: SettlerType): type is SpecialistType {
   return (SPECIALIST_TYPES as readonly string[]).includes(type);
 }
@@ -100,7 +113,8 @@ export const SETTLER_LABELS: Record<SettlerType, string> = {
   pig_farmer: 'Pig farmer', butcher: 'Butcher', miner: 'Miner', smelter: 'Smelter', smith: 'Smith',
   healer: 'Healer', geologist: 'Geologist', pioneer: 'Pioneer', thief: 'Thief',
   wine_grower: 'Wine grower', charcoal_maker: 'Charcoal maker', brewer: 'Brewer', rice_farmer: 'Rice farmer', distiller: 'Distiller',
-  gunpowder_maker: 'Gunpowder maker', beekeeper: 'Beekeeper', mead_maker: 'Mead maker', alchemist: 'Alchemist'
+  gunpowder_maker: 'Gunpowder maker', beekeeper: 'Beekeeper', mead_maker: 'Mead maker', alchemist: 'Alchemist',
+  machinist: 'Machinist', catapult: 'Catapult', ballista: 'Ballista', cannon: 'Cannon', war_gong: 'War gong'
 };
 
 export const SETTLER_PLURALS: Record<SettlerType, string> = {
@@ -111,7 +125,8 @@ export const SETTLER_PLURALS: Record<SettlerType, string> = {
   pig_farmer: 'Pig farmers', butcher: 'Butchers', miner: 'Miners', smelter: 'Smelters', smith: 'Smiths',
   healer: 'Healers', geologist: 'Geologists', pioneer: 'Pioneers', thief: 'Thieves',
   wine_grower: 'Wine growers', charcoal_maker: 'Charcoal makers', brewer: 'Brewers', rice_farmer: 'Rice farmers', distiller: 'Distillers',
-  gunpowder_maker: 'Gunpowder makers', beekeeper: 'Beekeepers', mead_maker: 'Mead makers', alchemist: 'Alchemists'
+  gunpowder_maker: 'Gunpowder makers', beekeeper: 'Beekeepers', mead_maker: 'Mead makers', alchemist: 'Alchemists',
+  machinist: 'Machinists', catapult: 'Catapults', ballista: 'Ballistas', cannon: 'Cannons', war_gong: 'War gongs'
 };
 
 export function isSoldierType(type: SettlerType): type is SoldierType {
@@ -136,6 +151,44 @@ export const SOLDIER_STATS: Record<SoldierType, SoldierStats> = {
 };
 
 export const WEAPON_SOLDIERS: Record<WeaponType, SoldierType> = { sword: 'swordsman', spear: 'spearman', bow: 'bowman' };
+
+export interface WarMachineStats {
+  /** The hall that builds and reloads it. */
+  hall: BuildingTypeId;
+  /** Goods one machine is built from. */
+  parts: Partial<GoodAmounts>;
+  /** The good one shot uses, and how many shots it holds. */
+  ammo: GoodType;
+  shots: number;
+  /** Reach in tiles, damage per hit and the share of shots that hit. */
+  range: number;
+  damage: number;
+  accuracy: number;
+  /** Ticks between shots. */
+  cooldown: number;
+  health: number;
+  /** Ticks the machinist needs to build one. */
+  buildTicks: number;
+}
+
+/**
+ * One war machine per people, in the original's roles: the catapult misses most, the ballista reaches
+ * furthest, the cannon hits hardest per shot, and the gong brings down a tower with one blow. Numbers are Lers' own.
+ */
+export const WAR_MACHINE_STATS: Record<WarMachineType, WarMachineStats> = {
+  catapult: { hall: 'catapult_hall', parts: { iron: 2, plank: 3, stone: 2 }, ammo: 'stone', shots: 6, range: 7, damage: 40, accuracy: 0.55, cooldown: 50, health: 120, buildTicks: 1500 },
+  ballista: { hall: 'ballista_hall', parts: { iron: 2, plank: 3, stone: 2 }, ammo: 'plank', shots: 6, range: 9, damage: 40, accuracy: 0.7, cooldown: 45, health: 100, buildTicks: 1500 },
+  cannon: { hall: 'cannon_hall', parts: { iron: 3, coal: 2 }, ammo: 'gunpowder', shots: 4, range: 8, damage: 65, accuracy: 0.8, cooldown: 70, health: 140, buildTicks: 1500 },
+  war_gong: { hall: 'gong_hall', parts: { iron: 2, plank: 2, gold: 1 }, ammo: 'gold', shots: 2, range: 5, damage: 130, accuracy: 0.9, cooldown: 120, health: 90, buildTicks: 1800 }
+};
+/** A hall keeps at most this many of its machines in the field. */
+export const WAR_MACHINES_PER_HALL = 3;
+/** War machines are slower than people. */
+export const WAR_MACHINE_SPEED_SHARE = 0.6;
+/** How much battering a building takes before war machines bring it down. Only military buildings can be shot at. */
+export const BUILDING_STRUCTURE: Partial<Record<BuildingTypeId, number>> = {
+  guard_tower_small: 120, lookout: 80, guard_tower_large: 240, castle: 480
+};
 
 /**
  * On their own land soldiers always fight at full strength. Outside it, as in the original game, strength
@@ -162,6 +215,7 @@ export type BuildingTypeId =
   | 'farm' | 'mill' | 'bakery' | 'waterworks' | 'fisher' | 'pig_farm' | 'slaughterhouse' | 'donkey_ranch'
   | 'winery' | 'brewery' | 'rice_farm' | 'distillery' | 'beekeeper' | 'mead_maker'
   | 'guard_tower_small' | 'guard_tower_large' | 'castle' | 'lookout' | 'barracks' | 'weaponsmith' | 'gunpowder_maker'
+  | 'catapult_hall' | 'ballista_hall' | 'cannon_hall' | 'gong_hall'
   | 'residence_small' | 'residence_medium' | 'residence_large' | 'storage' | 'healer' | 'marketplace';
 
 /**
@@ -231,9 +285,12 @@ export interface BuildingType {
   isAvailable: boolean;
   /** Only these races can build it; undefined for every race. */
   races?: readonly RaceType[];
+  /** War machine halls: the machine they build. */
+  warMachine: WarMachineType | null;
 }
 
 interface BuildingOptions {
+  warMachine?: WarMachineType;
   worker?: SettlerType;
   tool?: ToolType;
   recipe?: Recipe;
@@ -263,11 +320,22 @@ function building(
     mine: options.mine ?? null, placementType: options.placementType ?? 'land', territoryRadius: options.territoryRadius ?? 0,
     garrisonCapacity: options.garrisonCapacity ?? 0, residents: options.residents ?? 0, visionRadius: options.visionRadius ?? 0,
     storageCapacity: options.storageCapacity ?? 0, workerLabel, usesLabel, makesLabel, isAvailable: options.isAvailable ?? true,
-    races: options.races
+    races: options.races, warMachine: options.warMachine ?? null
   };
 }
 
 const LATER = { isAvailable: false };
+
+/** A people's war machine hall: a machinist builds machines from parts and reloads them with ammunition. */
+function warMachineHall(id: BuildingTypeId, label: string, race: RaceType, machine: WarMachineType, plank: number, stone: number): BuildingType {
+  const stats = WAR_MACHINE_STATS[machine];
+  const inputLimits: Partial<GoodAmounts> = {};
+  for (const good of GOOD_TYPES) if (stats.parts[good]) inputLimits[good] = stats.parts[good]! * 2;
+  inputLimits[stats.ammo] = (inputLimits[stats.ammo] ?? 0) + 8;
+  const uses = GOOD_TYPES.filter((g) => stats.parts[g] || g === stats.ammo).map((g) => GOOD_NAMES[g][1]);
+  return building(id, label, 'military', 3, plank, stone, 'Machinist + hammer', uses.join(', '), `${SETTLER_PLURALS[machine]}, ammunition`,
+    { worker: 'machinist', tool: 'hammer', races: [race], warMachine: machine, inputLimits });
+}
 const MINERS_FOOD = ['bread', 'fish', 'meat'] as const satisfies readonly FoodType[];
 const MINE_FOOD: Partial<GoodAmounts> = { bread: 2, fish: 2, meat: 2 };
 const SULFUR_MINE_FOOD: Partial<GoodAmounts> = { bread: 2, rice: 2, honey: 2 };
@@ -347,6 +415,11 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
 
   gunpowder_maker: building('gunpowder_maker', 'Gunpowder maker', 'military', 3, 5, 3, 'Gunpowder maker', 'Coal, sulfur', 'Gunpowder',
     { worker: 'gunpowder_maker', races: ['asians'], recipe: { inputs: { coal: 1, sulfur: 1 }, output: 'gunpowder', ticks: 240 } }),
+
+  catapult_hall: warMachineHall('catapult_hall', 'Catapult hall', 'romans', 'catapult', 5, 7),
+  ballista_hall: warMachineHall('ballista_hall', 'Ballista hall', 'egyptians', 'ballista', 3, 9),
+  cannon_hall: warMachineHall('cannon_hall', 'Cannon hall', 'asians', 'cannon', 9, 3),
+  gong_hall: warMachineHall('gong_hall', 'Gong hall', 'amazons', 'war_gong', 8, 10),
 
   residence_small: building('residence_small', 'Small residence', 'misc', 2, 2, 3, 'None', 'Nothing', '10 settlers', { residents: 10 }),
   residence_medium: building('residence_medium', 'Medium residence', 'misc', 3, 5, 8, 'None', 'Nothing', '20 settlers', { residents: 20 }),
