@@ -1,8 +1,8 @@
 /**
  * Background music: four CC0 medieval tracks by RandomMind (see public/music/CREDITS.txt), converted by art/music.sh.
  * Streamed one at a time, each loop played twice before the next, quietly under the sound effects. It starts on the
- * player's first tap or click, as browsers require, keeps playing while the tab is in the background, and can be
- * turned off.
+ * player's first tap or click, as browsers require, keeps playing while the tab is in the background, stops while
+ * the game is paused, and can be turned off.
  */
 const TRACKS = ['bards_tale', 'old_tower_inn', 'kings_feast', 'minstrel_dance'] as const;
 const PLAYS_PER_TRACK = 2;
@@ -15,6 +15,8 @@ export class MusicPlayer {
   private plays = 0;
   private hasStarted = false;
   isOn: boolean;
+  /** While the game is paused the music waits too, and goes on where it stopped. */
+  private isPaused = false;
   private readonly base: string;
 
   constructor(base = './music/') {
@@ -30,7 +32,7 @@ export class MusicPlayer {
     window.addEventListener('keydown', start);
     // The match goes on in a background tab, and so does its music; coming back resumes it if the browser paused it.
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && this.isOn && this.hasStarted && this.audio.paused) void this.audio.play().catch(() => {});
+      if (!document.hidden && this.isOn && !this.isPaused && this.hasStarted && this.audio.paused) void this.audio.play().catch(() => {});
     });
   }
 
@@ -40,8 +42,13 @@ export class MusicPlayer {
     if (isOn) this.start(); else this.audio.pause();
   }
 
+  setPaused(isPaused: boolean): void {
+    this.isPaused = isPaused;
+    if (isPaused) this.audio.pause(); else this.start();
+  }
+
   private start(): void {
-    if (!this.isOn) return;
+    if (!this.isOn || this.isPaused) return;
     if (!this.hasStarted) { this.hasStarted = true; this.audio.src = `${this.base}${TRACKS[this.track]}.mp3`; }
     void this.audio.play().catch(() => {});
   }
@@ -51,6 +58,6 @@ export class MusicPlayer {
     this.plays++;
     if (this.plays >= PLAYS_PER_TRACK) { this.plays = 0; this.track = (this.track + 1) % TRACKS.length; this.audio.src = `${this.base}${TRACKS[this.track]}.mp3`; }
     else this.audio.currentTime = 0;
-    if (this.isOn) void this.audio.play().catch(() => {});
+    if (this.isOn && !this.isPaused) void this.audio.play().catch(() => {});
   }
 }
