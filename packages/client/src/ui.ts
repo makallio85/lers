@@ -4,10 +4,12 @@ import {
   costTotal, distributedGoods, goodCount, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
   BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES,
   OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
-  DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf
+  DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf,
+  MAP_LAYOUT_LABELS, MAP_LAYOUT_TYPES, SHIP_COSTS, SHIP_TICKS, SHIP_TYPES, TRADE_SHIPS_PER_DOCK, TRADE_SHIP_PILES, TRANSPORT_CAPACITY, BOARDING_RANGE, isShipType,
+  passengersOf, shipsOfDock
 } from '../../simulation/src/index.ts';
 import type {
-  BotType, Building, BuildingGroupType, MapSizeType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
+  BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
 } from '../../simulation/src/index.ts';
 
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
@@ -363,6 +365,8 @@ export interface MenuState {
   botType: BotType;
   /** The map size selected for the next match. */
   mapSize: MapSizeType;
+  /** The map layout selected for the next match. */
+  mapLayout: MapLayoutType;
   /** The people selected for the next match. */
   raceType: RaceType;
 }
@@ -400,6 +404,14 @@ export function renderGameMenu(state: MenuState): string {
           <button type="button" class="map-size-choice ${m === state.mapSize ? 'is-on' : ''}" role="radio" aria-checked="${m === state.mapSize}" data-action="map-size" data-size="${m}">
             <span class="opponent-name">${MAP_SIZE_SETTINGS[m].label}</span>
             <span class="muted">${MAP_SIZE_SETTINGS[m].width} × ${MAP_SIZE_SETTINGS[m].height}</span>
+          </button>`).join('')}
+      </div>
+      <span class="menu-hint" id="menu-map-layout">Land</span>
+      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-map-layout">
+        ${MAP_LAYOUT_TYPES.map((m) => `
+          <button type="button" class="map-size-choice ${m === state.mapLayout ? 'is-on' : ''}" role="radio" aria-checked="${m === state.mapLayout}" data-action="map-layout" data-layout="${m}">
+            <span class="opponent-name">${MAP_LAYOUT_LABELS[m]}</span>
+            <span class="muted">${m === 'islands' ? 'Each people on its own island: attack by ship' : 'One land: walk to the enemy'}</span>
           </button>`).join('')}
       </div>
       <span class="menu-hint">Opponent — starts the match; the computer plays another people</span>
@@ -478,10 +490,13 @@ function buildingStatus(world: World, b: Building): { text: string; isWarning: b
   return { text: 'Working', isWarning: false };
 }
 
-/** The marketplace card: its route, the amounts to send, the mode and its donkeys. */
+/** The marketplace card (or a landing dock's): its route, the amounts to send, the mode and its donkeys or trade ships. */
 function renderMarketplace(world: World, b: Building, owner: number, isConfirmingDemolish: boolean): string {
   const route = b.tradeRoute;
-  const donkeys = donkeysOf(world, b);
+  const isDock = b.typeId === 'landing_dock';
+  const donkeys = isDock ? shipsOfDock(world, b) : donkeysOf(world, b);
+  const load = isDock ? TRADE_SHIP_PILES[world.players[b.owner].raceType] * DONKEY_LOAD : DONKEY_LOAD;
+  const carriers = isDock ? 'trade ships' : 'donkeys';
   const stocked = new Set<GoodType>();
   // Goods worth a caravan: at least one donkey load in storage, or already ordered.
   const inStorage: Partial<Record<GoodType, number>> = {};
@@ -497,20 +512,20 @@ function renderMarketplace(world: World, b: Building, owner: number, isConfirmin
       <button type="button" class="icon-button" data-action="trade-good" data-good="${g}" data-step="1" aria-label="${GOOD_LABELS[g]}: more" ${!route || amount === TRADE_UNLIMITED ? 'disabled' : ''}>+</button></span></div>`;
   }).join('');
   const modes = TRADE_MODE_TYPES.map((m) => `<button type="button" data-action="trade-mode" data-mode="${m}" aria-pressed="${b.tradeMode === m}">${TRADE_MODE_LABELS[m]}</button>`).join('');
-  const status = !route ? 'No route yet: set where the caravans go'
+  const status = !route ? `No route yet: set where the ${isDock ? 'trade ships' : 'caravans'} go`
     : b.tradeMode === 'suspended' ? 'Suspended'
-    : donkeys.length === 0 ? 'Waiting for donkeys from a donkey ranch'
-    : `${donkeys.filter((d) => d.phase === 'toTarget').length} caravans on the way`;
+    : donkeys.length === 0 ? (isDock ? 'Waiting for trade ships: order them at a shipyard' : 'Waiting for donkeys from a donkey ranch')
+    : `${donkeys.filter((d) => d.phase === 'toTarget').length} ${isDock ? 'trade ships' : 'caravans'} on the way`;
   return `
     <div class="detail-head"><span class="detail-title">${buildingLabel(b.typeId, world.players[b.owner].raceType)}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
     <span class="${!route || donkeys.length === 0 ? 'status-warning' : ''}">${status}</span>
     <dl class="facts">
       <dt>Route</dt><dd>${route ? `to ${route.x}, ${route.y}${route.waypoints.length ? ` · ${route.waypoints.length} waypoints` : ''}` : 'None'}</dd>
-      <dt>Donkeys</dt><dd>${donkeys.length} of ${DONKEYS_PER_MARKETPLACE}</dd>
+      <dt>${isDock ? 'Trade ships' : 'Donkeys'}</dt><dd>${donkeys.length} of ${isDock ? TRADE_SHIPS_PER_DOCK : DONKEYS_PER_MARKETPLACE}</dd>
     </dl>
     <div class="segmented" role="group" aria-label="Trade mode">${modes}</div>
-    <span class="muted">${b.tradeMode === 'surplus' ? `Storage keeps ${TRADE_SURPLUS_RESERVE} of each good for the settlement.` : b.tradeMode === 'construction' ? 'Carriers serve the marketplace before construction sites.' : 'No goods are collected and the donkeys wait.'}</span>
-    ${route ? `<h3 class="section-title">Goods to send (${DONKEY_LOAD} per donkey)</h3>${goods || '<p class="empty">No goods in storage yet.</p>'}` : ''}
+    <span class="muted">${b.tradeMode === 'surplus' ? `Storage keeps ${TRADE_SURPLUS_RESERVE} of each good for the settlement.` : b.tradeMode === 'construction' ? `Carriers serve the ${isDock ? 'landing dock' : 'marketplace'} before construction sites.` : `No goods are collected and the ${carriers} wait.`}</span>
+    ${route ? `<h3 class="section-title">Goods to send (${load} per ${isDock ? 'trade ship' : 'donkey'})</h3>${goods || '<p class="empty">No goods in storage yet.</p>'}` : ''}
     ${isConfirmingDemolish
       ? `<div class="actions"><button type="button" class="danger" data-action="confirm-demolish">Demolish now</button><button type="button" class="secondary" data-action="cancel-demolish">Keep it</button></div>`
       : `<div class="actions"><button type="button" class="primary" data-action="set-route">${route ? 'Change route' : 'Set route'}</button><button type="button" class="secondary" data-action="demolish">Demolish</button></div>`}`;
@@ -541,6 +556,7 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
   }
   const status = buildingStatus(world, b);
   const lines: string[] = [];
+  const orders: string[] = [];
   if (!b.isComplete) {
     const missing: Partial<GoodAmounts> = {};
     const cost = siteCost(world, b);
@@ -569,9 +585,18 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
     }
     if (type.mine) lines.push(`<dt>Meals left</dt><dd>${b.meals}</dd>`);
   }
-  if (b.typeId === 'marketplace' && b.isComplete) return renderMarketplace(world, b, owner, isConfirmingDemolish);
+  if ((b.typeId === 'marketplace' || b.typeId === 'landing_dock') && b.isComplete) return renderMarketplace(world, b, owner, isConfirmingDemolish);
+  if (b.typeId === 'shipyard' && b.isComplete) {
+    const race = world.players[b.owner].raceType;
+    if (b.shipInProgress) lines.push(`<dt>Building</dt><dd>${SETTLER_LABELS[b.shipInProgress]}${b.workerId !== null ? ` · ${Math.max(0, Math.ceil((settlerById(world, b.workerId)?.timer ?? 0) / TICKS_PER_SECOND / 60))} min left` : ''}</dd>`);
+    for (const t of SHIP_TYPES) {
+      const cost = SHIP_COSTS[t][race];
+      orders.push(`<div class="ship-order"><span class="grow">${SETTLER_LABELS[t]}<span class="muted">${cost.plank} planks${cost.iron ? `, ${cost.iron} iron` : ''}</span></span>${stepper('ship-order', `data-id="${b.id}" data-ship="${t}"`, b.shipOrders[t] ?? 0, `${SETTLER_LABELS[t]} ordered`)}</div>`);
+    }
+  }
   if (b.typeId === 'donkey_ranch' && b.isComplete) lines.push(`<dt>Donkeys here</dt><dd>${donkeysOf(world, b).length} of ${DONKEYS_PER_MARKETPLACE}</dd>`);
-  const garrison = b.isComplete && isMilitaryBuilding(b)
+  const garrison = orders.length ? `<h3 class="section-title">Ships to build (${SHIP_TICKS / TICKS_PER_SECOND / 60} min each)</h3>${orders.join('')}`
+    : b.isComplete && isMilitaryBuilding(b)
     ? `<div class="made-row"><span>Soldiers wanted</span>${stepper('garrison', `data-id="${b.id}"`, b.garrisonWanted, 'Soldiers wanted')}<span class="muted">of ${type.garrisonCapacity}</span></div>` : '';
   const canPause = (b.isComplete && type.worker !== null) || !b.isComplete;
   const hasWorkArea = b.isComplete && (WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId);
@@ -624,7 +649,38 @@ function renderPriestBar(priests: Settler[], mode: OrderMode, isTouch: boolean, 
 }
 
 /** The order bar: what is selected and what to do with it. Order modes make every order reachable by touch. */
-export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boolean, strength: number, magic?: PriestBarState): string {
+/** The bar for selected ships: who is aboard, Move, Board nearby and Unload. */
+function renderShipBar(world: World, ships: Settler[], mode: OrderMode, isTouch: boolean): string {
+  const race = world.players[ships[0].owner].raceType;
+  const transports = ships.filter((s) => s.settlerType === 'transport_ship');
+  const aboard = transports.reduce((n, s) => n + passengersOf(world, s).length, 0);
+  const room = transports.length * TRANSPORT_CAPACITY[race];
+  const trading = ships.filter((s) => s.settlerType === 'trade_ship');
+  const cargo = trading.filter((s) => s.carrying).map((s) => `${s.cargo} ${GOOD_LABELS[s.carrying!].toLowerCase()}`);
+  const summary = ships.length === 1 ? SETTLER_LABELS[ships[0].settlerType] : `${ships.length} ships selected`;
+  const detail = [
+    ...(transports.length ? [`${aboard} of ${room} aboard`] : []),
+    ...(trading.length ? [cargo.length ? `carrying ${cargo.join(', ')}` : trading.some((s) => s.homeId === null || s.phase === 'idle') ? 'waiting for a landing dock with a route' : 'sailing its landing dock\'s route'] : [])
+  ].join(' · ');
+  const hint = mode === 'move' ? 'Tap or click open water where they should sail'
+    : transports.length ? `Soldiers, specialists and priests within ${BOARDING_RANGE} tiles can board · ${isTouch ? 'Move, then tap the water' : 'right-click water to sail'}`
+    : 'Trade ships sail their landing dock\'s route by themselves';
+  const modeButton = (id: Exclude<OrderMode, null>, label: string, isDisabled = false) =>
+    `<button type="button" class="order-mode" data-action="order-mode" data-mode="${id}" aria-pressed="${mode === id}" ${isDisabled ? 'disabled' : ''}>${label}</button>`;
+  return `
+    <div class="order-summary"><strong>${summary}</strong>${detail ? `<span class="muted">${detail}</span>` : ''}</div>
+    <div class="order-buttons" role="toolbar" aria-label="Ship orders">
+      ${modeButton('select', 'Select')}
+      ${modeButton('move', 'Sail', transports.length === 0)}
+      <button type="button" class="order-mode" data-action="board-nearby" ${transports.length === 0 || aboard >= room ? 'disabled' : ''}>Board nearby</button>
+      <button type="button" class="order-mode" data-action="unload-ships" ${aboard === 0 ? 'disabled' : ''}>Unload</button>
+      <button type="button" class="order-mode" data-action="clear-selection">Clear</button>
+    </div>
+    <span class="order-hint muted">${hint}</span>`;
+}
+
+export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boolean, strength: number, magic?: PriestBarState, world?: World): string {
+  if (world && units.length > 0 && units.every((s) => isShipType(s.settlerType))) return renderShipBar(world, units, mode, isTouch);
   const priests = units.filter((s) => s.settlerType === 'priest');
   if (magic && priests.length > 0 && priests.length === units.length) return renderPriestBar(priests, mode, isTouch, magic);
   const soldiers = units.filter((s) => isSoldierType(s.settlerType));
