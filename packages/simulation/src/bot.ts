@@ -323,6 +323,11 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     note('a geologist gives back his hammer');
   } else if (!isHammerWanted && geologists.length < GEOLOGISTS && stored('hammer') > reserveOf('hammer', 'woodcutter') && turn % 10 === 0) {
     commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: GEOLOGISTS });
+  } else if (!isHammerWanted && geologists.length === 0 && stored('hammer') > 0 && !hasOre(obs, spots) && turn % 10 === 0) {
+    // A short start keeps too few hammers to spare one, but without ore the smiths it saves them for never come:
+    // one geologist borrows a hammer, and gives it back when a workshop needs it.
+    commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: 1 });
+    note('a geologist borrows a hammer to find ore');
   }
   const idleGeologists = geologists.filter((s) => s.phase === 'idle');
   if (idleGeologists.length > 0 && turn % 5 === 0) {

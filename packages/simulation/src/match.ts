@@ -1,5 +1,5 @@
 import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, MAP_SIZE_SETTINGS, RACE_TYPES } from './definitions.ts';
-import type { BuildingTypeId, MapLayoutType, MapSizeType, RaceType } from './definitions.ts';
+import type { BuildingTypeId, MapLayoutType, MapSizeType, RaceType, StartingGoodsType } from './definitions.ts';
 import { BOT_DECISION_TICKS, decideBot } from './bot.ts';
 import type { BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
@@ -19,13 +19,19 @@ import type { World } from './world.ts';
 /** How far a woodcutter or stonecutter walks for its work; spot scores count only what lies within it. */
 const GATHER_REACH = 10;
 
-/** A match: you (player 0) against one built-in computer player on a mirrored map. */
+/** The rest of a match's setup: whether the map is mirrored (the default) and how much each player starts with. */
+export interface MatchSetup { isMirrored?: boolean; startingGoodsType?: StartingGoodsType }
+
+/** A match: you (player 0) against one built-in computer player, on a mirrored map unless the setup says otherwise. */
 export function createMatch(
   seed: number, botType: BotType = 'aggressive', mapSize: MapSizeType = 'medium', playerRace: RaceType = 'romans', botRace?: RaceType,
-  mapLayout: MapLayoutType = 'continent'
+  mapLayout: MapLayoutType = 'continent', setup: MatchSetup = {}
 ): World {
   const { width, height } = MAP_SIZE_SETTINGS[mapSize];
-  return createWorld({ seed, playerCount: 2, botType, width, height, raceTypes: [playerRace, botRace ?? computerRace(seed, playerRace)], mapLayout });
+  return createWorld({
+    seed, playerCount: 2, botType, width, height, raceTypes: [playerRace, botRace ?? computerRace(seed, playerRace)], mapLayout,
+    isMirrored: setup.isMirrored ?? true, startingGoodsType: setup.startingGoodsType ?? 'default'
+  });
 }
 
 /** The computer's people when none is chosen: another one than the player's, picked from the seed. */

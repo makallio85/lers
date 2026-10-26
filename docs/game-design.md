@@ -209,6 +209,14 @@ Support saving a multiplayer match and resuming it later with the same participa
 
 Generate reproducible maps from a seed and generator version. Validate starting resource access, expansion opportunities and connectivity for every player. Allow asymmetric layouts only when intentionally selected and communicated. Explore a map editor and community maps after core play is stable.
 
+### Match setup
+
+Issue #12, phase 7, following the original's game setup.
+
+- **Map halves:** mirrored (the default: the right half copies the left, so both players start on the same land) or each its own. Unmirrored, each half is generated on its own, and each start still gets the same prepared surroundings: a grove, a rock cluster and a pond inside the territory, and an ore mountain on its border. Over 40 seeds of each map size, every unmirrored continent let the players walk to each other.
+- **Starting goods:** few, normal or many. Few halves the materials, food, tools and soldiers and gives three quarters of the civilians. Many doubles the materials, food, tools and soldiers and gives half as many civilians again. Every kind keeps at least one, so a short start still has each tool.
+- **Computer player:** with too few hammers to spare one, it still takes on one geologist while it knows no ore, since without ore the smiths it saves hammers for never come.
+
 ## Cross-device army controls
 
 Prototype selecting, grouping and commanding large armies on a physical phone early. Saved army groups, explicit order modes and clear selection feedback must cover essential desktop interactions without requiring pixel-precise taps. Keep rules equal across devices; test usability and performance separately.

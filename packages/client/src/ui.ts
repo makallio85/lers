@@ -6,10 +6,10 @@ import {
   OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
   DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf,
   MAP_LAYOUT_LABELS, MAP_LAYOUT_TYPES, SHIP_COSTS, SHIP_TICKS, SHIP_TYPES, TRADE_SHIPS_PER_DOCK, TRADE_SHIP_PILES, TRANSPORT_CAPACITY, BOARDING_RANGE, isShipType,
-  passengersOf, shipsOfDock, isSpecialistType
+  passengersOf, shipsOfDock, isSpecialistType, STARTING_GOODS_LABELS, STARTING_GOODS_TYPES
 } from '../../simulation/src/index.ts';
 import type {
-  BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
+  BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, StartingGoodsType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
 } from '../../simulation/src/index.ts';
 
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
@@ -367,9 +367,16 @@ export interface MenuState {
   mapSize: MapSizeType;
   /** The map layout selected for the next match. */
   mapLayout: MapLayoutType;
+  /** Whether the next match's map is mirrored, and how much each player starts with. */
+  isMirrored: boolean;
+  startingGoodsType: StartingGoodsType;
   /** The people selected for the next match. */
   raceType: RaceType;
 }
+
+const STARTING_GOODS_NOTES: Record<StartingGoodsType, string> = {
+  few: 'Half the materials and soldiers', default: 'The usual start', many: 'Twice the materials and soldiers'
+};
 
 /** Typical match length in bot-vs-bot runs, per opponent and map size; shown so players can pick a game that fits their time. */
 const MATCH_LENGTHS: Record<BotType, Record<MapSizeType, string>> = {
@@ -412,6 +419,22 @@ export function renderGameMenu(state: MenuState): string {
           <button type="button" class="map-size-choice ${m === state.mapLayout ? 'is-on' : ''}" role="radio" aria-checked="${m === state.mapLayout}" data-action="map-layout" data-layout="${m}">
             <span class="opponent-name">${MAP_LAYOUT_LABELS[m]}</span>
             <span class="muted">${m === 'islands' ? 'Each people on its own island: attack by ship' : 'One land: walk to the enemy'}</span>
+          </button>`).join('')}
+      </div>
+      <span class="menu-hint" id="menu-halves">Map halves</span>
+      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-halves">
+        ${[true, false].map((m) => `
+          <button type="button" class="map-size-choice ${m === state.isMirrored ? 'is-on' : ''}" role="radio" aria-checked="${m === state.isMirrored}" data-action="map-mirror" data-mirrored="${m}">
+            <span class="opponent-name">${m ? 'Mirrored' : 'Each its own'}</span>
+            <span class="muted">${m ? 'Both sides the same land' : 'Different land, the same start around each castle'}</span>
+          </button>`).join('')}
+      </div>
+      <span class="menu-hint" id="menu-goods">Starting goods</span>
+      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-goods">
+        ${STARTING_GOODS_TYPES.map((g) => `
+          <button type="button" class="map-size-choice ${g === state.startingGoodsType ? 'is-on' : ''}" role="radio" aria-checked="${g === state.startingGoodsType}" data-action="starting-goods" data-goods="${g}">
+            <span class="opponent-name">${STARTING_GOODS_LABELS[g]}</span>
+            <span class="muted">${STARTING_GOODS_NOTES[g]}</span>
           </button>`).join('')}
       </div>
       <span class="menu-hint">Opponent — starts the match; the computer plays another people</span>
