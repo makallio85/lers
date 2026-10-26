@@ -930,9 +930,25 @@ function applyOccupations(world: World, player: PlayerState): void {
   const carriers = countOf('carrier');
   const castle = castleOf(world, player.id);
   if (!castle) return;
+  // A site on a colony's land is out of reach of the crew at home: it always gets one from the carriers there.
+  const waiting = world.buildings.filter((b) => b.owner === player.id && !b.isComplete && !b.isPaused);
+  const home = landRegion(world, castle.doorX, castle.doorY);
+  for (const site of waiting) {
+    const region = landRegion(world, site.doorX, site.doorY);
+    if (region === home || region === 0) continue;
+    const needed: SettlerType | null = site.blockedReason === 'Waiting for a digger' ? 'digger' : site.blockedReason === 'Waiting for a builder' ? 'builder' : null;
+    if (!needed || own.some((s) => s.settlerType === needed && landRegion(world, s.x, s.y) === region)) continue;
+    const tool = needed === 'digger' ? 'shovel' : 'hammer';
+    const store = world.buildings.find((b) => b.owner === player.id && isStorageBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
+    const carrier = nearestIdle(world, 'carrier', player.id, site.doorX, site.doorY);
+    if (!store || !carrier || landRegion(world, carrier.x, carrier.y) !== region) continue;
+    store.stock[tool]--;
+    carrier.settlerType = needed;
+    return;
+  }
   if (crew * 100 > own.length * player.maxCrewPercent) {
-    // Too many: an idle digger or builder goes back to carrying and returns the tool.
-    const spare = own.find((s) => (s.settlerType === 'digger' || s.settlerType === 'builder') && s.phase === 'idle');
+    // Too many: an idle digger or builder at home goes back to carrying and returns the tool.
+    const spare = own.find((s) => (s.settlerType === 'digger' || s.settlerType === 'builder') && s.phase === 'idle' && landRegion(world, s.x, s.y) === home);
     if (spare) {
       castle.stock[spare.settlerType === 'digger' ? 'shovel' : 'hammer']++;
       spare.settlerType = 'carrier';
@@ -940,13 +956,14 @@ function applyOccupations(world: World, player: PlayerState): void {
     return;
   }
   if ((crew + 1) * 100 > own.length * player.maxCrewPercent || (carriers - 1) * 100 < own.length * player.minCarrierPercent) return;
-  const waiting = world.buildings.filter((b) => b.owner === player.id && !b.isComplete && !b.isPaused);
-  const needed: SettlerType | null = waiting.some((b) => b.blockedReason === 'Waiting for a digger') ? 'digger'
-    : waiting.some((b) => b.blockedReason === 'Waiting for a builder') ? 'builder' : null;
+  // Sites at home share the crew made from the carriers there.
+  const atHome = waiting.filter((b) => landRegion(world, b.doorX, b.doorY) === home);
+  const needed: SettlerType | null = atHome.some((b) => b.blockedReason === 'Waiting for a digger') ? 'digger'
+    : atHome.some((b) => b.blockedReason === 'Waiting for a builder') ? 'builder' : null;
   if (!needed) return;
   const tool = needed === 'digger' ? 'shovel' : 'hammer';
   const store = world.buildings.find((b) => b.owner === player.id && isStorageBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
-  const carrier = own.find((s) => isIdle(s, 'carrier'));
+  const carrier = nearestIdle(world, 'carrier', player.id, castle.doorX, castle.doorY);
   if (!store || !carrier) return;
   store.stock[tool]--;
   carrier.settlerType = needed;

@@ -3,7 +3,7 @@ import {
 } from './definitions.ts';
 import type { GoodType } from './definitions.ts';
 import { advance, distance, doorTile, walkTo } from './movement.ts';
-import { buildingById, isStorageBuilding, newSettler, pushMessage, tileIndex } from './world.ts';
+import { buildingById, isStorageBuilding, newSettler, pushMessage, siteCost, tileIndex } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
 
 /** Donkeys that belong to a building (a ranch that raised them, or the marketplace they work for). */
@@ -62,6 +62,26 @@ export function storageAtRouteEnd(world: World, owner: number, x: number, y: num
 }
 
 /**
+ * Unloads a load at a route's end: into the player's storage there, else into the construction site there
+ * that still needs this good (how a colony's first storage gets its planks and stone). Returns what is left.
+ */
+export function unloadAtRouteEnd(world: World, owner: number, x: number, y: number, good: GoodType, amount: number): number {
+  const store = storageAtRouteEnd(world, owner, x, y);
+  if (store) { store.stock[good] += amount; return 0; }
+  let site: Building | null = null, need = 0, bestDistance = TRADE_UNLOAD_RADIUS;
+  for (const b of world.buildings) {
+    if (b.owner !== owner || b.isComplete) continue;
+    const owed = (siteCost(world, b)[good] ?? 0) - b.delivered[good] - b.built[good] - b.incoming[good];
+    const d = distance(b.doorX, b.doorY, x, y);
+    if (owed > 0 && d <= bestDistance) { bestDistance = d; site = b; need = owed; }
+  }
+  if (!site) return amount;
+  const taken = Math.min(amount, need);
+  site.delivered[good] += taken;
+  return amount - taken;
+}
+
+/**
  * One tick of a donkey. A donkey at its ranch joins a trading marketplace that needs one. At the marketplace it
  * takes up to 8 of one ordered good, walks the route (across any land) to the storage at its end, unloads, and
  * comes back. A route without storage at its end sends it back with its load.
@@ -116,12 +136,11 @@ export function updateDonkey(world: World, s: Settler): void {
         if (walkTo(world, s, next, 40_000)) return;
       }
       const route = home?.tradeRoute;
-      const store = route ? storageAtRouteEnd(world, s.owner, route.x, route.y) : null;
-      if (store && s.carrying) {
-        store.stock[s.carrying] += s.cargo;
-        s.carrying = null; s.cargo = 0;
-      } else if (home) {
-        pushMessage(world, s.owner, 'No storage at the end of the trade route', 'The caravan brings its load back. Build a storage area there.', true, home.id);
+      if (route && s.carrying) {
+        const left = unloadAtRouteEnd(world, s.owner, route.x, route.y, s.carrying, s.cargo);
+        if (left === s.cargo && home) pushMessage(world, s.owner, 'No storage at the end of the trade route', 'The caravan brings its load back. Build a storage area there.', true, home.id);
+        s.cargo = left;
+        if (left === 0) s.carrying = null;
       }
       if (!home || !walkTo(world, s, doorTile(world, home), 40_000)) { s.phase = 'idle'; return; }
       s.phase = 'returning';

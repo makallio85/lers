@@ -909,6 +909,12 @@ document.addEventListener('click', (e) => {
       if (taken.size === 0) showProblem(`Nobody waits within ${BOARDING_RANGE} tiles of the ship`);
       renderOrders(); break;
     }
+    case 'release-specialists': {
+      const ids = selectedSoldierList().filter((s) => isSpecialistType(s.settlerType)).map((s) => s.id);
+      if (ids.length) submit({ type: 'releaseSpecialists', playerId: PLAYER, settlerIds: ids });
+      ui.selectedSoldiers.clear(); ui.orderMode = null; renderOrders(); renderPanel();
+      break;
+    }
     case 'unload-ships':
       for (const ship of selectedSoldierList().filter((s) => passengersOf(world, s).length > 0)) submit({ type: 'unloadShip', playerId: PLAYER, shipId: ship.id });
       renderOrders(); break;

@@ -174,7 +174,10 @@ Issue #12, phase 6, following the manual.
 
 - **Transport ship:** carries soldiers, specialists and priests (Romans 7, Egyptians 9, Asians 6, Amazons 8). They board within 3 tiles of the ship and go ashore on the land next to it. Ships sail 30 % faster than settlers walk and cannot attack.
 - **Landing dock:** the sea version of the marketplace, also on the open sea. Carriers bring the goods of its sea route; up to three trade ships take a load each (Romans 3 piles of 8, Egyptians 4, Asians 2, Amazons 3), sail to the water nearest the route's end, unload at the player's storage there, and come back.
-- **Colonies:** a building on land cut off from the castle must connect to one of the player's buildings on that land.
+- **Second colony:** pioneers sail out on a transport ship and claim land on another island. *Become carriers* turns chosen geologists, pioneers or thieves into carriers where they stand; their tools go to the nearest storage on their land, else the castle.
+  - A building on land cut off from the castle must connect to one of the player's buildings there, or, before the first one, to where the player's settlers stand.
+  - A site there gets its digger and builder from the carriers on that land, whatever the crew share at home.
+  - Trade ships and caravans unload at the player's storage near the route's end, or, without one, into the construction site there that still needs the good. That is how a colony's first storage area gets its planks and stone; what the site does not need goes back.
 - **Computer player:** on islands it builds a shipyard once it has barracks, orders a transport ship, and ferries an attack's worth of soldiers toward the enemy side, scouting by sea until it sees a shore there. Landed soldiers attack from where they stand; soldiers at home defend and wait for the ship. It does not build trade ships or colonies yet.
 
 ## Pace

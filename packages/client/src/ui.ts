@@ -6,7 +6,7 @@ import {
   OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
   DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf,
   MAP_LAYOUT_LABELS, MAP_LAYOUT_TYPES, SHIP_COSTS, SHIP_TICKS, SHIP_TYPES, TRADE_SHIPS_PER_DOCK, TRADE_SHIP_PILES, TRANSPORT_CAPACITY, BOARDING_RANGE, isShipType,
-  passengersOf, shipsOfDock
+  passengersOf, shipsOfDock, isSpecialistType
 } from '../../simulation/src/index.ts';
 import type {
   BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
@@ -686,6 +686,9 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
   const soldiers = units.filter((s) => isSoldierType(s.settlerType));
   const machines = units.filter((s) => isWarMachineType(s.settlerType));
   const fighters = units.filter((s) => isUnitType(s.settlerType));
+  const specialists = units.filter((s) => isSpecialistType(s.settlerType));
+  // Geologists, pioneers and thieves alone get only the orders that apply to them.
+  const isSpecialistsOnly = specialists.length > 0 && specialists.length === units.length;
   const types: SettlerType[] = [...SOLDIER_TYPES, ...WAR_MACHINE_TYPES, ...SPECIALIST_TYPES];
   const byType = types.map((t) => ({ t, n: units.filter((s) => s.settlerType === t).length })).filter((x) => x.n > 0);
   const onlyType = byType.length === 1 ? byType[0] : null;
@@ -706,6 +709,7 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
     : mode === 'waypoint' ? 'Tap or click each spot in turn, then press Done'
     : mode === 'patrol' ? 'Tap or click the far end of the patrol'
     : mode === 'free' ? 'Tap or click where they should go; they will not stop to fight'
+    : isSpecialistsOnly ? `${isTouch ? 'Move, then tap' : 'Right-click'} where they should work: pioneers claim land there, geologists look for ore`
     : isTouch ? (machines.length > 0 ? 'War machines need open ground: no forest, rocks or mountains' : '')
     : machines.length > 0 ? 'Right-click an enemy tower or castle: fire at it · right-click ground: move · Shift: waypoint. War machines need open ground: no forest, rocks or mountains.'
     : 'Right-click: move or attack · Shift: waypoint · Alt: patrol · H: hold';
@@ -717,12 +721,13 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
       ${modeButton('select', 'Select')}
       <button type="button" class="order-mode" data-action="select-in-view">All in view</button>
       ${modeButton('move', 'Move', units.length === 0)}
+      ${isSpecialistsOnly ? `<button type="button" class="order-mode" data-action="release-specialists" title="They carry goods where they stand, as a new colony's first settlers">Become carriers</button>` : `
       ${modeButton('attack', soldiers.length === 0 && machines.length > 0 ? 'Fire at' : 'Attack', fighters.length === 0)}
       ${mode === 'waypoint' ? `<button type="button" class="order-mode" data-action="order-mode" data-mode="waypoint" aria-pressed="true">Done</button>` : modeButton('waypoint', 'Waypoint', fighters.length === 0)}
       ${modeButton('patrol', 'Patrol', fighters.length === 0)}
       <button type="button" class="order-mode" data-action="hold" ${soldiers.length === 0 ? 'disabled' : ''} title="Key H">Hold</button>
       ${modeButton('free', 'Move, no fighting', soldiers.length === 0)}
-      <button type="button" class="order-mode" data-action="back-to-towers" ${soldiers.length === 0 ? 'disabled' : ''} title="Back to the castle">Retreat</button>
+      <button type="button" class="order-mode" data-action="back-to-towers" ${soldiers.length === 0 ? 'disabled' : ''} title="Back to the castle">Retreat</button>`}
       <button type="button" class="order-mode" data-action="clear-selection" ${units.length === 0 && mode === null ? 'disabled' : ''}>Clear</button>
     </div>
     ${hint ? `<span class="order-hint muted">${hint}</span>` : ''}`;
