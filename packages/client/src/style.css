@@ -328,3 +328,65 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .stats-card { padding: 12px; gap: 10px; }
   .chart-grid { gap: 10px; }
 }
+
+/* Front screens: loading, the title, match setup and settings, over the map (which stands still behind them). */
+.front { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(15, 20, 18, 0.78); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.front.is-title { background: radial-gradient(ellipse at 50% 40%, rgba(27, 36, 32, 0.55), rgba(15, 20, 18, 0.94) 70%), var(--ground); }
+.front-card { width: min(720px, 100%); max-height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 22px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line-strong); box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45); }
+.front-title { margin: 0; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 26px; letter-spacing: 0.02em; }
+.front-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.front-body::-webkit-scrollbar { display: none; }
+.front-footer { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding-top: 4px; border-top: 1px solid var(--line); }
+.front-footer .primary { min-width: 160px; }
+
+.title-card { width: min(420px, 100%); align-items: center; text-align: center; gap: 18px; padding: 32px 28px; background: rgba(27, 36, 32, 0.92); }
+.front-brand { margin: 0; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: clamp(56px, 12vw, 88px); line-height: 0.9; letter-spacing: 0.08em; color: var(--accent); }
+.front-tag { margin: 0; max-width: 30ch; color: var(--muted); font-size: 15px; text-wrap: balance; }
+.title-menu { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.title-item { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 56px; padding: 8px 16px; border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--card); font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 21px; letter-spacing: 0.02em; }
+.title-item span { font-family: Barlow, system-ui, sans-serif; font-weight: 500; font-size: 12px; letter-spacing: 0; color: var(--muted); }
+.title-item:hover:not(:disabled) { background: var(--card-on); border-color: var(--accent); }
+.title-item.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); min-height: 60px; }
+.title-item.primary span { color: var(--accent-text); opacity: 0.8; }
+.title-item:disabled { opacity: 0.55; }
+.title-item:disabled span { color: var(--accent); }
+
+.loading { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; font-size: 13px; }
+.loading-track { width: 100%; height: 6px; border-radius: 3px; background: var(--card); overflow: hidden; }
+.loading-bar { display: block; width: 0; height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.2s ease-out; }
+
+.setup-card .front-body { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; align-items: center; }
+.setup-card .menu-hint { margin: 0; font-weight: 600; color: var(--text); }
+.setup-card .race-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.setup-card .team-row { grid-column: 1 / -1; }
+.setup-card .map-size-choice { min-height: 48px; padding: 4px 6px; text-align: center; }
+
+.settings-card { width: min(520px, 100%); }
+.settings-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(80px, 160px) 3.5em; align-items: center; gap: 12px; min-height: 48px; }
+.settings-name { font-weight: 600; }
+.settings-level { text-align: right; color: var(--muted); }
+.settings-note { margin: 4px 0 0; font-size: 13px; }
+.toggle { position: relative; width: 44px; height: 26px; padding: 0; border: 0; border-radius: 13px; background: var(--line-strong); }
+.toggle span { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--text); transition: transform 0.15s; }
+.toggle[aria-checked="true"] { background: var(--accent); }
+.toggle[aria-checked="true"] span { transform: translateX(18px); background: var(--accent-text); }
+
+@media (max-width: 760px), (max-height: 520px) {
+  .front-card { padding: 14px; gap: 10px; }
+  .title-card { padding: 18px; gap: 10px; }
+  .front-brand { font-size: 48px; }
+  .title-item { min-height: 44px; font-size: 18px; }
+  .title-item.primary { min-height: 48px; }
+  .setup-card .front-body { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .setup-card .race-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-height: 520px) {
+  .title-card { width: min(640px, 100%); }
+  .title-menu { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .front-tag { display: none; }
+}
+.setup-card .menu-hint:not([id]) { grid-column: 1 / -1; }

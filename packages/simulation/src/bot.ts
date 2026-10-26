@@ -5,14 +5,10 @@ import type { ObservedBuilding, ObservedSoldier, Observation, OwnBuilding } from
 
 /** How often a built-in bot looks at the game and decides (2 seconds). */
 export const BOT_DECISION_TICKS = 20;
-/** Construction sites a bot keeps open at once. */
-const PARALLEL_SITES = 3;
 const MIN_FREE_CARRIERS = 4;
 /** Below this much stored stone, without a working stonecutter, the bot saves stone for getting more. */
 const STONE_RESERVE = 8;
 const TICKS_PER_MINUTE = 600;
-/** A squad attacking a building: three per defender inside, plus these. */
-const SQUAD_EXTRA = 4;
 const SCOUTS = 3;
 /** Room a storage area should still have; with less in all of them the bot builds another, up to this many. */
 const STORAGE_ROOM = 8;
@@ -50,6 +46,34 @@ export const BOT_TYPE_SETTINGS: Record<BotType, BotTypeSettings> = {
     label: 'Aggressive', firstAttackMinutes: { small: 0, medium: 0, large: 0 }, attackArmy: 6,
     castleArmy: 12, castleMinutes: { small: 0, medium: 0, large: 0 }, isSendingWholeArmy: true
   }
+};
+
+/**
+ * How well a built-in bot plays, apart from its style. All levels play by the same rules and see only what
+ * their people see; an easier bot thinks less often, builds fewer sites at once, attacks later and with
+ * smaller squads.
+ */
+export const BOT_DIFFICULTY_TYPES = ['easy', 'normal', 'hard'] as const;
+export type BotDifficultyType = (typeof BOT_DIFFICULTY_TYPES)[number];
+
+export interface BotDifficultySettings {
+  label: string;
+  summary: string;
+  /** Decides on every n-th decision turn. */
+  decisionEvery: number;
+  /** Construction sites kept open at once. */
+  parallelSites: number;
+  /** First attack and castle attack: the style's minutes times this, plus `attackExtraMinutes`. */
+  attackFactor: number;
+  attackExtraMinutes: number;
+  /** A squad attacking a building: three per defender inside, plus these. */
+  squadExtra: number;
+}
+
+export const BOT_DIFFICULTY_SETTINGS: Record<BotDifficultyType, BotDifficultySettings> = {
+  easy: { label: 'Easy', summary: 'Builds slowly, attacks late with small squads', decisionEvery: 2, parallelSites: 2, attackFactor: 1.5, attackExtraMinutes: 15, squadExtra: 2 },
+  normal: { label: 'Normal', summary: 'The usual computer player', decisionEvery: 1, parallelSites: 3, attackFactor: 1, attackExtraMinutes: 0, squadExtra: 4 },
+  hard: { label: 'Hard', summary: 'Builds more at once, attacks sooner with bigger squads', decisionEvery: 1, parallelSites: 4, attackFactor: 0.8, attackExtraMinutes: 0, squadExtra: 6 }
 };
 
 /** One line of what a bot decided and why; collected for tests and for tuning. */
@@ -219,6 +243,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const note = log ?? (() => {});
   const me = obs.playerId;
   const settings = BOT_TYPE_SETTINGS[obs.player.botType];
+  const level = BOT_DIFFICULTY_SETTINGS[obs.player.difficultyType];
+  const PARALLEL_SITES = level.parallelSites;
   // Which decision this is; periodic actions count decisions, so bots on staggered ticks still run them.
   const turn = Math.floor(obs.tick / BOT_DECISION_TICKS);
   const castle = obs.ownBuildings.find((b) => b.typeId === 'castle');
@@ -421,10 +447,10 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   // Then attack the nearest weakly held building in sight once the army is big enough; otherwise gather at the front.
   const mapSize = mapSizeTypeOf(obs.width);
   // In the economic mode soldiers are too weak away from home to win anything there: the bot only defends.
-  const mayAttack = obs.victoryType !== 'economy' && obs.tick >= settings.firstAttackMinutes[mapSize] * TICKS_PER_MINUTE;
+  const mayAttack = obs.victoryType !== 'economy' && obs.tick >= (settings.firstAttackMinutes[mapSize] * level.attackFactor + level.attackExtraMinutes) * TICKS_PER_MINUTE;
   const attacking = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && s.phase === 'attacking').length;
   const army = free.length + attacking;
-  const mayTakeCastle = army >= settings.castleArmy && obs.tick >= settings.castleMinutes[mapSize] * TICKS_PER_MINUTE;
+  const mayTakeCastle = army >= settings.castleArmy && obs.tick >= (settings.castleMinutes[mapSize] * level.attackFactor + level.attackExtraMinutes) * TICKS_PER_MINUTE;
   // A building another visible tower of its owner covers cannot be taken yet; attacking it still thins out
   // its defenders, so it is a target, but a later one.
   const isCovered = (t: ObservedBuilding) => obs.enemyBuildings.some((o) => o.id !== t.id && o.owner === t.owner && o.isComplete
@@ -443,8 +469,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     const target = targets[0];
     // Once the castle may be taken, a calm bot commits its whole army too, so long matches reach an end.
     const isAllIn = settings.isSendingWholeArmy || mayTakeCastle;
-    const squad = isAllIn ? free : nearest(free, target.doorX, target.doorY, target.garrisonCount * 3 + SQUAD_EXTRA);
-    const isAlreadyAttacked = !isAllIn && attacking >= target.garrisonCount * 3 + SQUAD_EXTRA;
+    const squad = isAllIn ? free : nearest(free, target.doorX, target.doorY, target.garrisonCount * 3 + level.squadExtra);
+    const isAlreadyAttacked = !isAllIn && attacking >= target.garrisonCount * 3 + level.squadExtra;
     if (!isAlreadyAttacked) {
       commands.push({ type: 'attackBuilding', playerId: me, soldierIds: squad.map((s) => s.id), buildingId: target.id });
       note(`attack ${target.typeId} #${target.id} with ${squad.length} (army ${army})`);

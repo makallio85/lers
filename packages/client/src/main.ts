@@ -1,11 +1,11 @@
 import {
-  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
+  BOT_DIFFICULTY_TYPES, BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
   BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, isEnemy, isWinner, maxPlayersOf, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
 } from '../../simulation/src/index.ts';
-import type { BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotDifficultyType, BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import { SoundBoard } from './sound.ts';
 import { MusicPlayer } from './music.ts';
@@ -13,7 +13,8 @@ import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
 import {
   GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, buildingCounts, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
-  renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs, machinesOf
+  renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs, machinesOf,
+  renderMatchSetup, renderSettings, renderTitle
 } from './ui.ts';
 import { renderStatsScreen } from './stats.ts';
 import type { StatsGoodsGroupId, StatsViewId } from './stats.ts';
@@ -31,7 +32,7 @@ const els = {
   side: $('side'), tabs: $('tabs'), panel: $('panel'), stock: $('stock'), clock: $('clock'), speed: $('speed'),
   map: $('map'), messages: $('messages'), hint: $('hint'), selection: $('selection'), orders: $('orders'),
   end: $('end-screen'), minimap: $<HTMLCanvasElement>('minimap'), mapName: $('map-name'), menu: $('game-menu'),
-  menuButton: $('menu-button'), stats: $('stats-screen')
+  menuButton: $('menu-button'), stats: $('stats-screen'), front: $('front')
 };
 
 function randomSeed(): number {
@@ -40,6 +41,7 @@ function randomSeed(): number {
 
 const params = new URLSearchParams(location.search);
 const BOT_TYPE_KEY = 'lers.botType';
+const DIFFICULTY_KEY = 'lers.difficulty';
 const MAP_SIZE_KEY = 'lers.mapSize';
 const RACE_KEY = 'lers.race';
 const MAP_LAYOUT_KEY = 'lers.mapLayout';
@@ -68,6 +70,7 @@ function remember(key: string, value: string): void {
 
 /** The opponent and map size chosen last; the menu highlights them and "Play again" keeps them. */
 let lastBotType: BotType = chosen(BOT_TYPES, BOT_TYPE_KEY, 'bot', 'aggressive');
+let lastDifficulty: BotDifficultyType = chosen(BOT_DIFFICULTY_TYPES, DIFFICULTY_KEY, 'difficulty', 'normal');
 let lastMapSize: MapSizeType = chosen(MAP_SIZE_TYPES, MAP_SIZE_KEY, 'size', 'medium');
 let lastRace: RaceType = chosen(RACE_TYPES, RACE_KEY, 'race', 'romans');
 let lastMapLayout: MapLayoutType = chosen(MAP_LAYOUT_TYPES, MAP_LAYOUT_KEY, 'land', 'continent');
@@ -87,7 +90,7 @@ function fitPlayers(): void {
 }
 fitPlayers();
 const nextSetup = () => ({
-  isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory,
+  difficultyType: lastDifficulty, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory,
   allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied
 });
 const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
@@ -137,11 +140,19 @@ const ui = {
   isConfirmingSurrender: false,
   menuNotice: null as string | null,
   isEndHidden: false,
-  dismissed: new Set<number>()
+  dismissed: new Set<number>(),
+  /**
+   * The full-screen menu over the map: the title, the match setup or the settings; null while playing. The game
+   * stands still while one is open. `frontReturn` is where Back goes: the title, or (null) back to the game.
+   */
+  front: (params.has('seed') || params.has('mode') ? null : 'title') as FrontId | null,
+  frontReturn: null as FrontId | null
 };
+type FrontId = 'title' | 'setup' | 'settings';
 
 const queue: Command[] = [];
-const view = await MapView.create(els.map, world);
+const loadingBar = document.getElementById('loading-bar');
+const view = await MapView.create(els.map, world, (share) => { if (loadingBar) loadingBar.style.width = `${Math.round(share * 100)}%`; });
 const sounds = new SoundBoard();
 const music = new MusicPlayer();
 view.onSound = (id, x, y) => sounds.playAt(id, x, y, els.map.clientWidth, els.map.clientHeight, view.scale);
@@ -276,11 +287,42 @@ function renderMenu(): void {
   if (ui.isMenuOpen) {
     setHtml(els.menu, renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
-      isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
-      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace, isSoundOn: sounds.isOn, isMusicOn: music.isOn,
-      allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied, maxPlayers: maxPlayersOf(lastMapSize, lastMapLayout)
+      isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender
     }));
   }
+  renderFront();
+}
+
+/** The title, match setup or settings screen over the map, or none. */
+function renderFront(): void {
+  els.front.hidden = ui.front === null;
+  els.front.classList.toggle('is-title', ui.front === 'title');
+  if (ui.front === 'title') setHtml(els.front, renderTitle({ autosavedAt: savedLabel(AUTOSAVE_KEY), savedAt: savedLabel(SAVE_KEY) }));
+  else if (ui.front === 'setup') {
+    setHtml(els.front, renderMatchSetup({
+      botType: lastBotType, difficultyType: lastDifficulty, mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored,
+      startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace,
+      allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied, maxPlayers: maxPlayersOf(lastMapSize, lastMapLayout)
+    }));
+  } else if (ui.front === 'settings') {
+    setHtml(els.front, renderSettings({ isSoundOn: sounds.isOn, isMusicOn: music.isOn, soundLevel: sounds.level, musicLevel: music.level }));
+  }
+}
+
+/** Opens a front screen; Back returns to the title when it came from there, else to the game. */
+function openFront(id: FrontId): void {
+  ui.frontReturn = ui.front === null ? null : ui.front === 'title' ? 'title' : ui.frontReturn;
+  ui.front = id;
+  ui.isMenuOpen = false; ui.isConfirmingSurrender = false;
+  // The music plays on in the menus, even over a paused game.
+  music.setPaused(false);
+  renderMenu();
+}
+
+function closeFront(to: FrontId | null = ui.frontReturn): void {
+  ui.front = to; ui.frontReturn = null;
+  if (to === null) music.setPaused(ui.speed === 0);
+  renderMenu();
 }
 
 function renderHint(): void {
@@ -795,6 +837,11 @@ window.addEventListener('keydown', (e) => {
   if (key === 'h' && selectedSoldierList().some((s) => isSoldierType(s.settlerType))) {
     holdSelected(); return;
   }
+  if (ui.front !== null) {
+    // In the menus only Escape works: it goes back, but never past the title.
+    if (e.key === 'Escape' && ui.front !== 'title') closeFront();
+    return;
+  }
   if (e.key === 'Escape') {
     if (ui.isStatsOpen) { ui.isStatsOpen = false; renderStats(); }
     else if (ui.isMenuOpen) { ui.isMenuOpen = false; renderMenu(); }
@@ -995,14 +1042,22 @@ document.addEventListener('click', (e) => {
     case 'save':
       ui.menuNotice = save(SAVE_KEY) ? `Saved at ${formatClock(world.tick)}.` : 'This browser does not allow saving here.';
       renderMenu(); break;
-    case 'load': load(SAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
+    case 'load': load(SAVE_KEY); if (ui.front !== null) closeFront(null); else renderMenu(); renderPanel(); refreshLive(); break;
     case 'load-autosave': load(AUTOSAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
-    case 'new-match': {
-      const type = (BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '') ? target.dataset.bot as BotType : botType();
-      lastBotType = type; remember(BOT_TYPE_KEY, type);
-      startNew(createMatch(randomSeed(), type, lastMapSize, lastRace, undefined, lastMapLayout, nextSetup()));
-      break;
-    }
+    case 'start-match':
+      startNew(createMatch(randomSeed(), lastBotType, lastMapSize, lastRace, undefined, lastMapLayout, nextSetup()));
+      closeFront(null); break;
+    case 'bot-type':
+      if ((BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '')) { lastBotType = target.dataset.bot as BotType; remember(BOT_TYPE_KEY, lastBotType); }
+      renderFront(); break;
+    case 'difficulty':
+      if ((BOT_DIFFICULTY_TYPES as readonly string[]).includes(target.dataset.difficulty ?? '')) { lastDifficulty = target.dataset.difficulty as BotDifficultyType; remember(DIFFICULTY_KEY, lastDifficulty); }
+      renderFront(); break;
+    case 'open-setup': openFront('setup'); break;
+    case 'open-settings': openFront('settings'); break;
+    case 'open-title': openFront('title'); break;
+    case 'close-front': closeFront(); break;
+    case 'continue': load(AUTOSAVE_KEY); closeFront(null); renderPanel(); refreshLive(); break;
     case 'race':
       if ((RACE_TYPES as readonly string[]).includes(target.dataset.race ?? '')) { lastRace = target.dataset.race as RaceType; remember(RACE_KEY, lastRace); }
       renderMenu(); break;
@@ -1074,7 +1129,7 @@ document.addEventListener('click', (e) => {
     case 'unload-ships':
       for (const ship of selectedSoldierList().filter((s) => passengersOf(world, s).length > 0)) submit({ type: 'unloadShip', playerId: PLAYER, shipId: ship.id });
       renderOrders(); break;
-    case 'new-sandbox': startNew(createWorld({ seed: randomSeed(), raceTypes: [lastRace] })); break;
+    case 'new-sandbox': startNew(createWorld({ seed: randomSeed(), raceTypes: [lastRace] })); closeFront(null); break;
     case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, firstEnemyRace(), world.mapLayout,
       { isMirrored: world.isMirrored, startingGoodsType: world.startingGoodsType, victoryType: world.victoryType, ...teamsOf() }) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;
@@ -1088,6 +1143,16 @@ document.addEventListener('click', (e) => {
 });
 
 // Share sliders for tools, weapons and distribution.
+// The settings' volume sliders follow the thumb while it moves.
+document.addEventListener('input', (e) => {
+  const input = e.target;
+  if (!(input instanceof HTMLInputElement) || !input.dataset.level) return;
+  if (input.dataset.level === 'sound') sounds.setLevel(Number(input.value));
+  else music.setLevel(Number(input.value));
+  const shown = input.parentElement?.querySelector('.settings-level');
+  if (shown) shown.textContent = `${input.value} %`;
+});
+
 document.addEventListener('change', (e) => {
   const input = e.target;
   if (!(input instanceof HTMLInputElement) || input.type !== 'range') return;
@@ -1123,7 +1188,7 @@ function simulate(now: number): void {
   // Up to a minute at once: what a hidden tab's slowest timer leaves between two wakes.
   const dt = Math.min(60_000, Math.max(0, now - lastSimulated));
   lastSimulated = now;
-  if (ui.speed > 0 && world.winner === null) {
+  if (ui.speed > 0 && world.winner === null && ui.front === null) {
     accumulator += dt * ui.speed;
     while (accumulator >= TICK_MS) {
       const commands = queue.splice(0);
@@ -1155,8 +1220,9 @@ function frame(now: number): void {
     // Re-check the preview when the map changes under it (a tree grows, a site is placed).
     if (ui.ghost) checkGhost(ui.ghost.x, ui.ghost.y);
   }
-  view.render(ui.speed > 0 && world.winner === null ? accumulator / TICK_MS : 1, {
-    speed: world.winner === null ? ui.speed : 0, ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId, hoveredId: ui.hoveredId,
+  const isRunning = world.winner === null && ui.front === null;
+  view.render(ui.speed > 0 && isRunning ? accumulator / TICK_MS : 1, {
+    speed: isRunning ? ui.speed : 0, ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId, hoveredId: ui.hoveredId,
     selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown(), workReach: workReachShown(), spellRange: spellRangeShown(), tradeRoute: tradeRouteShown()
   });
   if (now - lastLive > 250) { lastLive = now; refreshLive(); }
@@ -1200,6 +1266,8 @@ view.centreOn(castleOf(world, PLAYER)!.x + 2, castleOf(world, PLAYER)!.y + 2);
 renderPanel();
 renderSpeedButtons();
 refreshLive();
+// The loading screen gives way to the title (or, with a map in the address, straight to the game).
+renderFront();
 requestAnimationFrame(frame);
 
 // Exposed for automated screenshots and debugging in the browser console.

@@ -210,6 +210,7 @@ The map shows what the simulation holds, so a player can read the settlement wit
 - **Sound:** chops, hammer blows, picks on stone, spades in earth, swords and bows, falls, collapsing buildings and war machine shots play for what is on screen, quieter toward its edges and panned to their side. The interface clicks, warns, and chimes when a building is finished or the match ends. Sound starts after the first tap or click, as browsers require, and can be turned off in the menu. The sounds are Kenney's CC0 packs, converted by `art/sounds.sh`.
 - **Empty towers are manned:** a finished tower or castle with nobody inside takes a free soldier, or, when there is none, one from the nearest of its owner's garrisons that holds two or more.
 - **Fishers cast** with a swing of the rod. **Soldiers' strikes** land at the moment the hit is dealt: the sword or spear blow, or the arrow leaving the bow, then a draw back for the next.
+- **Menus:** the game opens on a loading screen with a progress bar, then the title: Continue (the autosave), Single player, Load saved game, Multiplayer (coming soon) and Settings. Single player sets up the match (people, difficulty, opponent, map, players, victory, halves, starting goods) and starts it, or a sandbox. Settings switch sound effects and music on or off and set their volume, kept in this browser. The in-game menu opens the same setup and settings and goes back to the title; the game stands still while any of them is open. With a map in the address (`?seed=…`), the game starts at once.
 - **Music:** four CC0 medieval tracks by RandomMind (OpenGameArt) play quietly under the sound effects, each loop twice before the next, from the first tap or click; it keeps playing while the tab is in the background, and is switched off in the menu. `art/music.sh` downloads and converts them.
 - **Garrisons stand on the walls:** the soldiers inside a tower or castle, by type, up to two on a small tower, four on a large one and six on the castle.
 
@@ -290,6 +291,17 @@ The built-in bot has two types, and neither gets extra information or resources:
 
 - **Calm** follows how the Settlers III computer players were observed to play: expand within the first minutes, build the economy with 2–4 sites open, drive intruders off at once, and attack no earlier than 20, 45 or 60 minutes on a small, medium or large map. It attacks the nearest weakly held tower with a squad sized to its garrison, keeps the rest of the army at home, and goes for the castle only later (35, 75 or 95 minutes) with 20 soldiers or more. At the original pace, 18 of 20 bot-vs-bot matches on a small map ended, after 40–150 minutes (median about 80).
 - **Aggressive** attacks as soon as it has 6 soldiers and something to attack, with its whole army. On a small map 17 of 20 bot-vs-bot matches ended, after 32–88 minutes (median about 60), so a small-map test game at 4× takes about 15 minutes. On a medium map 7 of 10 ended, after 36–112 minutes.
+
+Each type plays at one of three **difficulties**, chosen when setting up the match; none gets extra information or resources:
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Decides | every 4 s | every 2 s | every 2 s |
+| Sites open at once | 2 | 3 | 4 |
+| First attack and castle attack | 1.5 × the type's minutes, plus 15 | the type's minutes | 0.8 × the type's minutes |
+| Attacking squad | 3 per defender + 2 | 3 per defender + 4 | 3 per defender + 6 |
+
+Saves from before difficulties play at normal. Over 30 minutes on a small map, a hard computer finishes more buildings than an easy one.
 
 Match maps come in three sizes: small (96 × 64 tiles) for test games, medium (144 × 96) and large (192 × 128). Every start gets trees, rocks, water and an ore mountain that reaches into the starting land, on the player's own half of the mirrored map.
 

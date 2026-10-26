@@ -1,5 +1,5 @@
 import {
-  BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
+  BOT_DIFFICULTY_SETTINGS, BOT_DIFFICULTY_TYPES, BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
   GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
   costTotal, distributedGoods, goodCount, heldGood, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
   BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES,
@@ -9,7 +9,7 @@ import {
   passengersOf, shipsOfDock, isSpecialistType, STARTING_GOODS_LABELS, STARTING_GOODS_TYPES, VICTORY_LABELS, VICTORY_TYPES, economyProgress, isEnemy, isWinner
 } from '../../simulation/src/index.ts';
 import type {
-  BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, StartingGoodsType, VictoryType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
+  BotDifficultyType, BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, StartingGoodsType, VictoryType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
 } from '../../simulation/src/index.ts';
 
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
@@ -443,26 +443,39 @@ export interface MenuState {
   notice: string | null;
   isMatch: boolean;
   isConfirmingSurrender: boolean;
-  /** The opponent type used last; its choice is highlighted. */
+}
+
+/** The next match's setup, as chosen on the setup screen. */
+export interface SetupState {
+  /** The computer's style and how well it plays. */
   botType: BotType;
-  /** The map size selected for the next match. */
+  difficultyType: BotDifficultyType;
   mapSize: MapSizeType;
-  /** The map layout selected for the next match. */
   mapLayout: MapLayoutType;
   /** Whether the next match's map is mirrored, and how much each player starts with. */
   isMirrored: boolean;
   startingGoodsType: StartingGoodsType;
   victoryType: VictoryType;
-  /** Computer allies and enemies for the next match, whether the enemies play as one team, and how many players the map holds. */
+  /** Computer allies and enemies, whether the enemies play as one team, and how many players the map holds. */
   allyCount: number;
   enemyCount: number;
   areEnemiesAllied: boolean;
   maxPlayers: number;
-  /** Whether sound effects and music play. */
+  raceType: RaceType;
+}
+
+export interface SettingsState {
   isSoundOn: boolean;
   isMusicOn: boolean;
-  /** The people selected for the next match. */
-  raceType: RaceType;
+  /** Loudness of the sound effects and of the music, 0 to 100. */
+  soundLevel: number;
+  musicLevel: number;
+}
+
+export interface TitleState {
+  /** When the autosave was made, if there is one to continue. */
+  autosavedAt: string | null;
+  savedAt: string | null;
 }
 
 const STARTING_GOODS_NOTES: Record<StartingGoodsType, string> = {
@@ -483,85 +496,97 @@ function opponentText(botType: BotType, mapSize: MapSizeType, victoryType: Victo
 }
 
 export function renderGameMenu(state: MenuState): string {
-  const isOneOnOne = state.allyCount === 0 && state.enemyCount === 1;
   return `
     <button type="button" class="menu-item" data-action="save">Save game</button>
     <button type="button" class="menu-item" data-action="load" ${state.savedAt ? '' : 'disabled'}>Load saved game${state.savedAt ? `<span class="muted">${state.savedAt}</span>` : ''}</button>
     <button type="button" class="menu-item" data-action="load-autosave" ${state.autosavedAt ? '' : 'disabled'}>Load autosave${state.autosavedAt ? `<span class="muted">${state.autosavedAt}</span>` : ''}</button>
-    <div class="menu-section" role="group" aria-labelledby="menu-new-match">
-      <span class="menu-label" id="menu-new-match">New match against the computer</span>
-      <span class="menu-hint" id="menu-race">Your people</span>
-      <div class="race-row" role="radiogroup" aria-labelledby="menu-race">
-        ${RACE_TYPES.map((r) => `
-          <button type="button" class="race-choice ${r === state.raceType ? 'is-on' : ''}" role="radio" aria-checked="${r === state.raceType}" data-action="race" data-race="${r}">
-            <span class="opponent-name">${RACE_SETTINGS[r].label}</span>
-            <span class="muted">${RACE_SETTINGS[r].summary}</span>
-          </button>`).join('')}
-      </div>
-      <span class="menu-hint" id="menu-map-size">Map size</span>
-      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-map-size">
-        ${MAP_SIZE_TYPES.map((m) => `
-          <button type="button" class="map-size-choice ${m === state.mapSize ? 'is-on' : ''}" role="radio" aria-checked="${m === state.mapSize}" data-action="map-size" data-size="${m}">
-            <span class="opponent-name">${MAP_SIZE_SETTINGS[m].label}</span>
-            <span class="muted">${MAP_SIZE_SETTINGS[m].width} × ${MAP_SIZE_SETTINGS[m].height}</span>
-          </button>`).join('')}
-      </div>
-      <span class="menu-hint" id="menu-map-layout">Land</span>
-      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-map-layout">
-        ${MAP_LAYOUT_TYPES.map((m) => `
-          <button type="button" class="map-size-choice ${m === state.mapLayout ? 'is-on' : ''}" role="radio" aria-checked="${m === state.mapLayout}" data-action="map-layout" data-layout="${m}">
-            <span class="opponent-name">${MAP_LAYOUT_LABELS[m]}</span>
-            <span class="muted">${m === 'islands' ? 'Each people on its own island: attack by ship' : 'One land: walk to the enemy'}</span>
-          </button>`).join('')}
-      </div>
-      <span class="menu-hint">Players — up to ${state.maxPlayers} on this map</span>
-      <div class="made-row team-row"><span class="grow">Computer allies</span>${stepper('team-count', 'data-side="allies"', state.allyCount, 'Computer allies')}</div>
-      <div class="made-row team-row"><span class="grow">Computer enemies</span>${stepper('team-count', 'data-side="enemies"', state.enemyCount, 'Computer enemies')}</div>
-      ${state.enemyCount > 1 ? `<div class="map-size-row" role="radiogroup" aria-label="Enemy teams">
-        ${[false, true].map((t) => `
-          <button type="button" class="map-size-choice ${t === state.areEnemiesAllied ? 'is-on' : ''}" role="radio" aria-checked="${t === state.areEnemiesAllied}" data-action="enemy-teams" data-together="${t}">
-            <span class="opponent-name">${t ? 'One team' : 'Each alone'}</span>
-            <span class="muted">${t ? 'The enemies fight you together' : 'The enemies also fight each other'}</span>
-          </button>`).join('')}
-      </div>` : ''}
-      <span class="menu-hint" id="menu-victory">Victory</span>
-      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-victory">
-        ${VICTORY_TYPES.map((v) => `
-          <button type="button" class="map-size-choice ${v === state.victoryType ? 'is-on' : ''}" role="radio" aria-checked="${v === state.victoryType}" data-action="victory" data-victory="${v}">
-            <span class="opponent-name">${VICTORY_LABELS[v]}</span>
-            <span class="muted">${v === 'economy' ? 'First to make the goods targets; soldiers are weak away from home' : 'Take the enemy castle'}</span>
-          </button>`).join('')}
-      </div>
-      <span class="menu-hint" id="menu-halves">Map halves${isOneOnOne ? '' : ' — mirroring needs two players'}</span>
-      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-halves">
-        ${[true, false].map((m) => `
-          <button type="button" class="map-size-choice ${m === state.isMirrored && isOneOnOne ? 'is-on' : ''}" role="radio" aria-checked="${m === state.isMirrored}" data-action="map-mirror" data-mirrored="${m}" ${isOneOnOne ? '' : 'disabled'}>
-            <span class="opponent-name">${m ? 'Mirrored' : 'Each its own'}</span>
-            <span class="muted">${m ? 'Both sides the same land' : 'Different land, the same start around each castle'}</span>
-          </button>`).join('')}
-      </div>
-      <span class="menu-hint" id="menu-goods">Starting goods</span>
-      <div class="map-size-row" role="radiogroup" aria-labelledby="menu-goods">
-        ${STARTING_GOODS_TYPES.map((g) => `
-          <button type="button" class="map-size-choice ${g === state.startingGoodsType ? 'is-on' : ''}" role="radio" aria-checked="${g === state.startingGoodsType}" data-action="starting-goods" data-goods="${g}">
-            <span class="opponent-name">${STARTING_GOODS_LABELS[g]}</span>
-            <span class="muted">${STARTING_GOODS_NOTES[g]}</span>
-          </button>`).join('')}
-      </div>
-      <span class="menu-hint">Opponent — starts the match; the computer plays another people</span>
-      ${BOT_TYPES.map((t) => `
-        <button type="button" class="opponent-choice ${t === state.botType ? 'is-on' : ''}" data-action="new-match" data-bot="${t}">
-          <span class="opponent-name">${BOT_TYPE_SETTINGS[t].label}</span>
-          <span class="muted">${opponentText(t, state.mapSize, state.victoryType)}</span>
-        </button>`).join('')}
-    </div>
-    <button type="button" class="menu-item" data-action="new-sandbox">New sandbox (no opponent)</button>
-    <button type="button" class="menu-item" data-action="sound" aria-pressed="${state.isSoundOn}">Sound: ${state.isSoundOn ? 'on' : 'off'}</button>
-    <button type="button" class="menu-item" data-action="music" aria-pressed="${state.isMusicOn}">Music: ${state.isMusicOn ? 'on' : 'off'}</button>
+    <button type="button" class="menu-item" data-action="open-setup">New match…</button>
+    <button type="button" class="menu-item" data-action="open-settings">Settings…</button>
     ${state.isMatch ? (state.isConfirmingSurrender
       ? `<div class="menu-confirm"><span>Give up this match?</span><button type="button" class="danger" data-action="confirm-surrender">Surrender</button><button type="button" class="secondary" data-action="cancel-surrender">Keep playing</button></div>`
       : '<button type="button" class="menu-item" data-action="surrender">Surrender…</button>') : ''}
+    <button type="button" class="menu-item" data-action="open-title">Main menu</button>
     ${state.notice ? `<p class="menu-notice">${escapeHtml(state.notice)}</p>` : ''}`;
+}
+
+/** A row of choices, one of them on. */
+function choiceRow<T extends string | boolean>(label: string, id: string, items: readonly { value: T; name: string; note: string }[], current: T,
+  action: string, dataName: string, isDisabled = false): string {
+  return `<span class="menu-hint" id="${id}">${label}</span>
+    <div class="map-size-row" role="radiogroup" aria-labelledby="${id}">
+      ${items.map((i) => `
+        <button type="button" class="map-size-choice ${i.value === current && !isDisabled ? 'is-on' : ''}" role="radio" aria-checked="${i.value === current}" data-action="${action}" data-${dataName}="${i.value}" ${isDisabled ? 'disabled' : ''}>
+          <span class="opponent-name">${i.name}</span>
+          <span class="muted">${i.note}</span>
+        </button>`).join('')}
+    </div>`;
+}
+
+/** The front screens' frame: a title, the content, and the buttons at the bottom. */
+function frontCard(title: string, body: string, footer: string, className = ''): string {
+  return `<div class="front-card ${className}" role="dialog" aria-modal="true" aria-labelledby="front-title">
+    <h2 class="front-title" id="front-title">${title}</h2>
+    <div class="front-body">${body}</div>
+    <div class="front-footer">${footer}</div>
+  </div>`;
+}
+
+/** The first screen: continue, a new game against the computer, multiplayer (later) and settings. */
+export function renderTitle(state: TitleState): string {
+  return `<div class="front-card title-card" role="dialog" aria-modal="true" aria-labelledby="front-title">
+    <h1 class="front-brand" id="front-title">LERS</h1>
+    <p class="front-tag">Build a settlement, raise an army, take the enemy castle.</p>
+    <div class="title-menu">
+      ${state.autosavedAt ? `<button type="button" class="title-item primary" data-action="continue">Continue<span>Autosave · ${state.autosavedAt}</span></button>` : ''}
+      <button type="button" class="title-item ${state.autosavedAt ? '' : 'primary'}" data-action="open-setup">Single player<span>Against the computer</span></button>
+      ${state.savedAt ? `<button type="button" class="title-item" data-action="load">Load saved game<span>${state.savedAt}</span></button>` : ''}
+      <button type="button" class="title-item" disabled aria-describedby="multiplayer-note">Multiplayer<span id="multiplayer-note">Coming soon</span></button>
+      <button type="button" class="title-item" data-action="open-settings">Settings<span>Sound and music</span></button>
+    </div>
+  </div>`;
+}
+
+/** Setting up a match against the computer: your people, the map, the players and the opponent. */
+export function renderMatchSetup(state: SetupState): string {
+  const isOneOnOne = state.allyCount === 0 && state.enemyCount === 1;
+  const body = `
+    <span class="menu-hint" id="menu-race">Your people</span>
+    <div class="race-row" role="radiogroup" aria-labelledby="menu-race">
+      ${RACE_TYPES.map((r) => `
+        <button type="button" class="race-choice ${r === state.raceType ? 'is-on' : ''}" role="radio" aria-checked="${r === state.raceType}" data-action="race" data-race="${r}">
+          <span class="opponent-name">${RACE_SETTINGS[r].label}</span>
+          <span class="muted">${RACE_SETTINGS[r].summary}</span>
+        </button>`).join('')}
+    </div>
+    ${choiceRow('Difficulty', 'menu-difficulty', BOT_DIFFICULTY_TYPES.map((d) => ({ value: d, name: BOT_DIFFICULTY_SETTINGS[d].label, note: BOT_DIFFICULTY_SETTINGS[d].summary })), state.difficultyType, 'difficulty', 'difficulty')}
+    ${choiceRow('Opponent', 'menu-opponent', BOT_TYPES.map((t) => ({ value: t, name: BOT_TYPE_SETTINGS[t].label, note: opponentText(t, state.mapSize, state.victoryType) })), state.botType, 'bot-type', 'bot')}
+    ${choiceRow('Map size', 'menu-map-size', MAP_SIZE_TYPES.map((m) => ({ value: m, name: MAP_SIZE_SETTINGS[m].label, note: `${MAP_SIZE_SETTINGS[m].width} × ${MAP_SIZE_SETTINGS[m].height}` })), state.mapSize, 'map-size', 'size')}
+    ${choiceRow('Land', 'menu-map-layout', MAP_LAYOUT_TYPES.map((m) => ({ value: m, name: MAP_LAYOUT_LABELS[m], note: m === 'islands' ? 'Each people on its own island: attack by ship' : 'One land: walk to the enemy' })), state.mapLayout, 'map-layout', 'layout')}
+    <span class="menu-hint">Players — up to ${state.maxPlayers} on this map</span>
+    <div class="made-row team-row"><span class="grow">Computer allies</span>${stepper('team-count', 'data-side="allies"', state.allyCount, 'Computer allies')}</div>
+    <div class="made-row team-row"><span class="grow">Computer enemies</span>${stepper('team-count', 'data-side="enemies"', state.enemyCount, 'Computer enemies')}</div>
+    ${state.enemyCount > 1 ? choiceRow('Enemy teams', 'menu-enemy-teams', [false, true].map((t) => ({ value: t, name: t ? 'One team' : 'Each alone', note: t ? 'The enemies fight you together' : 'The enemies also fight each other' })), state.areEnemiesAllied, 'enemy-teams', 'together') : ''}
+    ${choiceRow('Victory', 'menu-victory', VICTORY_TYPES.map((v) => ({ value: v, name: VICTORY_LABELS[v], note: v === 'economy' ? 'First to make the goods targets; soldiers are weak away from home' : 'Take the enemy castle' })), state.victoryType, 'victory', 'victory')}
+    ${choiceRow(`Map halves${isOneOnOne ? '' : ' — mirroring needs two players'}`, 'menu-halves', [true, false].map((m) => ({ value: m, name: m ? 'Mirrored' : 'Each its own', note: m ? 'Both sides the same land' : 'Different land, the same start around each castle' })), state.isMirrored, 'map-mirror', 'mirrored', !isOneOnOne)}
+    ${choiceRow('Starting goods', 'menu-goods', STARTING_GOODS_TYPES.map((g) => ({ value: g, name: STARTING_GOODS_LABELS[g], note: STARTING_GOODS_NOTES[g] })), state.startingGoodsType, 'starting-goods', 'goods')}`;
+  const footer = `
+    <button type="button" class="secondary" data-action="close-front">Back</button>
+    <button type="button" class="secondary" data-action="new-sandbox">Sandbox</button>
+    <button type="button" class="primary" data-action="start-match">Start match</button>`;
+  return frontCard('Single player', body, footer, 'setup-card');
+}
+
+export function renderSettings(state: SettingsState): string {
+  const row = (name: string, action: string, isOn: boolean, levelAction: string, level: number) => `
+    <div class="settings-row">
+      <span class="settings-name">${name}</span>
+      <button type="button" class="toggle" role="switch" aria-checked="${isOn}" data-action="${action}" aria-label="${name}"><span></span></button>
+      <input type="range" class="share" min="0" max="100" step="5" value="${level}" data-level="${levelAction}" aria-label="${name} volume" ${isOn ? '' : 'disabled'}>
+      <span class="num settings-level">${level} %</span>
+    </div>`;
+  const body = `${row('Sound effects', 'sound', state.isSoundOn, 'sound', state.soundLevel)}${row('Music', 'music', state.isMusicOn, 'music', state.musicLevel)}
+    <p class="muted settings-note">Settings are kept in this browser.</p>`;
+  return frontCard('Settings', body, '<button type="button" class="primary" data-action="close-front">Done</button>', 'settings-card');
 }
 
 export function renderMessages(world: World, owner: number, dismissed: Set<number>): string {

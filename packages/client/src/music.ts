@@ -1,3 +1,5 @@
+import { keepLevel, keptLevel } from './sound.ts';
+
 /**
  * Background music: four CC0 medieval tracks by RandomMind (see public/music/CREDITS.txt), converted by art/music.sh.
  * Streamed one at a time, each loop played twice before the next, quietly under the sound effects. It starts on the
@@ -8,6 +10,7 @@ const TRACKS = ['bards_tale', 'old_tower_inn', 'kings_feast', 'minstrel_dance'] 
 const PLAYS_PER_TRACK = 2;
 const VOLUME = 0.28;
 const MUSIC_KEY = 'lers.music';
+const MUSIC_LEVEL_KEY = 'lers.musicLevel';
 
 export class MusicPlayer {
   private readonly audio = new Audio();
@@ -15,6 +18,8 @@ export class MusicPlayer {
   private plays = 0;
   private hasStarted = false;
   isOn: boolean;
+  /** Loudness, 0 to 100, on top of the quiet base volume. */
+  level = keptLevel(MUSIC_LEVEL_KEY);
   /** While the game is paused the music waits too, and goes on where it stopped. */
   private isPaused = false;
   private readonly base: string;
@@ -24,7 +29,7 @@ export class MusicPlayer {
     let kept: string | null = null;
     try { kept = localStorage.getItem(MUSIC_KEY); } catch { /* storage blocked: music on */ }
     this.isOn = kept !== 'off';
-    this.audio.volume = VOLUME;
+    this.audio.volume = VOLUME * this.level / 100;
     this.audio.preload = 'auto';
     this.audio.addEventListener('ended', () => this.next());
     const start = () => { this.start(); window.removeEventListener('pointerdown', start); window.removeEventListener('keydown', start); };
@@ -40,6 +45,12 @@ export class MusicPlayer {
     this.isOn = isOn;
     try { localStorage.setItem(MUSIC_KEY, isOn ? 'on' : 'off'); } catch { /* storage blocked */ }
     if (isOn) this.start(); else this.audio.pause();
+  }
+
+  setLevel(level: number): void {
+    this.level = Math.max(0, Math.min(100, Math.round(level)));
+    keepLevel(MUSIC_LEVEL_KEY, this.level);
+    this.audio.volume = VOLUME * this.level / 100;
   }
 
   setPaused(isPaused: boolean): void {

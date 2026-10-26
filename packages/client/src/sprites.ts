@@ -51,7 +51,7 @@ export class SpriteBank {
   private sharedLoaded = false;
 
   /** Loads what a match with these peoples needs; other peoples load when a later match needs them. */
-  async load(races: readonly RaceType[]): Promise<void> {
+  async load(races: readonly RaceType[], onProgress?: (share: number) => void): Promise<void> {
     try {
       if (!this.manifest) {
         const response = await fetch(this.base + 'manifest.json');
@@ -71,7 +71,7 @@ export class SpriteBank {
         if (wanted.some((r) => key.startsWith(r + '/')) || (!this.sharedLoaded && SHARED_LOOKS.some((l) => key.endsWith('/' + l)))) files.add(e.file);
       }
       const list = [...files];
-      const loaded = await Assets.load(list.map((f) => this.base + f)) as Record<string, Texture>;
+      const loaded = await Assets.load(list.map((f) => this.base + f), onProgress) as Record<string, Texture>;
       for (const f of list) this.textures.set(f, loaded[this.base + f]);
       this.sharedLoaded = true;
       for (const r of wanted) this.loadedRaces.add(r);

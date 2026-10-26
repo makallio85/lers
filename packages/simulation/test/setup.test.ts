@@ -115,3 +115,20 @@ test('in the economic mode two built-in bots never attack, and one wins the race
   assert.ok(!log.some((e) => e.text.startsWith('attack ')), 'no attacks');
   assert.ok(world.players.every((p) => castleOf(world, p.id)), 'both castles stand');
 });
+
+test('difficulty: a hard computer builds more than an easy one, and the level survives a save', () => {
+  const built = (difficultyType: 'easy' | 'hard') => {
+    const world = createMatch(11, 'calm', 'small', 'romans', 'egyptians', 'continent', { difficultyType });
+    assert.equal(world.players[1].difficultyType, difficultyType);
+    for (let t = 0; t < 30 * 600; t++) stepMatch(world);
+    const copy = loadGame(JSON.parse(JSON.stringify(saveGame(world))));
+    assert.equal(copy.players[1].difficultyType, difficultyType);
+    return world.buildings.filter((b) => b.owner === 1 && b.isComplete).length;
+  };
+  const easy = built('easy'), hard = built('hard');
+  assert.ok(hard > easy, `hard ${hard} should build more than easy ${easy} in 30 minutes`);
+  // A save from before difficulty levels plays at normal.
+  const old = JSON.parse(JSON.stringify(saveGame(createMatch(11, 'calm', 'small'))));
+  for (const p of old.players) delete p.difficultyType;
+  assert.equal(loadGame(old).players[1].difficultyType, 'normal');
+});
