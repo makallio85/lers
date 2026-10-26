@@ -1,15 +1,16 @@
 import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
-  buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, loadGame, mapSizeTypeOf,
+  buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision
 } from '../../simulation/src/index.ts';
 import type { BotType, MapSizeType, RaceType, SpecialistType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
+import * as simulation from '../../simulation/src/index.ts';
 import {
   GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
-  renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs
+  renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs, machinesOf
 } from './ui.ts';
 import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } from './ui.ts';
 
@@ -204,9 +205,9 @@ function renderHint(): void {
     <button type="button" class="secondary" data-action="cancel-placing">Cancel</button>`;
 }
 
-/** Settlers the player can select and send: soldiers and specialists outside buildings. */
+/** Settlers the player can select and send: soldiers, war machines and specialists outside buildings. */
 function isOwnUnit(s: Settler): boolean {
-  return s.owner === PLAYER && !s.isInside && (isSoldierType(s.settlerType) ? s.health > 0 : isSpecialistType(s.settlerType));
+  return s.owner === PLAYER && !s.isInside && (isUnitType(s.settlerType) ? s.health > 0 : isSpecialistType(s.settlerType));
 }
 
 function selectedSoldierList(): Settler[] {
@@ -445,7 +446,7 @@ function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
 
 function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'auto' | 'waypoint' | 'patrol' | 'free'): void {
   const units = selectedSoldierList();
-  const soldierIds = units.filter((s) => isSoldierType(s.settlerType)).map((s) => s.id);
+  const soldierIds = units.filter((s) => isUnitType(s.settlerType)).map((s) => s.id);
   const specialistIds = units.filter((s) => isSpecialistType(s.settlerType)).map((s) => s.id);
   if (units.length === 0) return;
   const b = buildingAt(clientX, clientY);
@@ -763,8 +764,15 @@ document.addEventListener('click', (e) => {
       if (ids.length && castle) submit({ type: 'moveSoldiers', playerId: PLAYER, soldierIds: ids, x: castle.doorX, y: castle.doorY + 2 });
       break;
     }
+    case 'select-hall-machines': {
+      const hall = buildingById(world, ui.selectedId);
+      if (!hall) break;
+      ui.selectedSoldiers = new Set(machinesOf(world, hall).map((s) => s.id));
+      ui.selectedId = null; renderSelectionCard(); renderOrders();
+      break;
+    }
     case 'attack-selected': {
-      const ids = selectedSoldierList().map((s) => s.id);
+      const ids = selectedSoldierList().filter((s) => isUnitType(s.settlerType)).map((s) => s.id);
       if (ids.length && selected) submit({ type: 'attackBuilding', playerId: PLAYER, soldierIds: ids, buildingId: selected.id });
       break;
     }
@@ -883,5 +891,5 @@ requestAnimationFrame(frame);
 
 // Exposed for automated screenshots and debugging in the browser console.
 Object.defineProperty(window, 'lers', {
-  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive })
+  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders })
 });
