@@ -108,7 +108,8 @@ export function spreadStanding(world: World): void {
   // steps out of the footprint to the nearest free tile, and carries on with what it was doing.
   for (const s of world.settlers) {
     if (s.isInside || s.path.length > 0 || isShipType(s.settlerType) || world.footprint[tileOf(world, s)] === 0) continue;
-    if (s.phase === 'idle') continue;
+    // Diggers work on their site's own tiles.
+    if (s.phase === 'idle' || s.phase === 'leveling') continue;
     const out = nearestFreeTile(world, s, new Set());
     if (out >= 0) { s.x = out % world.width; s.y = Math.floor(out / world.width); s.prevX = s.x; s.prevY = s.y; }
   }

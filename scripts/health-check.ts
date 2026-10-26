@@ -69,7 +69,7 @@ function check(world: World, minute: number, notes: Notes, memory: Memory): void
     const i = tileIndex(world, Math.round(s.x), Math.round(s.y));
     const isShip = s.settlerType === 'transport_ship' || s.settlerType === 'trade_ship';
     if (!isShip && world.terrain[i] === TERRAIN_WATER) note(notes, minute, 'settler on water', `${s.settlerType} #${s.id} ${s.phase} at ${Math.round(s.x)},${Math.round(s.y)}`);
-    if (!isShip && world.footprint[i] !== 0 && s.path.length === 0) note(notes, minute, 'settler standing inside a building', `${s.settlerType} #${s.id} ${s.phase}`);
+    if (!isShip && world.footprint[i] !== 0 && s.path.length === 0 && s.phase !== 'leveling') note(notes, minute, 'settler standing inside a building', `${s.settlerType} #${s.id} ${s.phase}`);
   }
   for (const b of world.buildings) {
     if (isOut(world, b.owner)) continue;

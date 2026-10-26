@@ -90,6 +90,21 @@ export class SpriteBank {
   }
 
   building(race: RaceType, typeId: BuildingTypeId): Sprite | null { return this.sprite(this.manifest?.buildings[`${race}/${typeId}`]); }
+
+  private readonly shadowless = new Map<string, Texture | null>();
+  /**
+   * A building without its shadow, for while it is being built: the shadow is the half-transparent part of the
+   * render, the building itself is solid, so cutting away everything not nearly opaque leaves the building alone.
+   * Made once per building in a canvas; the full sprite (with its shadow) shows once the building stands.
+   */
+  buildingWithoutShadow(race: RaceType, typeId: BuildingTypeId): Sprite | null {
+    const entry = this.manifest?.buildings[`${race}/${typeId}`];
+    const full = this.sprite(entry);
+    if (!entry || !full) return null;
+    if (!this.shadowless.has(entry.file)) this.shadowless.set(entry.file, cutShadow(full.texture));
+    const texture = this.shadowless.get(entry.file);
+    return texture ? { ...full, texture } : full;
+  }
   /** A moving part drawn over a building, rendered from the same camera, such as a mill's sails (`mill_sails_3`). */
   buildingPart(race: RaceType, name: string): Sprite | null { return this.sprite(this.manifest?.buildings[`${race}/${name}`]); }
   scaffold(size: number): Sprite | null { return this.sprite(this.manifest?.buildings[`scaffold/${size}`]); }
@@ -123,5 +138,23 @@ export class SpriteBank {
     const own = this.manifest?.settlers[`${race}/${look}`];
     if (own || !SHARED_LOOKS.includes(look) || !this.manifest) return own;
     return Object.entries(this.manifest.settlers).find(([key]) => key.endsWith('/' + look))?.[1];
+  }
+}
+
+/** Copies a texture keeping only its nearly opaque pixels, which drops a rendered building's soft shadow. */
+function cutShadow(texture: Texture): Texture | null {
+  try {
+    const image = texture.source.resource as CanvasImageSource & { width: number; height: number };
+    const canvas = document.createElement('canvas');
+    canvas.width = texture.source.width; canvas.height = texture.source.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 3; i < data.data.length; i += 4) if (data.data[i] < 235) data.data[i] = 0;
+    ctx.putImageData(data, 0, 0);
+    return Texture.from(canvas);
+  } catch {
+    return null;
   }
 }

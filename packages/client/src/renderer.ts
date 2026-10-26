@@ -138,6 +138,8 @@ export class MapView {
   private readonly territory = new Graphics();
   private readonly flats = new Graphics();
   private readonly marks = new Graphics();
+  /** Outlines on the ground (the selected building's footprint): drawn under the buildings, so a building hides the part behind it. */
+  private readonly groundOutlines = new Graphics();
   private readonly fog = new Sprite();
   private readonly overlay = new Graphics();
   /** Upright things (buildings, trees, settlers) sorted front to back. */
@@ -164,7 +166,7 @@ export class MapView {
     const m = new Matrix(ISO_W / 2 / TILE, ISO_H / 2 / TILE, -ISO_W / 2 / TILE, ISO_H / 2 / TILE, 0, 0);
     this.groundBase.setFromMatrix(m);
     this.groundTop.setFromMatrix(m);
-    this.groundBase.addChild(this.terrain, this.territory, this.flats, this.marks);
+    this.groundBase.addChild(this.terrain, this.territory, this.flats, this.marks, this.groundOutlines);
     this.groundTop.addChild(this.fog, this.overlay);
     this.upright.sortableChildren = true;
     this.ghostSprite.alpha = 0.6;
@@ -375,7 +377,8 @@ export class MapView {
       v.root.zIndex = cx + cy;
       v.foot = { x: cx, y: cy };
       cullPoints.set(v.root, iso(cx, cy));
-      const art = this.bank.building(this.raceOf(b.owner), b.typeId);
+      // While it rises the building has no shadow yet; it gets its full shadow once it is finished.
+      const art = b.isComplete ? this.bank.building(this.raceOf(b.owner), b.typeId) : this.bank.buildingWithoutShadow(this.raceOf(b.owner), b.typeId);
       const scaffoldArt = this.bank.scaffold(b.size);
       if (art) this.place(v.body, art, cx, cy);
       v.body.visible = !!art && (b.isComplete || b.levelProgress >= 1);
@@ -689,6 +692,14 @@ export class MapView {
       v.dir = (Math.round(Math.atan2(dx, dy) / (Math.PI / 4)) + 8) % 8;
       v.walked = now;
     }
+    if (!isMoving && (s.phase === 'building' || s.phase === 'leveling')) {
+      // At work on a site: always facing its middle, hammer or spade toward the building.
+      const site = this.world.buildings.find((b) => b.id === s.homeId);
+      if (site) {
+        const fx = site.x + site.size / 2 - 0.5 - s.x, fy = site.y + site.size / 2 - 0.5 - s.y;
+        if (Math.hypot(fx, fy) > 0.3) v.dir = (Math.round(Math.atan2(fx, fy) / (Math.PI / 4)) + 8) % 8;
+      }
+    }
     if (!isMoving && isWarMachineType(s.settlerType) && s.phase === 'attacking') {
       // Standing to fire: turn toward the target.
       const target = this.world.buildings.find((b) => b.id === s.attackId);
@@ -805,11 +816,12 @@ export class MapView {
       const doorX = ghost.x + Math.floor(size / 2), doorY = ghost.y + size;
       g.rect(doorX * TILE + 3, doorY * TILE + 3, TILE - 6, TILE - 6).stroke({ width: 2, color });
     }
-    // Footprint outlines: the selected building in white, stuck ones in orange.
+    // Footprint outlines on the ground: the selected building in white, stuck ones in orange.
+    const outlines = this.groundOutlines.clear();
     for (const b of this.world.buildings) {
       const isStuck = b.owner === this.viewer && b.blockedReason && b.blockedSince !== null && this.world.tick - b.blockedSince > 30;
       if (b.id !== state.selectedId && !isStuck) continue;
-      g.rect(b.x * TILE, b.y * TILE, b.size * TILE, b.size * TILE).stroke({ width: 2, color: b.id === state.selectedId ? 0xffffff : 0xe8763a });
+      outlines.rect(b.x * TILE, b.y * TILE, b.size * TILE, b.size * TILE).stroke({ width: 3, color: b.id === state.selectedId ? 0xffffff : 0xe8763a });
     }
     // Routes of selected soldiers: where they are going, their waypoints, and patrol ends.
     const w = this.world.width;

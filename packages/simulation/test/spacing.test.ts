@@ -64,3 +64,33 @@ test('a construction site takes a crew: several diggers level it and several bui
   }
   assert.ok(placed.isComplete, 'the crew finishes it');
 });
+
+test('diggers work on the site itself, and levelling goes as fast as the number of diggers on it', () => {
+  const timeWith = (diggers: number) => {
+    const world = createMatch(5, 'calm', 'small', 'romans', 'romans');
+    for (let t = 0; t < 300; t++) step(world);
+    // Only the wanted number of diggers: the rest become carriers.
+    const own = world.settlers.filter((s) => s.owner === 0 && s.settlerType === 'digger');
+    own.slice(diggers).forEach((s) => { s.settlerType = 'carrier'; });
+    world.players[0].maxCrewPercent = 0;
+    const castle = castleOf(world, 0)!;
+    let site: Building | null = null;
+    for (let r = 4; r < 12 && !site; r++) for (let dx = -r; dx <= r && !site; dx++) {
+      const [result] = step(world, [{ type: 'placeBuilding', playerId: 0, buildingType: 'woodcutter', x: castle.x + dx, y: castle.y + r }]);
+      if (result.isAccepted) site = world.buildings.find((b) => b.id === result.buildingId)!;
+    }
+    const placed: Building = site!;
+    let ticks = 0, onSite = 0;
+    for (; ticks < 4000 && placed.levelProgress < 1; ticks++) {
+      step(world);
+      for (const s of world.settlers) if (s.phase === 'leveling' && s.homeId === placed.id && s.path.length === 0) {
+        const x = Math.round(s.x), y = Math.round(s.y);
+        if (x >= placed.x && x < placed.x + placed.size && y >= placed.y && y < placed.y + placed.size) onSite++;
+      }
+    }
+    return { ticks, onSite };
+  };
+  const one = timeWith(1), two = timeWith(2);
+  assert.ok(one.onSite > 0 && two.onSite > 0, 'they dig on the site\'s own tiles');
+  assert.ok(two.ticks < one.ticks * 0.7, `two diggers are faster (${two.ticks} vs ${one.ticks} ticks)`);
+});

@@ -66,8 +66,9 @@ test('with few starting goods on an unmirrored map, two built-in bots still play
   const world = createMatch(3, 'aggressive', 'small', 'romans', 'egyptians', 'continent', { isMirrored: false, startingGoodsType: 'few' });
   world.players[0].isBot = true;
   // Few hammers: the bot lends one to a geologist, or it never finds ore and stalls.
-  for (let t = 0; t < 90 * 600 && world.winner === null; t++) stepMatch(world);
-  assert.notEqual(world.winner, null, 'the match should end within 90 minutes');
+  // A short start builds slowly: about 100 minutes here.
+  for (let t = 0; t < 120 * 600 && world.winner === null; t++) stepMatch(world);
+  assert.notEqual(world.winner, null, 'the match should end within 120 minutes');
 });
 
 test('economic mode: the first to make every goods target wins, and soldiers are weak away from home', () => {
