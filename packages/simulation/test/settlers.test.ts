@@ -266,3 +266,22 @@ test('a work area may be set up to the reach from the building, and no farther',
   assert.equal(result.isAccepted, false);
   assert.equal(!result.isAccepted && result.reason, 'Too far from the building');
 });
+
+test('pioneers go on pushing the border outward from their spot, each on its own tiles', () => {
+  const world = createMatch(7, 'calm', 'medium', 'romans');
+  world.players[1].isBot = false;
+  const castle = castleOf(world, 0)!;
+  let bx = castle.x;
+  while (world.territory[tileIndex(world, bx + 1, castle.y)] === 1) bx++;
+  command(world, { type: 'setSpecialists', playerId: 0, specialistType: 'pioneer', count: 2 });
+  run(world, 50);
+  const pioneers = world.settlers.filter((s) => s.owner === 0 && s.settlerType === 'pioneer');
+  assert.equal(pioneers.length, 2);
+  command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers.map((s) => s.id), x: bx, y: castle.y });
+  const own = () => world.territory.reduce((n, t) => n + (t === 1 ? 1 : 0), 0);
+  const before = own();
+  run(world, 2400);
+  assert.ok(own() - before > 120, `four minutes of two pioneers claim well beyond the first few tiles (${own() - before})`);
+  assert.ok(pioneers.every((s) => s.phase === 'claiming' || s.phase === 'moving'), 'and they are still at it');
+  assert.notEqual(pioneers[0].targetTile, pioneers[1].targetTile);
+});

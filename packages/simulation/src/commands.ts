@@ -7,7 +7,7 @@ import { MAX_TRADE_WAYPOINTS, SHIP_TYPES, SOLDIER_TYPES, SPELL_STATS, SPELL_TYPE
 import { settleWinner } from './world.ts';
 import { board, boardingProblem, isOpenSea, isSeaPassable, unload } from './sea.ts';
 import { castSpell, promote, promotionProblem, spellProblem } from './magic.ts';
-import { isMachinePassable } from './movement.ts';
+import { isMachinePassable, walkTo } from './movement.ts';
 import { landRegion } from './regions.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
 import { hasExplored, hasExploredBuilding } from './vision.ts';
@@ -567,6 +567,18 @@ function releaseSpecialist(world: World, s: Settler): void {
     (stores[0] ?? castleOf(world, s.owner)!).stock[tool]++;
   }
   s.settlerType = 'carrier'; s.phase = 'idle'; s.path = []; s.workCentre = -1; s.targetTile = -1; s.timer = 0; s.health = 0; s.homeId = null;
+  // A pioneer stops on the land it was about to claim: as a carrier it steps onto the player's nearest land.
+  const here = tileIndex(world, Math.round(s.x), Math.round(s.y));
+  if (world.territory[here] !== s.owner + 1) {
+    let best = -1, bestDistance = Infinity;
+    for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
+      const x = Math.round(s.x) + dx, y = Math.round(s.y) + dy;
+      if (!inBounds(world, x, y)) continue;
+      const i = tileIndex(world, x, y), d = Math.hypot(dx, dy);
+      if (world.territory[i] === s.owner + 1 && isWalkable(world, i) && d < bestDistance) { bestDistance = d; best = i; }
+    }
+    if (best >= 0) walkTo(world, s, best);
+  }
 }
 
 /** Removes a building, returning half its materials and everything it held to the castle. */
