@@ -212,6 +212,30 @@ function save(key: string): boolean {
   return storageWrite(key, JSON.stringify(saveGame(world)));
 }
 
+
+/**
+ * Puts HTML into a panel only when it changed, and never under a held press: a button replaced between the press and
+ * the release loses its click, so a panel with a pressed button waits until the release.
+ */
+const lastHtml = new WeakMap<Element, string>();
+const pendingHtml = new Map<Element, string>();
+let pressed: Element | null = null;
+function setHtml(el: Element, html: string): void {
+  if (pressed && el.contains(pressed)) { pendingHtml.set(el, html); return; }
+  pendingHtml.delete(el);
+  if (lastHtml.get(el) === html) return;
+  lastHtml.set(el, html);
+  el.innerHTML = html;
+}
+document.addEventListener('pointerdown', (e) => { pressed = e.target as Element; }, true);
+const releasePress = () => {
+  pressed = null;
+  // After the click that follows the release has run, catch up on what changed meanwhile.
+  setTimeout(() => { for (const [el, html] of [...pendingHtml]) setHtml(el, html); }, 0);
+};
+document.addEventListener('pointerup', releasePress, true);
+document.addEventListener('pointercancel', releasePress, true);
+
 function load(key: string): void {
   const raw = storageRead(key);
   if (!raw) { ui.menuNotice = 'There is no saved game in this browser.'; return; }
@@ -230,28 +254,27 @@ let lastAutosave = performance.now();
 // ---------------------------------------------------------------- panel rendering
 
 function renderPanel(): void {
-  els.tabs.innerHTML = renderTabs(ui.tab);
+  setHtml(els.tabs, renderTabs(ui.tab));
   els.side.classList.toggle('is-collapsed', !ui.isDrawerOpen);
   // Range inputs keep their position while being dragged; re-rendering under the pointer would reset them.
   if (document.activeElement instanceof HTMLInputElement && els.panel.contains(document.activeElement)) return;
-  els.panel.innerHTML =
-    ui.tab === 'build' ? renderBuildPanel(ui.groupType, ui.selectedType, ui.placing, world.players[PLAYER].raceType)
+  setHtml(els.panel, ui.tab === 'build' ? renderBuildPanel(ui.groupType, ui.selectedType, ui.placing, world.players[PLAYER].raceType)
     : ui.tab === 'goods' ? renderGoodsPanel(world, ui.goodsView, PLAYER)
     : ui.tab === 'settlers' ? renderSettlersPanel(world, ui.settlersView, PLAYER)
     : ui.tab === 'military' ? renderMilitaryPanel(world, ui.militaryView, PLAYER, ui.groups)
-    : renderStatsPanel(world, PLAYER);
+    : renderStatsPanel(world, PLAYER));
 }
 
 function renderMenu(): void {
   els.menu.hidden = !ui.isMenuOpen;
   els.menuButton.setAttribute('aria-expanded', String(ui.isMenuOpen));
   if (ui.isMenuOpen) {
-    els.menu.innerHTML = renderGameMenu({
+    setHtml(els.menu, renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
       isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
       botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace, isSoundOn: sounds.isOn, isMusicOn: music.isOn,
       allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied, maxPlayers: maxPlayersOf(lastMapSize, lastMapLayout)
-    });
+    }));
   }
 }
 
@@ -259,16 +282,16 @@ function renderHint(): void {
   if (!ui.placing && ui.routeFor !== null) {
     const n = ui.routePoints.length;
     els.hint.hidden = false;
-    els.hint.innerHTML = `<span>Trade route</span><span>${n === 0 ? 'Tap up to 3 spots to pass, then the end: the caravans unload at your storage near it.' : `${n} ${n === 1 ? 'spot' : 'spots'} set; the last one is the end.`}</span>
+    setHtml(els.hint, `<span>Trade route</span><span>${n === 0 ? 'Tap up to 3 spots to pass, then the end: the caravans unload at your storage near it.' : `${n} ${n === 1 ? 'spot' : 'spots'} set; the last one is the end.`}</span>
       <button type="button" class="primary" data-action="route-done" ${n === 0 ? 'disabled' : ''}>Done</button>
-      <button type="button" class="secondary" data-action="route-cancel">Cancel</button>`;
+      <button type="button" class="secondary" data-action="route-cancel">Cancel</button>`);
     return;
   }
   const workSite = buildingById(world, ui.workAreaFor);
   if (!ui.placing && workSite) {
     els.hint.hidden = false;
-    els.hint.innerHTML = `<span>Work area of the ${BUILDING_TYPES[workSite.typeId].label.toLowerCase()}</span><span>Tap or click where it should work, on your land.</span>
-      <button type="button" class="secondary" data-action="cancel-work-area">Cancel</button>`;
+    setHtml(els.hint, `<span>Work area of the ${BUILDING_TYPES[workSite.typeId].label.toLowerCase()}</span><span>Tap or click where it should work, on your land.</span>
+      <button type="button" class="secondary" data-action="cancel-work-area">Cancel</button>`);
     return;
   }
   if (!ui.placing) { els.hint.hidden = true; return; }
@@ -279,9 +302,9 @@ function renderHint(): void {
       ? (ui.ghost ? 'Move it by tapping elsewhere, then press Place.' : 'Tap a green marker where it should go.')
       : 'Click a green marker to place it. Esc to cancel.';
   els.hint.hidden = false;
-  els.hint.innerHTML = `<span>Placing ${label}</span><span class="${problem ? 'is-problem' : ''}">${problem ?? instructions}</span>
+  setHtml(els.hint, `<span>Placing ${label}</span><span class="${problem ? 'is-problem' : ''}">${problem ?? instructions}</span>
     ${ui.isTouchPlacement && ui.ghost ? `<button type="button" class="primary" data-action="confirm-place" ${ui.ghost.isValid ? '' : 'disabled'}>Place</button>` : ''}
-    <button type="button" class="secondary" data-action="cancel-placing">Cancel</button>`;
+    <button type="button" class="secondary" data-action="cancel-placing">Cancel</button>`);
 }
 
 /** Settlers the player can select and send: soldiers, war machines and specialists outside buildings. */
@@ -304,29 +327,29 @@ function renderSelectionCard(): void {
   if (!b || !view.isBuildingVisible(b)) { ui.selectedId = null; ui.isConfirmingDemolish = false; els.selection.hidden = true; return; }
   if (ui.workAreaFor !== null || ui.routeFor !== null) { els.selection.hidden = true; return; }
   els.selection.hidden = false;
-  els.selection.innerHTML = renderSelection(world, b, PLAYER, ui.isConfirmingDemolish, ui.selectedSoldiers.size);
+  setHtml(els.selection, renderSelection(world, b, PLAYER, ui.isConfirmingDemolish, ui.selectedSoldiers.size));
 }
 
 function renderOrders(): void {
   const soldiers = selectedSoldierList();
   const isShown = world.winner === null && !ui.placing && (soldiers.length > 0 || ui.orderMode !== null || (isMatch() && ui.tab === 'military'));
   els.orders.hidden = !isShown;
-  if (isShown) els.orders.innerHTML = renderOrderBar(soldiers, ui.orderMode, isTouchDevice(), outsideStrength(storedGold(world, PLAYER)),
-    { manna: world.players[PLAYER].manna, race: world.players[PLAYER].raceType, spell: ui.spell }, world);
+  if (isShown) setHtml(els.orders, renderOrderBar(soldiers, ui.orderMode, isTouchDevice(), outsideStrength(storedGold(world, PLAYER)),
+    { manna: world.players[PLAYER].manna, race: world.players[PLAYER].raceType, spell: ui.spell }, world));
 }
 
 function renderEnd(): void {
   const isShown = world.winner !== null && !ui.isEndHidden;
   els.end.hidden = !isShown;
-  if (isShown && !els.end.dataset.shown) { els.end.innerHTML = renderEndScreen(world, PLAYER); els.end.dataset.shown = '1'; }
+  if (isShown && !els.end.dataset.shown) { setHtml(els.end, renderEndScreen(world, PLAYER)); els.end.dataset.shown = '1'; }
   if (!isShown) delete els.end.dataset.shown;
 }
 
 function refreshLive(): void {
   playNews();
-  els.stock.innerHTML = renderStock(world, PLAYER);
+  setHtml(els.stock, renderStock(world, PLAYER));
   els.clock.textContent = formatClock(world.tick);
-  els.messages.innerHTML = renderMessages(world, PLAYER, ui.dismissed);
+  setHtml(els.messages, renderMessages(world, PLAYER, ui.dismissed));
   if (ui.tab !== 'build') renderPanel();
   renderSelectionCard();
   renderHint();
@@ -335,7 +358,7 @@ function refreshLive(): void {
   drawMinimap();
 }
 
-function renderSpeedButtons(): void { els.speed.innerHTML = renderSpeed(ui.speed); }
+function renderSpeedButtons(): void { setHtml(els.speed, renderSpeed(ui.speed)); }
 
 function isTouchDevice(): boolean {
   return window.matchMedia('(pointer: coarse)').matches;
@@ -416,7 +439,7 @@ let toastTimer = 0;
 function showToast(text: string): void {
   els.hint.hidden = false;
   if (!ui.placing) {
-    els.hint.innerHTML = `<span class="is-problem">${text.replace(/[<>&]/g, '')}</span>`;
+    setHtml(els.hint, `<span class="is-problem">${text.replace(/[<>&]/g, '')}</span>`);
     clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => { if (!ui.placing) els.hint.hidden = true; }, 2500);
   }
