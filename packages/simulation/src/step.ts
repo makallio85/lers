@@ -50,6 +50,21 @@ export function builderCrew(size: number): number { return size; }
 /** The crew a site's work is measured for: one settler alone takes twice as long, a full crew less. */
 const REFERENCE_CREW = 2;
 
+/** How long a digger stays on one spot of a site before moving to the next, in ticks. */
+const DIGGING_SPOT_TICKS = 50;
+
+/**
+ * Where on a site a digger works now: one of the site's own tiles, the crew spread evenly over them, each moving on
+ * to the next spot every few seconds.
+ */
+function diggingSpot(world: World, site: Building, s: Settler): number {
+  const tiles: number[] = [];
+  for (let y = site.y; y < site.y + site.size; y++) for (let x = site.x; x < site.x + site.size; x++) tiles.push(tileIndex(world, x, y));
+  const k = Math.max(0, site.diggerIds.indexOf(s.id));
+  const step = Math.floor((world.tick + s.id * 17) / DIGGING_SPOT_TICKS);
+  return tiles[(Math.floor((k * tiles.length) / diggerCrew(site.size)) + step) % tiles.length];
+}
+
 /** A crew member whose spot was since built over steps to a free spot along the site's edge. */
 function keepOutOfFootprints(world: World, s: Settler, site: Building): void {
   if (isWalkable(world, tileOf(world, s))) return;
@@ -641,7 +656,10 @@ function updateLeveling(world: World, s: Settler): void {
   const site = buildingById(world, s.homeId);
   if (!site || site.levelProgress >= 1) { becomeIdle(s); return; }
   // Work scaled to a full crew: each digger does its share.
-  keepOutOfFootprints(world, s, site);
+  // As in The Settlers III, diggers work on the site itself, spread over it and moving to another spot now and then.
+  if (s.path.length > 0) { advance(world, s); return; }
+  const target = diggingSpot(world, site, s);
+  if (target !== tileOf(world, s)) { s.path = [target]; advance(world, s); return; }
   site.levelProgress = Math.min(1, site.levelProgress + 1 / (site.size * site.size * LEVEL_TICKS_PER_TILE * REFERENCE_CREW));
   if (site.levelProgress >= 1) {
     site.diggerIds = [];
