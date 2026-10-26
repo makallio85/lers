@@ -147,6 +147,24 @@ test('occupations limit diggers and builders, and free carriers become new ones 
   assert.ok(castle.stock.shovel + castle.stock.hammer < 10);
 });
 
+test('idle builders filling the crew share never leave a site without a digger', () => {
+  const world = createWorld({ seed: 11 });
+  const castle = castleOf(world, 0)!;
+  castle.stock.shovel = 3; castle.stock.hammer = 3;
+  // No diggers left, and builders alone over the share: what a long match came to after carriers became soldiers.
+  for (const s of world.settlers) if (s.settlerType === 'digger') s.settlerType = 'carrier';
+  const carriers = world.settlers.filter((s) => s.settlerType === 'carrier');
+  for (const s of carriers.slice(0, 6)) s.settlerType = 'builder';
+  command(world, { type: 'setOccupations', playerId: 0, minCarrierPercent: 30, maxCrewPercent: 20 });
+  const spot = freeSpot(world, 'guard_tower_small');
+  const site = command(world, { type: 'placeBuilding', playerId: 0, buildingType: 'guard_tower_small', ...spot });
+  assert.equal(site.isAccepted, true);
+  run(world, 1200);
+  assert.ok(world.settlers.some((s) => s.settlerType === 'digger'), 'a digger comes for the waiting tower');
+  const tower = world.buildings.find((b) => b.id === (site as { buildingId: number }).buildingId)!;
+  assert.ok(tower.levelProgress > 0, 'and levels its ground');
+});
+
 test('a carrier becomes a geologist with no tool, marks the ore on a mountain, and turns back into a carrier when dismissed', () => {
   const world = createWorld({ seed: 11 });
   const castle = castleOf(world, 0)!;
