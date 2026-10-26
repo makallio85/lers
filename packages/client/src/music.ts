@@ -1,7 +1,8 @@
 /**
  * Background music: four CC0 medieval tracks by RandomMind (see public/music/CREDITS.txt), converted by art/music.sh.
  * Streamed one at a time, each loop played twice before the next, quietly under the sound effects. It starts on the
- * player's first tap or click, as browsers require, keeps quiet while the tab is hidden, and can be turned off.
+ * player's first tap or click, as browsers require, keeps playing while the tab is in the background, and can be
+ * turned off.
  */
 const TRACKS = ['bards_tale', 'old_tower_inn', 'kings_feast', 'minstrel_dance'] as const;
 const PLAYS_PER_TRACK = 2;
@@ -27,9 +28,9 @@ export class MusicPlayer {
     const start = () => { this.start(); window.removeEventListener('pointerdown', start); window.removeEventListener('keydown', start); };
     window.addEventListener('pointerdown', start);
     window.addEventListener('keydown', start);
+    // The match goes on in a background tab, and so does its music; coming back resumes it if the browser paused it.
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) this.audio.pause();
-      else if (this.isOn && this.hasStarted) void this.audio.play().catch(() => {});
+      if (!document.hidden && this.isOn && this.hasStarted && this.audio.paused) void this.audio.play().catch(() => {});
     });
   }
 
@@ -50,6 +51,6 @@ export class MusicPlayer {
     this.plays++;
     if (this.plays >= PLAYS_PER_TRACK) { this.plays = 0; this.track = (this.track + 1) % TRACKS.length; this.audio.src = `${this.base}${TRACKS[this.track]}.mp3`; }
     else this.audio.currentTime = 0;
-    if (this.isOn && !document.hidden) void this.audio.play().catch(() => {});
+    if (this.isOn) void this.audio.play().catch(() => {});
   }
 }

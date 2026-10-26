@@ -208,7 +208,7 @@ The map shows what the simulation holds, so a player can read the settlement wit
 - **Sound:** chops, hammer blows, picks on stone, spades in earth, swords and bows, falls, collapsing buildings and war machine shots play for what is on screen, quieter toward its edges and panned to their side. The interface clicks, warns, and chimes when a building is finished or the match ends. Sound starts after the first tap or click, as browsers require, and can be turned off in the menu. The sounds are Kenney's CC0 packs, converted by `art/sounds.sh`.
 - **Empty towers are manned:** a finished tower or castle with nobody inside takes a free soldier, or, when there is none, one from the nearest of its owner's garrisons that holds two or more.
 - **Fishers cast** with a swing of the rod. **Soldiers' strikes** land at the moment the hit is dealt: the sword or spear blow, or the arrow leaving the bow, then a draw back for the next.
-- **Music:** four CC0 medieval tracks by RandomMind (OpenGameArt) play quietly under the sound effects, each loop twice before the next, from the first tap or click; silent while the tab is hidden, and switched off in the menu. `art/music.sh` downloads and converts them.
+- **Music:** four CC0 medieval tracks by RandomMind (OpenGameArt) play quietly under the sound effects, each loop twice before the next, from the first tap or click; it keeps playing while the tab is in the background, and is switched off in the menu. `art/music.sh` downloads and converts them.
 - **Garrisons stand on the walls:** the soldiers inside a tower or castle, by type, up to two on a small tower, four on a large one and six on the castle.
 
 ## Pace
