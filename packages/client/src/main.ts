@@ -1156,7 +1156,7 @@ function frame(now: number): void {
     if (ui.ghost) checkGhost(ui.ghost.x, ui.ghost.y);
   }
   view.render(ui.speed > 0 && world.winner === null ? accumulator / TICK_MS : 1, {
-    ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId, hoveredId: ui.hoveredId,
+    speed: world.winner === null ? ui.speed : 0, ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId, hoveredId: ui.hoveredId,
     selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown(), spellRange: spellRangeShown(), tradeRoute: tradeRouteShown()
   });
   if (now - lastLive > 250) { lastLive = now; refreshLive(); }
