@@ -12,7 +12,7 @@ import type { Command, CommandResult } from './commands.ts';
 import { step } from './step.ts';
 import { observe } from './vision.ts';
 import {
-  NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TREE_MATURE, VISION_NONE, VISION_VISIBLE, castleOf, createWorld, inBounds, isWalkable, tileIndex
+  NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TREE_MATURE, VISION_NONE, VISION_VISIBLE, castleOf, createWorld, inBounds, isEnemy, isWalkable, tileIndex
 } from './world.ts';
 import type { World } from './world.ts';
 
@@ -20,7 +20,17 @@ import type { World } from './world.ts';
 const GATHER_REACH = 10;
 
 /** The rest of a match's setup: whether the map is mirrored (the default), how much each player starts with, and how it is won. */
-export interface MatchSetup { isMirrored?: boolean; startingGoodsType?: StartingGoodsType; victoryType?: VictoryType }
+export interface MatchSetup {
+  isMirrored?: boolean;
+  startingGoodsType?: StartingGoodsType;
+  victoryType?: VictoryType;
+  /** Computer players on your team (0 by default). */
+  allyCount?: number;
+  /** Computer players against you (1 by default). */
+  enemyCount?: number;
+  /** Whether the enemies play as one team; otherwise each is on its own. */
+  areEnemiesAllied?: boolean;
+}
 
 /** A match: you (player 0) against one built-in computer player, on a mirrored map unless the setup says otherwise. */
 export function createMatch(
@@ -28,10 +38,25 @@ export function createMatch(
   mapLayout: MapLayoutType = 'continent', setup: MatchSetup = {}
 ): World {
   const { width, height } = MAP_SIZE_SETTINGS[mapSize];
+  const maxPlayers = maxPlayersOf(mapSize, mapLayout);
+  const allyCount = setup.allyCount ?? 0, enemyCount = setup.enemyCount ?? 1;
+  if (!Number.isInteger(allyCount) || !Number.isInteger(enemyCount) || allyCount < 0 || enemyCount < 1 || 1 + allyCount + enemyCount > maxPlayers) {
+    throw new RangeError(`a ${mapSize} ${mapLayout === 'islands' ? 'islands ' : ''}map holds 2 to ${maxPlayers} players`);
+  }
+  // You, then your allies, then the enemies; computer players take the other peoples in turn.
+  const others = RACE_TYPES.filter((r) => r !== playerRace);
+  const races: RaceType[] = [playerRace];
+  for (let k = 1; k <= allyCount + enemyCount; k++) races.push(k === allyCount + 1 && botRace ? botRace : k === 1 && !botRace ? computerRace(seed, playerRace) : others[(seed + k) % others.length]);
+  const teams = races.map((_, k) => (k <= allyCount ? 0 : setup.areEnemiesAllied ? 1 : k - allyCount));
   return createWorld({
-    seed, playerCount: 2, botType, width, height, raceTypes: [playerRace, botRace ?? computerRace(seed, playerRace)], mapLayout,
+    seed, playerCount: races.length, teamIds: teams, botType, width, height, raceTypes: races, mapLayout,
     isMirrored: setup.isMirrored ?? true, startingGoodsType: setup.startingGoodsType ?? 'default', victoryType: setup.victoryType ?? 'conquest'
   });
+}
+
+/** How many players a map of this size and layout holds. */
+export function maxPlayersOf(mapSize: MapSizeType, mapLayout: MapLayoutType): number {
+  return mapLayout === 'islands' ? MAP_SIZE_SETTINGS[mapSize].maxIslandPlayers : MAP_SIZE_SETTINGS[mapSize].maxPlayers;
 }
 
 /** The computer's people when none is chosen: another one than the player's, picked from the seed. */
@@ -64,6 +89,8 @@ export function stepMatch(world: World, commands: readonly Command[] = [], botLo
  * Picks building spots on one player's own land. Scores read only tiles that player has explored, so a bot
  * gains nothing it could not see itself.
  */
+interface Point { x: number; y: number }
+
 export function spotFinder(world: World, playerId: number): BotSpotFinder {
   const owned = playerId + 1;
   const vision = world.vision[playerId];
@@ -83,6 +110,16 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
   // the same order and break ties the same way.
   const isRightSide = !!castle && castle.x + castle.size / 2 > world.width / 2;
   const mirrorX = (vx: number, size: number) => (isRightSide ? world.width - size - vx : vx);
+  // Progress toward a point from the castle, and distance to the side of that line. With two players the point lies
+  // on the castle's row at the far map edge, so `toEnd` is the distance to that edge and `aside` the rows off the castle's.
+  const direction = (toward: Point) => {
+    const ox = castle?.doorX ?? 0, oy = castle?.doorY ?? 0;
+    const d = Math.hypot(toward.x - ox, toward.y - oy) || 1, ux = (toward.x - ox) / d, uy = (toward.y - oy) / d;
+    return {
+      toEnd: (x: number, y: number) => d - ((x - ox) * ux + (y - oy) * uy),
+      aside: (x: number, y: number) => Math.abs((x - ox) * uy - (y - oy) * ux)
+    };
+  };
   // Tiles the player's settlers can walk to from the castle, worked out once per decision.
   let reachable: ((tile: number) => boolean) | null = null;
   const isNearReachable = (x: number, y: number) => {
@@ -135,7 +172,16 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
       }
       return best;
     },
-    sailTarget(shipX: number, shipY: number, towardX: number, isLoaded: boolean) {
+    towardEnemy() {
+      if (!castle) return { x: world.width / 2, y: world.height / 2 };
+      // Two players: the far side of the map. More: the nearest enemy castle, as the open setup shows where everyone starts.
+      if (world.players.length === 2) return { x: castle.x < world.width / 2 ? world.width : 0, y: castle.doorY };
+      const enemies = world.buildings.filter((b) => b.typeId === 'castle' && isEnemy(world, playerId, b.owner))
+        .sort((a, b) => Math.hypot(a.doorX - castle.doorX, a.doorY - castle.doorY) - Math.hypot(b.doorX - castle.doorX, b.doorY - castle.doorY) || a.id - b.id);
+      return enemies[0] ? { x: enemies[0].doorX, y: enemies[0].doorY } : { x: world.width / 2, y: world.height / 2 };
+    },
+    sailTarget(shipX: number, shipY: number, toward: Point, isLoaded: boolean) {
+      const dir = direction(toward);
       if (!castle) return null;
       const body = waterBodyOf(world, tileIndex(world, Math.round(shipX), Math.round(shipY)));
       if (body === 0) return null;
@@ -159,12 +205,12 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
             if (!hasLand(x, y, reachOf())) continue;
             score = Math.hypot(x - castle.doorX, y - castle.doorY);
             isLanding = true;
-          } else if (hasLand(x, y, isForeignShore) && Math.abs(x - towardX) < world.width * 0.4) {
+          } else if (hasLand(x, y, isForeignShore) && dir.toEnd(x, y) < world.width * 0.4) {
             const nearestEnemy = Math.min(Infinity, ...enemies.map((b) => Math.hypot(b.doorX - x, b.doorY - y)));
-            score = (nearestEnemy < Infinity ? nearestEnemy : Math.abs(x - towardX)) - 1000;
+            score = (nearestEnemy < Infinity ? nearestEnemy : dir.toEnd(x, y)) - 1000;
             isLanding = true;
           } else {
-            score = Math.abs(x - towardX) + Math.abs(y - castle.doorY) * 0.3;
+            score = dir.toEnd(x, y) + dir.aside(x, y) * 0.3;
           }
           if (score < bestScore) { bestScore = score; best = { x, y, isLanding }; }
         }
@@ -199,8 +245,9 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
       }
       return best;
     },
-    frontTile(towardX: number, from?: { x: number; y: number }) {
+    frontTile(toward: Point, from?: Point) {
       if (!castle) return null;
+      const dir = direction(toward);
       const isReachable = reachOf(from);
       let best: { x: number; y: number } | null = null, bestScore = Infinity;
       for (let y = 0; y < world.height; y += 2) {
@@ -208,14 +255,15 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
           const x = mirrorX(vx, 1);
           const i = tileIndex(world, x, y);
           if (vision[i] === VISION_NONE || !isReachable(i)) continue;
-          const score = Math.abs(x - towardX) + Math.abs(y - castle.doorY) * 0.3;
+          const score = dir.toEnd(x, y) + dir.aside(x, y) * 0.3;
           if (score < bestScore) { bestScore = score; best = { x, y }; }
         }
       }
       return best;
     },
-    findSpot(typeId: BuildingTypeId, need: SpotNeed, towardX: number) {
+    findSpot(typeId: BuildingTypeId, need: SpotNeed, toward: Point) {
       if (!castle) return null;
+      const dir = direction(toward);
       const size = BUILDING_TYPES[typeId].size;
       const stride = BUILDING_TYPES[typeId].placementType === 'mountain' ? 1 : 2;
       const military = need === 'border' ? militaryDoors() : [];
@@ -285,7 +333,7 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
             }
             case 'border': {
               const spread = Math.min(...military.map((m) => Math.hypot(doorX - m.x, doorY - m.y)));
-              score = Math.min(spread, 14) * 2 - Math.abs(doorX - towardX) * 0.4;
+              score = Math.min(spread, 14) * 2 - dir.toEnd(doorX, doorY) * 0.4;
               // Unclaimed mountains with ore nearby make a tower spot more valuable.
               around(doorX, doorY, 12, (i) => { if (world.terrain[i] === TERRAIN_MOUNTAIN && world.territory[i] !== owned) score += 0.2; });
               break;

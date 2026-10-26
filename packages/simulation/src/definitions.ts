@@ -505,10 +505,14 @@ export const ECONOMY_TARGETS: Record<MapSizeType, Partial<Record<GoodType, numbe
   large: { plank: 320, bread: 90, meat: 70, iron: 60, gold: 35 }
 };
 
-export const MAP_SIZE_SETTINGS: Record<MapSizeType, { label: string; width: number; height: number }> = {
-  small: { label: 'Small', width: 96, height: 64 },
-  medium: { label: 'Medium', width: 144, height: 96 },
-  large: { label: 'Large', width: 192, height: 128 }
+/**
+ * Each map size and how many players fit on it, every one with room for a castle and its first towers; on islands
+ * fewer, as each island must hold a castle's land and its ore mountain.
+ */
+export const MAP_SIZE_SETTINGS: Record<MapSizeType, { label: string; width: number; height: number; maxPlayers: number; maxIslandPlayers: number }> = {
+  small: { label: 'Small', width: 96, height: 64, maxPlayers: 4, maxIslandPlayers: 2 },
+  medium: { label: 'Medium', width: 144, height: 96, maxPlayers: 6, maxIslandPlayers: 4 },
+  large: { label: 'Large', width: 192, height: 128, maxPlayers: 8, maxIslandPlayers: 5 }
 };
 
 /** The size a map was made with, found from its width; maps of other widths count as medium. */

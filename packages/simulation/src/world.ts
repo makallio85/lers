@@ -171,6 +171,8 @@ export interface PlayerStats {
 
 export interface PlayerState {
   id: number;
+  /** Players on the same team are allies: they never fight each other, share what they see, and win together. */
+  teamId: number;
   isBot: boolean;
   /** How this player's built-in bot plays; unused for human players. */
   botType: BotType;
@@ -289,6 +291,25 @@ export function buildingById(world: World, id: number | null): Building | undefi
 export function settlerById(world: World, id: number | null): Settler | undefined {
   if (id === null) return undefined;
   return world.settlers.find((s) => s.id === id);
+}
+
+/** Whether two players fight each other: different players on different teams. */
+export function isEnemy(world: World, a: number, b: number): boolean {
+  if (a === b) return false;
+  const pa = world.players[a], pb = world.players[b];
+  return !pa || !pb || pa.teamId !== pb.teamId;
+}
+
+/** Whether a player is on the winning team of a finished match. */
+export function isWinner(world: World, playerId: number): boolean {
+  return world.winner !== null && !isEnemy(world, world.winner, playerId);
+}
+
+/** Ends the match once every player still in it is on one team; `winner` is that team's first player. */
+export function settleWinner(world: World): void {
+  if (world.players.length < 2 || world.winner !== null) return;
+  const alive = world.players.filter((p) => !p.isEliminated);
+  if (alive.length > 0 && alive.every((p) => p.teamId === alive[0].teamId)) world.winner = alive[0].id;
 }
 
 export function castleOf(world: World, owner: number): Building | undefined {
@@ -427,7 +448,7 @@ export function recomputeTerritory(world: World): void {
 export const DEFAULT_MIN_CARRIER_PERCENT = 30;
 export const DEFAULT_MAX_CREW_PERCENT = 25;
 
-export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'aggressive', raceType: RaceType = 'romans'): PlayerState {
+export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'aggressive', raceType: RaceType = 'romans', teamId = id): PlayerState {
   const isStored = {} as Record<GoodType, boolean>;
   for (const good of GOOD_TYPES) isStored[good] = true;
   const productionShares: Partial<Record<GoodType, number>> = {};
@@ -439,6 +460,7 @@ export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'ag
     for (const consumer of consumersOf(good)) distribution[good]![consumer] = 5;
   }
   return {
+    teamId,
     id, isBot, botType, raceType, isEliminated: false,
     transportPriority: ['plank', 'stone', 'log', ...TOOL_TYPES, ...WEAPON_TYPES, 'coal', 'iron_ore', 'iron', 'gold_ore', 'gold',
       'water', 'grain', 'flour', 'bread', 'fish', 'pig', 'meat', 'rice', 'honey', 'sulfur', 'gems', 'gunpowder',
@@ -454,8 +476,10 @@ export interface CreateWorldOptions {
   seed?: number;
   width?: number;
   height?: number;
-  /** 1: sandbox. 2: a match against a computer player on a mirrored map. */
-  playerCount?: 1 | 2;
+  /** 1: sandbox. 2 to 8: a match; two players may play on a mirrored map. */
+  playerCount?: number;
+  /** Each player's team, in player order; everyone on their own team when not given. */
+  teamIds?: readonly number[];
   botType?: BotType;
   /** The people of each player, in player order; Romans when not given. */
   raceTypes?: readonly RaceType[];
@@ -476,19 +500,20 @@ export const STARTING_SETTLERS: Partial<Record<SettlerType, number>> = {
   carrier: 20, digger: 3, builder: 4, swordsman: 3, spearman: 1, bowman: 2
 };
 
-/** Creates a seeded map: a sandbox for one player, or a mirrored two-player match. */
+/** Creates a seeded map: a sandbox for one player, or a match for 2 to 8, two of them on a mirrored map if wanted. */
 export function createWorld({
-  seed = 1, width, height, playerCount = 1, botType = 'aggressive', raceTypes = [], mapLayout = 'continent', isMirrored = true, startingGoodsType = 'default',
-  victoryType = 'conquest'
+  seed = 1, width, height, playerCount = 1, teamIds = [], botType = 'aggressive', raceTypes = [], mapLayout = 'continent', isMirrored = true,
+  startingGoodsType = 'default', victoryType = 'conquest'
 }: CreateWorldOptions = {}): World {
-  const w = width ?? (playerCount === 2 ? 144 : 96);
+  if (!Number.isInteger(playerCount) || playerCount < 1 || playerCount > 8) throw new RangeError('a map holds 1 to 8 players');
+  const w = width ?? (playerCount >= 2 ? 144 : 96);
   const h = height ?? 96;
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new RangeError('seed must be a uint32');
   if (!Number.isInteger(w) || !Number.isInteger(h) || w < 48 || h < 48 || w > 512 || h > 512) {
     throw new RangeError('map size must be between 48 and 512 tiles');
   }
   const n = w * h;
-  const players = Array.from({ length: playerCount }, (_, k) => defaultPlayer(k, k > 0, botType, raceTypes[k] ?? 'romans'));
+  const players = Array.from({ length: playerCount }, (_, k) => defaultPlayer(k, k > 0, botType, raceTypes[k] ?? 'romans', teamIds[k] ?? k));
   const world: World = {
     seed, tick: 0, width: w, height: h,
     terrain: new Uint8Array(n), tree: new Int16Array(n).fill(NO_TREE), field: new Int16Array(n).fill(NO_FIELD),
@@ -497,10 +522,15 @@ export function createWorld({
     claim: new Int32Array(n), vision: players.map(() => new Uint8Array(n)), prospect: players.map(() => new Uint8Array(n)),
     pioneerLand: new Uint8Array(n), militaryLand: new Uint8Array(n), players, buildings: [], settlers: [], messages: [], farSights: [],
     nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null, mapLayout,
-    isMirrored: playerCount === 2 && isMirrored, startingGoodsType, victoryType: playerCount === 2 ? victoryType : 'conquest'
+    isMirrored: playerCount === 2 && isMirrored, startingGoodsType, victoryType: playerCount >= 2 ? victoryType : 'conquest'
   };
   generateTerrain(world);
   const size = BUILDING_TYPES.castle.size;
+  if (playerCount > 2) {
+    placeRingStarts(world, mapLayout);
+    recomputeTerritory(world);
+    return world;
+  }
   const start = playerCount === 2
     ? findCastleSpot(world, Math.floor(w * 0.18), 12, Math.floor(w / 2) - 24)
     : findCastleSpot(world, Math.floor(w * 0.35), 12, w - 12);
@@ -509,9 +539,9 @@ export function createWorld({
     : findCastleSpot(world, w - Math.floor(w * 0.18) - size, Math.floor(w / 2) + 24, w - 12 - size);
   if (mapLayout === 'islands') carveIslands(world, [start, ...(second ? [second] : [])].map((p) => ({ x: p.x + size / 2, y: p.y + size / 2 })));
   const half = Math.floor(w / 2);
-  prepareStart(world, start.x, start.y, 0, playerCount === 2 ? half : w);
+  prepareStart(world, start.x, start.y, { minX: 0, maxX: playerCount === 2 ? half : w, minY: 0, maxY: h });
   if (second && world.isMirrored) mirrorLeftHalf(world);
-  else if (second) prepareStart(world, second.x, second.y, half, w, 1);
+  else if (second) prepareStart(world, second.x, second.y, { minX: half, maxX: w, minY: 0, maxY: h }, 1);
   placeCastle(world, 0, start.x, start.y);
   if (second) placeCastle(world, 1, second.x, second.y);
   recomputeTerritory(world);
@@ -575,12 +605,14 @@ export function islandRadius(width: number): number {
 /**
  * Turns the map into sea except each start's island and a neutral island in the middle, with a ragged coast.
  */
-function carveIslands(world: World, starts: readonly { x: number; y: number }[]): void {
+function carveIslands(world: World, starts: readonly { x: number; y: number }[], radius = islandRadius(world.width)): void {
   const { width, height } = world;
   const coast = valueNoise(world.seed ^ 0x51ed270b, width, height, 7);
   const midX = width / 2, midY = height / 2;
-  const middle = Math.min(10, width / 10);
-  const radius = islandRadius(width);
+  // The neutral island keeps a channel of sea to every start's island, the coast's wobble included; too small, it is left out.
+  const toMiddle = Math.min(...starts.map((c) => Math.hypot(c.x - midX, c.y - midY)));
+  const middle = Math.min(10, width / 10, toMiddle - radius - 8);
+  const hasMiddle = middle >= 4;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = tileIndex(world, x, y);
@@ -588,7 +620,7 @@ function carveIslands(world: World, starts: readonly { x: number; y: number }[])
       // Each start's island; with one start given, its mirror image on the right too.
       const centres = starts.length === 1 ? [starts[0], { x: width - starts[0].x, y: starts[0].y }] : starts;
       const isStart = centres.some((c) => Math.hypot(x + 0.5 - c.x, y + 0.5 - c.y) <= radius + wobble);
-      const isMiddle = Math.hypot(x + 0.5 - midX, y + 0.5 - midY) <= middle + wobble * 0.6;
+      const isMiddle = hasMiddle && Math.hypot(x + 0.5 - midX, y + 0.5 - midY) <= middle + wobble * 0.6;
       if (isStart) continue;
       if (isMiddle) {
         // The neutral island: a rich mountain worth sailing for.
@@ -601,6 +633,60 @@ function carveIslands(world: World, starts: readonly { x: number; y: number }[])
       world.terrain[i] = TERRAIN_WATER; world.tree[i] = NO_TREE; world.rock[i] = 0; setDeposit(world, i, DEPOSIT_NONE);
     }
   }
+}
+
+/** The part of the map a start's guaranteed resources must lie in, so they stay that player's. */
+interface StartArea { minX: number; maxX: number; minY: number; maxY: number }
+
+/**
+ * Three to eight players: castles on a ring around the middle, player 0 on the left and the rest in order around it,
+ * each on the grassiest spot near its place. Each start gets the same prepared surroundings inside its own area.
+ */
+function placeRingStarts(world: World, mapLayout: MapLayoutType): void {
+  const { width: w, height: h } = world;
+  const count = world.players.length;
+  const size = BUILDING_TYPES.castle.size;
+  // The ring places are 36 to 50 tiles apart on the largest player count of each map size; a start keeps near its
+  // place and twice a castle's reach from the others, so no two castles' land overlaps.
+  const reach = 6, gapMin = 2 * BUILDING_TYPES.castle.territoryRadius + 2;
+  const starts: { x: number; y: number }[] = [];
+  for (let k = 0; k < count; k++) {
+    const angle = Math.PI + (2 * Math.PI * k) / count;
+    const tx = Math.round(w / 2 + Math.cos(angle) * w * 0.35 - size / 2), ty = Math.round(h / 2 + Math.sin(angle) * h * 0.33 - size / 2);
+    starts.push(findCastleSpotNear(world, tx, ty, reach, (x, y) => starts.every((o) => Math.hypot(o.x - x, o.y - y) >= gapMin)));
+  }
+  // Each start's area reaches halfway to its nearest neighbour.
+  const gap = (k: number) => Math.min(...starts.filter((_, j) => j !== k).map((o) => Math.hypot(o.x - starts[k].x, o.y - starts[k].y)));
+  const areas = starts.map((p, k) => {
+    const half = gap(k) / 2;
+    return { minX: Math.max(0, Math.floor(p.x + size / 2 - half)), maxX: Math.min(w, Math.ceil(p.x + size / 2 + half)),
+      minY: Math.max(0, Math.floor(p.y + size / 2 - half)), maxY: Math.min(h, Math.ceil(p.y + size / 2 + half)) };
+  });
+  if (mapLayout === 'islands') {
+    // Islands stay apart from each other and from the neutral one in the middle, the coast's wobble included.
+    const centres = starts.map((p) => ({ x: p.x + size / 2, y: p.y + size / 2 }));
+    const radius = Math.floor(Math.min(islandRadius(w), Math.min(...starts.map((_, k) => gap(k))) / 2 - 5));
+    carveIslands(world, centres, radius);
+  }
+  starts.forEach((p, k) => prepareStart(world, p.x, p.y, areas[k], k));
+  starts.forEach((p, k) => placeCastle(world, k, p.x, p.y));
+}
+
+/** The grassiest castle spot within `reach` of a place, nearer places breaking ties. */
+function findCastleSpotNear(world: World, tx: number, ty: number, reach: number, isAllowed: (x: number, y: number) => boolean): { x: number; y: number } {
+  let best = { x: tx, y: ty }, bestScore = -Infinity;
+  for (let y = Math.max(12, ty - reach); y <= Math.min(world.height - 16, ty + reach); y++) {
+    for (let x = Math.max(12, tx - reach); x <= Math.min(world.width - 16, tx + reach); x++) {
+      if (!isAllowed(x, y)) continue;
+      let grass = 0;
+      for (let dy = -6; dy <= 9; dy++) {
+        for (let dx = -6; dx <= 9; dx++) if (world.terrain[tileIndex(world, x + dx, y + dy)] === TERRAIN_GRASS) grass++;
+      }
+      const score = grass - Math.hypot(x - tx, y - ty) * 2;
+      if (score > bestScore) { bestScore = score; best = { x, y }; }
+    }
+  }
+  return best;
 }
 
 function setDeposit(world: World, i: number, deposit: number): void {
@@ -631,7 +717,8 @@ function findCastleSpot(world: World, targetX: number, minX: number, maxX: numbe
  * Clears room around the castle and guarantees the same start everywhere: a grove, a rock cluster and a
  * pond inside the territory, and a mountain with coal and iron just outside it, so expansion matters.
  */
-function prepareStart(world: World, x: number, y: number, minX: number, maxX: number, variant = 0): void {
+function prepareStart(world: World, x: number, y: number, area: StartArea, variant = 0): void {
+  const { minX, maxX, minY, maxY } = area;
   const size = BUILDING_TYPES.castle.size;
   const radius = BUILDING_TYPES.castle.territoryRadius;
   const centreX = x + size / 2, centreY = y + size / 2;
@@ -642,7 +729,7 @@ function prepareStart(world: World, x: number, y: number, minX: number, maxX: nu
     grove: at(a, 11), quarry: at(a + Math.PI, 11), pond: at(a + Math.PI / 2, 10), mountain: at(a - Math.PI / 2, radius - 1)
   });
   // Every guaranteed resource must lie on the map and on this player's half, so mirroring keeps it.
-  const fits = (p: { x: number; y: number }, r: number) => p.x - r >= minX + 1 && p.y - r >= 1 && p.y + r <= world.height - 2 && p.x + r <= maxX - 2;
+  const fits = (p: { x: number; y: number }, r: number) => p.x - r >= minX + 1 && p.y - r >= minY + 1 && p.y + r <= maxY - 2 && p.x + r <= maxX - 2;
   const first = random.next() * Math.PI * 2;
   let angle = first;
   for (let k = 0; k < 16; k++) {

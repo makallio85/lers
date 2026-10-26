@@ -5,7 +5,7 @@ import {
 import type { SoldierType, SpellType } from './definitions.ts';
 import { distance } from './movement.ts';
 import {
-  NO_FIELD, NO_TREE, ROCK_STONE, TERRAIN_GRASS, TREE_MATURE, FIELD_RIPE, VISION_VISIBLE, inBounds, isStorageBuilding, playerOf, pushMessage, tileIndex
+  NO_FIELD, NO_TREE, ROCK_STONE, TERRAIN_GRASS, TREE_MATURE, FIELD_RIPE, VISION_VISIBLE, inBounds, isStorageBuilding, playerOf, pushMessage, tileIndex, isEnemy
 } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
 
@@ -90,7 +90,7 @@ export function castSpell(world: World, priest: Settler, spell: SpellType, x: nu
   priest.path = []; priest.phase = 'idle';
   const until = world.tick + stats.duration;
   const own = (s: Settler) => s.owner === priest.owner && isSoldierType(s.settlerType) && !s.isInside && s.health > 0 && distance(s.x, s.y, x, y) <= stats.radius;
-  const enemy = (s: Settler) => s.owner !== priest.owner && isSoldierType(s.settlerType) && !s.isInside && s.health > 0 && distance(s.x, s.y, x, y) <= stats.radius;
+  const enemy = (s: Settler) => isEnemy(world, s.owner, priest.owner) && isSoldierType(s.settlerType) && !s.isInside && s.health > 0 && distance(s.x, s.y, x, y) <= stats.radius;
   let detail = stats.summary;
   switch (spell) {
     case 'far_sight':
@@ -154,7 +154,7 @@ export function castSpell(world: World, priest: Settler, spell: SpellType, x: nu
     case 'blight': {
       let n = 0;
       for (const b of world.buildings) {
-        if (b.owner === priest.owner || !BUILDING_TYPES[b.typeId].mine || distance(b.doorX, b.doorY, x, y) > stats.radius) continue;
+        if (!isEnemy(world, b.owner, priest.owner) || !BUILDING_TYPES[b.typeId].mine || distance(b.doorX, b.doorY, x, y) > stats.radius) continue;
         b.blightUntil = until; n++;
         pushMessage(world, b.owner, 'Your mine is blighted', 'It produces half as much for 5 minutes.', true, b.id);
       }

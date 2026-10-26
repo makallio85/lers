@@ -22,7 +22,8 @@ const MAX_SCALE = 3;
 const SIGN_COLORS: Record<number, number> = { [DEPOSIT_COAL]: 0x1e1e1e, [DEPOSIT_IRON]: 0xc9ccd1, [DEPOSIT_GOLD]: 0xe8c547 };
 
 /** Border and banner colour per player: you, then the computer. */
-const OWNER_COLORS = [0xe3a33b, 0xd05a5a, 0x8fb3d9, 0x9b7fbf];
+/** One colour per player, for borders, flags and the soldiers' ground marks. */
+const OWNER_COLORS = [0xe3a33b, 0xd05a5a, 0x8fb3d9, 0x9b7fbf, 0x6fae6a, 0xd98f4e, 0x5fb8b0, 0xc77aa6];
 
 const GOOD_COLORS: Record<GoodType, number> = {
   log: 0x7a4d24, plank: 0xd8a85e, stone: 0xa3a39b, grain: 0xe3c35a, flour: 0xf4efe2, water: 0x5d93bf,
