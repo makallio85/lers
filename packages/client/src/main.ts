@@ -511,10 +511,15 @@ function confirmPlacement(): void {
   stopPlacing();
 }
 
-function buildingAt(clientX: number, clientY: number) {
+function buildingAt(clientX: number, clientY: number, isCycling = false) {
   // Buildings stand upright, so a tap on the roof counts as well as one on the ground they stand on.
-  const pictured = view.buildingAtScreen(clientX, clientY);
-  if (pictured && view.isBuildingVisible(pictured)) return pictured;
+  const pictured = view.buildingsAtScreen(clientX, clientY).filter((b) => view.isBuildingVisible(b));
+  // Clicking the selected building again picks the one behind it, so a building hidden behind a bigger one can be reached.
+  if (isCycling && pictured.length > 1) {
+    const at = pictured.findIndex((b) => b.id === ui.selectedId);
+    if (at >= 0) return pictured[(at + 1) % pictured.length];
+  }
+  if (pictured.length > 0) return pictured[0];
   const tile = view.screenToTile(clientX, clientY);
   if (tile.x < 0 || tile.y < 0 || tile.x >= world.width || tile.y >= world.height) return undefined;
   const i = tileIndex(world, tile.x, tile.y);
@@ -563,7 +568,7 @@ function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
     renderSelectionCard(); renderOrders();
     return;
   }
-  const b = buildingAt(clientX, clientY);
+  const b = buildingAt(clientX, clientY, true);
   ui.selectedId = b ? b.id : null;
   if (!b && !isAdding) ui.selectedSoldiers.clear();
   renderSelectionCard(); renderOrders();
