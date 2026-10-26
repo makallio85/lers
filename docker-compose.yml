@@ -4,6 +4,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # The commit the game shows on its title screen and in its menu. Coolify injects SOURCE_COMMIT on every
+      # build; it must never be listed under `environment:`, which would shadow it with an empty value.
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-local}
+    # The tag carries the commit, so the container started is always the build just made.
+    image: ${COOLIFY_RESOURCE_UUID:-local}-app:prod-${SOURCE_COMMIT:-local}
     expose:
       - "80"
     healthcheck:

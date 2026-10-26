@@ -437,6 +437,13 @@ export function renderSpeed(speed: number): string {
   return options.map((o) => `<button type="button" data-action="speed" data-speed="${o.value}" aria-label="${o.aria}" aria-pressed="${o.value === speed}">${o.label}</button>`).join('');
 }
 
+/** Which build this is: its short commit, linked to the commit on GitHub when known. */
+export function buildLabel(): string {
+  const commit = __BUILD_COMMIT__;
+  return commit === 'local' ? '<span class="build-commit">Build: local</span>'
+    : `<a class="build-commit" href="https://github.com/makallio85/lers/commit/${escapeHtml(commit)}" target="_blank" rel="noopener">Build ${escapeHtml(commit)}</a>`;
+}
+
 export interface MenuState {
   savedAt: string | null;
   autosavedAt: string | null;
@@ -506,7 +513,8 @@ export function renderGameMenu(state: MenuState): string {
       ? `<div class="menu-confirm"><span>Give up this match?</span><button type="button" class="danger" data-action="confirm-surrender">Surrender</button><button type="button" class="secondary" data-action="cancel-surrender">Keep playing</button></div>`
       : '<button type="button" class="menu-item" data-action="surrender">Surrender…</button>') : ''}
     <button type="button" class="menu-item" data-action="open-title">Main menu</button>
-    ${state.notice ? `<p class="menu-notice">${escapeHtml(state.notice)}</p>` : ''}`;
+    ${state.notice ? `<p class="menu-notice">${escapeHtml(state.notice)}</p>` : ''}
+    <p class="menu-build">${buildLabel()}</p>`;
 }
 
 /** A row of choices, one of them on. */
@@ -543,6 +551,7 @@ export function renderTitle(state: TitleState): string {
       <button type="button" class="title-item" disabled aria-describedby="multiplayer-note">Multiplayer<span id="multiplayer-note">Coming soon</span></button>
       <button type="button" class="title-item" data-action="open-settings">Settings<span>Sound and music</span></button>
     </div>
+    <p class="menu-build">${buildLabel()}</p>
   </div>`;
 }
 
