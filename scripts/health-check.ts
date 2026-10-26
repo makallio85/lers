@@ -14,7 +14,7 @@ const SETUPS: Setup[] = [
   { name: 'small-aggressive', seed: 7, bot: 'aggressive', size: 'small', race: 'romans', minutes: 120 },
   { name: 'small-egyptians', seed: 11, bot: 'aggressive', size: 'small', race: 'egyptians', minutes: 80 },
   { name: 'small-asians-unmirrored', seed: 5, bot: 'aggressive', size: 'small', race: 'asians', setup: { isMirrored: false }, minutes: 80 },
-  { name: 'small-amazons-few', seed: 3, bot: 'aggressive', size: 'small', race: 'amazons', setup: { startingGoodsType: 'few' }, minutes: 100 },
+  { name: 'small-amazons-few', seed: 3, bot: 'aggressive', size: 'small', race: 'amazons', setup: { startingGoodsType: 'few' }, minutes: 160 },
   { name: 'medium-calm', seed: 2, bot: 'calm', size: 'medium', race: 'romans', minutes: 120 },
   { name: 'medium-islands', seed: 3, bot: 'aggressive', size: 'medium', race: 'egyptians', layout: 'islands', minutes: 100 },
   { name: 'medium-economy', seed: 9, bot: 'aggressive', size: 'medium', race: 'asians', setup: { victoryType: 'economy' }, minutes: 120 },

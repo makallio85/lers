@@ -424,6 +424,9 @@ function fillGarrisons(world: World): void {
         const d = distance(s.x, s.y, b.doorX, b.doorY);
         if (d < bestDistance) { bestDistance = d; best = s; }
       }
+      // No free soldier: an empty building takes one from the nearest of the owner's garrisons with two or more,
+      // so a new tower is never left empty while the castle holds a crowd.
+      if (!best && b.garrison.length === 0) best = spareGarrisonSoldier(world, b);
       if (!best || !walkTo(world, best, doorTile(world, b))) break;
       best.phase = 'toGarrison'; best.homeId = b.id;
     }
@@ -442,6 +445,21 @@ function fillGarrisons(world: World): void {
     }
   }
   releaseEmptyBuildings(world);
+}
+
+/** Steps one soldier out of the nearest garrison of the same owner that holds two or more, and returns it. */
+function spareGarrisonSoldier(world: World, to: Building): Settler | null {
+  const donors = world.buildings.filter((d) => d !== to && d.owner === to.owner && d.isComplete && isMilitaryBuilding(d) && d.garrison.length >= 2
+    && landRegion(world, d.doorX, d.doorY) === landRegion(world, to.doorX, to.doorY))
+    .sort((a, c) => distance(a.doorX, a.doorY, to.doorX, to.doorY) - distance(c.doorX, c.doorY, to.doorX, to.doorY) || a.id - c.id);
+  const donor = donors[0];
+  if (!donor) return null;
+  const s = world.settlers.find((x) => x.id === donor.garrison[donor.garrison.length - 1]);
+  if (!s) return null;
+  donor.garrison.pop();
+  // The donor keeps its setting and refills later from free soldiers only; borrowing is for empty buildings.
+  s.isInside = false; s.homeId = null; s.x = donor.doorX; s.y = donor.doorY; s.prevX = s.x; s.prevY = s.y; s.path = [];
+  return s;
 }
 
 /** A free carrier fetches a weapon at the barracks and becomes a soldier. */

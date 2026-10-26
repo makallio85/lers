@@ -98,7 +98,7 @@ const BUILD_PLAN: readonly BuildingTypeId[] = [
 
 /** Buildings each tool must be saved for until they stand: without them the settlement cannot make more tools. */
 const KEY_TOOL_USERS: Partial<Record<ToolType, readonly BuildingTypeId[]>> = {
-  pick: ['coal_mine', 'iron_mine'], axe: ['slaughterhouse'], hammer: ['toolsmith', 'weaponsmith'], saw: ['sawmill'], scythe: ['farm'], rod: ['fisher']
+  pick: ['coal_mine', 'iron_mine'], axe: ['slaughterhouse'], hammer: ['shipyard', 'toolsmith', 'weaponsmith'], saw: ['sawmill'], scythe: ['farm'], rod: ['fisher']
 };
 
 const NEEDS: Partial<Record<BuildingTypeId, SpotNeed>> = {
@@ -216,13 +216,15 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const castle = obs.ownBuildings.find((b) => b.typeId === 'castle');
   if (!castle) return commands;
   const count = (t: BuildingTypeId) => obs.ownBuildings.filter((b) => b.typeId === t).length;
+  // On an islands map the enemy lives across the sea: the army needs a shipyard and a transport ship.
+  const isIslands = obs.mapLayout === 'islands';
   const storedGood = (good: GoodType) => obs.ownBuildings.reduce((sum, b) => sum + (BUILDING_TYPES[b.typeId].storageCapacity > 0 ? b.stock[good] : 0), 0);
   const stored = (good: ToolType) => obs.ownBuildings.reduce((sum, b) => sum + (BUILDING_TYPES[b.typeId].storageCapacity > 0 ? b.stock[good] : 0), 0);
   // Keep back one of each tool for every key building that still has to come, so extra gatherers do not
   // take the picks the mines need (and with them the iron that would make new tools).
   // Key buildings themselves need just one tool in storage.
   const reserveOf = (tool: ToolType, forType: BuildingTypeId) => (KEY_TOOL_USERS[tool] ?? []).includes(forType) ? 0
-    : (KEY_TOOL_USERS[tool] ?? []).filter((k) => count(k) === 0 && isBuildableBy(k, obs.player.raceType)).length;
+    : (KEY_TOOL_USERS[tool] ?? []).filter((k) => count(k) === 0 && isBuildableBy(k, obs.player.raceType) && (k !== 'shipyard' || isIslands)).length;
   const hasToolFor = (t: BuildingTypeId) => {
     const tool = BUILDING_TYPES[t].tool;
     if (!tool) return true;
@@ -237,8 +239,6 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     }
   }
   const sites = obs.ownBuildings.filter((b) => !b.isComplete);
-  // On an islands map the enemy lives across the sea: the army needs a shipyard and a transport ship.
-  const isIslands = obs.mapLayout === 'islands';
   // The enemy is somewhere on the far side of the map until the bot sees it.
   const toward = spots.towardEnemy();
   // How far along the line toward the enemy a point lies, from the castle.
@@ -298,7 +298,9 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
         if (place(typeId, NEEDS[typeId] ?? 'castle')) { isDone = true; note(`feed ${hungryMines} hungry mines`); break; }
       }
     }
-    if (!isDone && isIslands && count('shipyard') === 0 && count('barracks') > 0) {
+    // On islands the shipyard comes early, right after the first sawmill: while the coast is still free and a
+    // starting hammer is in stock. Later the shore fills up with other buildings and the hammers go to smiths.
+    if (!isDone && isIslands && count('shipyard') === 0 && count('sawmill') > 0) {
       if (hasToolFor('shipyard')) isDone = place('shipyard', 'shore');
       else if ((obs.player.productionOrders.hammer ?? 0) === 0 && turn % 10 === 0) {
         commands.push({ type: 'setProductionOrder', playerId: me, good: 'hammer', count: 1 });
@@ -329,7 +331,9 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   // Geologists carry a hammer. A toolsmith or machinist waiting for one gets a geologist's back (otherwise
   // no new hammers can ever be made), and new geologists are only taken on while hammers are spare.
   const geologists = obs.ownSpecialists.filter((s) => s.settlerType === 'geologist');
-  const isHammerWanted = obs.ownBuildings.some((b) => b.isComplete && missingTool(b) === 'hammer');
+  // Also with no hammer left and no toolsmith: without a hammer the toolsmith that makes them is never built.
+  const isHammerWanted = obs.ownBuildings.some((b) => b.isComplete && missingTool(b) === 'hammer')
+    || (stored('hammer') === 0 && count('toolsmith') === 0);
   if (isHammerWanted && geologists.length > 0 && turn % 5 === 0) {
     commands.push({ type: 'setSpecialists', playerId: me, specialistType: 'geologist', count: geologists.length - 1 });
     note('a geologist gives back his hammer');

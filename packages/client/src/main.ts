@@ -1062,21 +1062,38 @@ let last = performance.now();
 let accumulator = 0;
 let lastLive = 0;
 
-function frame(now: number): void {
-  const dt = Math.min(250, now - last);
-  last = now;
+let lastSimulated = performance.now();
+/**
+ * Runs the game up to the present. Called every frame, and by a timer that keeps running while the tab is hidden
+ * (browsers stop animation frames then and wake timers about once a second, or once a minute after a while), so the
+ * match goes on in the background and catches up on whatever time passed.
+ */
+function simulate(now: number): void {
+  // Up to a minute at once: what a hidden tab's slowest timer leaves between two wakes.
+  const dt = Math.min(60_000, Math.max(0, now - lastSimulated));
+  lastSimulated = now;
   if (ui.speed > 0 && world.winner === null) {
     accumulator += dt * ui.speed;
     while (accumulator >= TICK_MS) {
       const commands = queue.splice(0);
       handleResults(stepMatch(world, commands), commands);
       accumulator -= TICK_MS;
+      if (world.winner !== null) { accumulator = 0; break; }
     }
     if (now - lastAutosave > AUTOSAVE_MS) { lastAutosave = now; save(AUTOSAVE_KEY); }
   } else if (queue.length > 0) {
     const commands = queue.splice(0);
     handleResults(commands.map((c) => applyCommand(world, c)), commands);
   }
+}
+setInterval(() => { if (document.hidden) simulate(performance.now()); }, 250);
+// Back in view: show what happened meanwhile at once.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { simulate(performance.now()); refreshLive(); } });
+
+function frame(now: number): void {
+  const dt = Math.min(250, now - last);
+  last = now;
+  simulate(now);
   const pan = 0.6 * dt;
   if (keys.has('arrowleft')) view.panBy(pan, 0);
   if (keys.has('arrowright')) view.panBy(-pan, 0);

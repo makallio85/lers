@@ -104,6 +104,14 @@ const SPREAD_TICKS = 5;
  */
 export function spreadStanding(world: World): void {
   if (world.tick % SPREAD_TICKS !== 0) return;
+  // Anyone at work outside (a fisher at the shore, a woodcutter at a tree) whose tile a building was since put up on
+  // steps out of the footprint to the nearest free tile, and carries on with what it was doing.
+  for (const s of world.settlers) {
+    if (s.isInside || s.path.length > 0 || isShipType(s.settlerType) || world.footprint[tileOf(world, s)] === 0) continue;
+    if (s.phase === 'idle') continue;
+    const out = nearestFreeTile(world, s, new Set());
+    if (out >= 0) { s.x = out % world.width; s.y = Math.floor(out / world.width); s.prevX = s.x; s.prevY = s.y; }
+  }
   // Everyone standing about: soldiers and machines, specialists, priests, and idle civilians waiting for a job.
   const isStanding = (s: Settler) => !s.isInside && s.phase === 'idle' && s.path.length === 0 && s.waypoints.length === 0 && !s.isPatrolling
     && !isShipType(s.settlerType) && s.settlerType !== 'donkey' && (!isUnitType(s.settlerType) || s.health > 0) && s.carrying === null;
