@@ -1,12 +1,12 @@
-import { BUILDING_TYPES, GOOD_TYPES, RACE_TYPES, SETTLER_LABELS, TOOL_TYPES, WEAPON_TYPES, consumersOf } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, RaceType } from './definitions.ts';
+import { BUILDING_TYPES, GOOD_TYPES, RACE_TYPES, RANK_LABELS, SETTLER_LABELS, SOLDIER_TYPES, TOOL_TYPES, WEAPON_TYPES, consumersOf } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SoldierType } from './definitions.ts';
 import { FIELD_RIPE, TREE_MATURE, recomputeTerritory, tileIndex } from './world.ts';
 import { BOT_TYPES } from './bot.ts';
 import type { BotType } from './bot.ts';
-import type { Building, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, World } from './world.ts';
+import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 function raceType(value: unknown): RaceType {
   if (typeof value !== 'string' || !(RACE_TYPES as readonly string[]).includes(value)) fail('a people is unknown');
@@ -44,6 +44,7 @@ export function saveGame(world: World): Record<string, unknown> {
     buildings: structuredClone(world.buildings),
     settlers: structuredClone(world.settlers),
     messages: structuredClone(world.messages),
+    farSights: structuredClone(world.farSights),
     nextId: world.nextId, randomState: world.randomState, winner: world.winner
   };
 }
@@ -54,6 +55,13 @@ function fail(what: string): never {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function ranks(value: unknown): Record<SoldierType, number> {
+  if (!isRecord(value)) fail('soldier ranks are missing');
+  const out = {} as Record<SoldierType, number>;
+  for (const t of SOLDIER_TYPES) out[t] = int(value[t], 0, RANK_LABELS.length - 1, 'soldier rank');
+  return out;
 }
 
 function int(value: unknown, min: number, max: number, what: string): number {
@@ -163,6 +171,8 @@ export function loadGame(data: unknown): World {
       distributionCount: consumerRecords(raw.distributionCount, Number.MAX_SAFE_INTEGER, 'distribution count'),
       isRecruitingAutomatic: bool(raw.isRecruitingAutomatic, 'recruiting'), recruitsLeft: int(raw.recruitsLeft, 0, 99, 'recruits'),
       minCarrierPercent: int(raw.minCarrierPercent, 0, 100, 'carrier share'), maxCrewPercent: int(raw.maxCrewPercent, 0, 100, 'crew share'),
+      manna: int(raw.manna, 0, 1_000_000, 'manna'),
+      soldierRanks: ranks(raw.soldierRanks),
       stats
     };
   });
@@ -192,7 +202,8 @@ export function loadGame(data: unknown): World {
       residentsLeft: int(raw.residentsLeft, 0, 1000, 'residents'),
       blockedReason: raw.blockedReason === null ? null : text(raw.blockedReason, 'blocked reason'),
       blockedSince: nullableInt(raw.blockedSince, 'blocked time'), hasWarned: bool(raw.hasWarned, 'warning state'),
-      damage: num(raw.damage, 0, 100_000, 'building damage')
+      damage: num(raw.damage, 0, 100_000, 'building damage'),
+      timer: int(raw.timer, 0, 1_000_000, 'building timer'), blightUntil: int(raw.blightUntil, 0, Number.MAX_SAFE_INTEGER, 'blight')
     };
   });
 
@@ -217,7 +228,10 @@ export function loadGame(data: unknown): World {
       workCentre: int(raw.workCentre, -1, n - 1, 'specialist work area'),
       waypoints: intArray(raw.waypoints, Array.isArray(raw.waypoints) && raw.waypoints.length <= 20 ? raw.waypoints.length : -1, 0, n - 1, 'waypoints'),
       isPatrolling: bool(raw.isPatrolling, 'patrol'), isHolding: bool(raw.isHolding, 'hold position'),
-      isIgnoringEnemies: bool(raw.isIgnoringEnemies, 'move without fighting'), ammo: int(raw.ammo, 0, 100, 'ammunition')
+      isIgnoringEnemies: bool(raw.isIgnoringEnemies, 'move without fighting'), ammo: int(raw.ammo, 0, 100, 'ammunition'),
+      rank: int(raw.rank, 0, RANK_LABELS.length - 1, 'rank'),
+      shieldUntil: int(raw.shieldUntil, 0, Number.MAX_SAFE_INTEGER, 'shield'), furyUntil: int(raw.furyUntil, 0, Number.MAX_SAFE_INTEGER, 'fury'),
+      frozenUntil: int(raw.frozenUntil, 0, Number.MAX_SAFE_INTEGER, 'freeze')
     };
   });
 
@@ -232,6 +246,12 @@ export function loadGame(data: unknown): World {
     };
   });
 
+  if (!Array.isArray(data.farSights) || data.farSights.length > 100) fail('far sight spells are missing');
+  const farSights: FarSight[] = data.farSights.map((raw: unknown) => {
+    if (!isRecord(raw)) fail('a far sight spell is invalid');
+    return { playerId: int(raw.playerId, 0, ownerMax, 'far sight owner'), x: int(raw.x, 0, width - 1, 'far sight spot'), y: int(raw.y, 0, height - 1, 'far sight spot'),
+      until: int(raw.until, 0, Number.MAX_SAFE_INTEGER, 'far sight time') };
+  });
   if (!Array.isArray(data.vision) || data.vision.length !== players.length) fail('the fog of war is missing');
   if (!Array.isArray(data.prospect) || data.prospect.length !== players.length) fail('geologist signs are missing');
   const world: World = {
@@ -247,7 +267,7 @@ export function loadGame(data: unknown): World {
     prospect: data.prospect.map((v: unknown) => Uint8Array.from(intArray(v, n, 0, 1, 'geologist signs'))),
     pioneerLand: Uint8Array.from(intArray(data.pioneerLand, n, 0, players.length, 'pioneer land')), militaryLand: new Uint8Array(n),
     footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
-    players, buildings, settlers, messages, nextId,
+    players, buildings, settlers, messages, farSights, nextId,
     randomState: int(data.randomState, 0, 0xffffffff, 'random state'), mapVersion: 0, territoryVersion: 0,
     winner: data.winner === null ? null : int(data.winner, 0, ownerMax, 'winner')
   };

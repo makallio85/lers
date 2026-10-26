@@ -30,6 +30,7 @@ LOOKS = {
     'swordsman': ('character-male-e', 'sword', ('walk', 'attack')),
     'spearman': ('character-male-b', 'spear', ('walk', 'attack')),
     'bowman': ('character-female-c', 'bow', ('walk', 'attack')),
+    'priest': ('character-male-f', 'staff', ('walk', 'work')),
 }
 SOLDIERS = ('swordsman', 'spearman', 'bowman')
 
@@ -90,6 +91,9 @@ def build(race, look):
         props = weapon_spear(s, hx, hy - 0.03, hz - 0.45, (math.radians(-8), 0, 0), 1.3)
     elif tool == 'bow':
         props = weapon_bow(s, -hx, hy - 0.02, hz + 0.05, (0, 0, 0))
+    elif tool == 'staff':
+        props = [s.cyl(hx, hy, hz - 0.3, 0.016, 0.75, s.mat('staff', '6a4a2a'), 8),
+                 s.sphere(hx, hy, hz + 0.47, 0.05, s.mat('orb', 'c9b2ff', rough=0.2))]
     elif tool == 'rod':
         props = [s.cyl(hx, hy, hz - 0.05, 0.012, 0.6, s.mat('rod', '8a6a3a'), 6, rot=(math.radians(-50), 0, 0))]
     elif tool:

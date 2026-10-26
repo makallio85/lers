@@ -9,3 +9,4 @@ export * from './combat.ts';
 export * from './bot.ts';
 export * from './match.ts';
 export * from './movement.ts';
+export * from './magic.ts';

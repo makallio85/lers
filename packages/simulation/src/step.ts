@@ -1,5 +1,6 @@
 import {
-  BUILDING_TYPES, FAVOURITE_FOOD_MEALS, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OTHER_FOOD_MEALS,
+  BUILDING_TYPES, FAVOURITE_FOOD_MEALS, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OFFERING_TICKS, OTHER_FOOD_MEALS, PRIEST_TICKS, RACE_DRINKS,
+  buildingLabel,
   SETTLER_LABELS, SOLDIER_STATS, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, goodCount, isSoldierType, isUnitType,
   favouriteFoodOf, isSpecialistType, totalGoods
 } from './definitions.ts';
@@ -9,6 +10,7 @@ import type { Command, CommandResult } from './commands.ts';
 import { releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
 import { WALK_SPEED, advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
 import { updateVision } from './vision.ts';
+import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
   buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
@@ -73,6 +75,8 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   if (world.tick % RESIDENT_INTERVAL_TICKS === 0) releaseResidents(world);
   // Weapons waiting at a barracks get a free settler before transport takes them all.
   recruitSoldiers(world);
+  trainPriests(world);
+  expireSpells(world);
   if (world.tick % 5 === 0) runLogistics(world);
   if (world.tick % 5 === 0) { assignConstructionCrews(world); assignWorkers(world); }
   if (world.tick % OCCUPATION_TICKS === 0) for (const p of world.players) applyOccupations(world, p);
@@ -360,6 +364,24 @@ function fillGarrisons(world: World): void {
 }
 
 /** A free carrier fetches a weapon at the barracks and becomes a soldier. */
+/** Every few minutes each large temple ordains a free carrier as a priest, keeping the player's carrier share. */
+function trainPriests(world: World): void {
+  for (const b of world.buildings) {
+    if (!b.isComplete || b.typeId !== 'large_temple' || b.isPaused) continue;
+    if (b.timer < PRIEST_TICKS) { b.timer++; continue; }
+    const player = playerOf(world, b.owner);
+    if (!player) continue;
+    const civilians = world.settlers.filter((s) => s.owner === b.owner && !isUnitType(s.settlerType));
+    const carriers = civilians.filter((s) => s.settlerType === 'carrier').length;
+    if ((carriers - 1) * 100 < (civilians.length - 1) * player.minCarrierPercent) { setBlocked(world, b, 'Waiting for a free settler'); continue; }
+    const carrier = nearestIdle(world, 'carrier', b.owner, b.doorX, b.doorY);
+    if (!carrier || !walkTo(world, carrier, doorTile(world, b))) { setBlocked(world, b, 'Waiting for a free settler'); continue; }
+    carrier.phase = 'toRecruit'; carrier.homeId = b.id; carrier.good = null;
+    b.timer = 0;
+    setBlocked(world, b, null);
+  }
+}
+
 function recruitSoldiers(world: World): void {
   if (world.tick % 5 !== 0) return;
   for (const b of world.buildings) {
@@ -387,6 +409,12 @@ function recruitSoldiers(world: World): void {
 // ---------------------------------------------------------------- settler behaviour
 
 function updateSettler(world: World, s: Settler): void {
+  if (s.settlerType === 'priest') {
+    // Priests rest after casting; otherwise they only walk where they are sent.
+    if (s.timer > 0) s.timer--;
+    if (s.phase === 'moving' && advance(world, s)) s.phase = 'idle';
+    return;
+  }
   switch (s.phase) {
     case 'idle': return updateIdle(world, s);
     case 'toStore': return updateToStore(world, s);
@@ -533,15 +561,23 @@ function updateToRecruit(world: World, s: Settler): void {
   const weapon = s.good as (typeof WEAPON_TYPES)[number];
   if (!barracks || barracks.owner !== s.owner) {
     const castle = castleOf(world, s.owner);
-    if (castle) castle.stock[weapon]++;
+    if (castle && weapon) castle.stock[weapon]++;
     becomeIdle(s);
+    return;
+  }
+  const player = playerOf(world, s.owner);
+  if (barracks.typeId === 'large_temple') {
+    // A free carrier ordained at the large temple comes out as a priest.
+    s.settlerType = 'priest'; s.homeId = null; s.good = null; s.phase = 'idle'; s.isInside = false; s.path = []; s.timer = 0;
+    pushMessage(world, s.owner, 'A priest is ready', `He waits at the ${buildingLabel(barracks.typeId, player?.raceType ?? 'romans').toLowerCase()} for your orders.`, false, barracks.id);
     return;
   }
   const soldierType = WEAPON_SOLDIERS[weapon];
   s.settlerType = soldierType;
-  s.health = SOLDIER_STATS[soldierType].health;
+  // New soldiers join at the rank the player has bought for their type.
+  s.rank = player?.soldierRanks[soldierType] ?? 0;
+  s.health = maxHealth(s);
   s.homeId = null; s.good = null; s.phase = 'idle'; s.isInside = false; s.path = [];
-  const player = playerOf(world, s.owner);
   if (player) player.stats.soldiersRecruited++;
 }
 
@@ -612,6 +648,7 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
   if (home.isPaused) { setBlocked(world, home, 'Paused'); s.timer = 10; return; }
   const buildingType = BUILDING_TYPES[home.typeId];
   if (buildingType.warMachine) return decideWarMachine(world, s, home, buildingType.warMachine);
+  if (home.typeId === 'small_temple') return decideOffering(world, s, home);
   // Workers with nothing to make, such as the healer, simply stay at their post.
   if (!isGatherType(type) && !buildingType.recipe) { s.timer = 20; return; }
   const recipe = buildingType.recipe;
@@ -644,7 +681,8 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
     if (recipe.outputChoices) takeOutputChoice(player, recipe.outputChoices, output);
     setBlocked(world, home, null);
     s.good = output;
-    s.phase = 'working'; s.timer = recipe.ticks;
+    // A blighted mine works at half speed.
+    s.phase = 'working'; s.timer = mine && home.blightUntil > world.tick ? recipe.ticks * 2 : recipe.ticks;
     return;
   }
   if (!isGatherType(type)) return;
@@ -662,6 +700,16 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
   world.claim[target] = s.id + 1;
   s.targetTile = target;
   s.phase = 'toTarget';
+}
+
+/** A temple servant offers one of the people's drinks; each offering becomes one manna. */
+function decideOffering(world: World, s: Settler, home: Building): void {
+  const drink = RACE_DRINKS[playerOf(world, home.owner)?.raceType ?? 'romans'];
+  if (home.input[drink] <= 0) { setBlocked(world, home, `Waiting: no ${GOOD_NAMES[drink][1]}`); s.timer = 20; return; }
+  home.input[drink]--;
+  setBlocked(world, home, null);
+  s.good = null;
+  s.phase = 'working'; s.timer = OFFERING_TICKS;
 }
 
 /** A machinist builds the hall's war machine once every part is in, while fewer than the limit are out. */
@@ -755,6 +803,12 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
 }
 
 function finishWork(world: World, s: Settler, home: Building, type: SettlerType): void {
+  if (home.typeId === 'small_temple') {
+    const player = playerOf(world, home.owner);
+    if (player) player.manna++;
+    s.phase = 'inside'; s.timer = 5;
+    return;
+  }
   const machine = BUILDING_TYPES[home.typeId].warMachine;
   if (machine) {
     const m = newSettler(world, home.owner, machine, home.doorX, home.doorY);
@@ -961,7 +1015,7 @@ function healSoldiers(world: World): void {
     if (!healer || !healer.isInside) continue;
     for (const s of world.settlers) {
       if (s.owner !== b.owner || !isSoldierType(s.settlerType) || s.isInside || s.enemyId !== null) continue;
-      const max = SOLDIER_STATS[s.settlerType].health;
+      const max = maxHealth(s);
       if (s.health >= max || distance(s.x, s.y, b.doorX, b.doorY) > HEAL_RADIUS) continue;
       s.health = Math.min(max, s.health + HEAL_PER_ROUND);
     }

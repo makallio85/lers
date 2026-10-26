@@ -3,7 +3,7 @@ import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, buildingCost, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, DEPOSIT_SULFUR, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
   WAR_MACHINE_STATS, consumersOf, distributedGoods, emptyGoods, isSoldierType, isWarMachineType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SettlerType } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SettlerType, SoldierType } from './definitions.ts';
 import { createRandom } from './random.ts';
 
 export const TICKS_PER_SECOND = 10;
@@ -79,6 +79,10 @@ export interface Building {
   hasWarned: boolean;
   /** Battering from war machines; the building falls when this reaches its structure (BUILDING_STRUCTURE). */
   damage: number;
+  /** Ticks to the next priest (large temple). */
+  timer: number;
+  /** Mines under a Blight spell produce half as much until this tick; 0 otherwise. */
+  blightUntil: number;
 }
 
 export type SettlerPhase =
@@ -125,6 +129,12 @@ export interface Settler {
   isIgnoringEnemies: boolean;
   /** War machines only: shots left before going back to the hall to reload. */
   ammo: number;
+  /** Soldiers only: 0 private, 1 sergeant, 2 captain. */
+  rank: number;
+  /** Spells on this settler last until these ticks; 0 when none. */
+  shieldUntil: number;
+  furyUntil: number;
+  frozenUntil: number;
 }
 
 export interface PlayerStats {
@@ -164,7 +174,19 @@ export interface PlayerState {
   minCarrierPercent: number;
   /** Occupations: diggers and builders together stay at most this share (percent) of the settlers. */
   maxCrewPercent: number;
+  /** Gathered at small temples; pays for spells and promotions. */
+  manna: number;
+  /** The rank (0 private, 1 sergeant, 2 captain) new soldiers of each type are recruited at. */
+  soldierRanks: Record<SoldierType, number>;
   stats: PlayerStats;
+}
+
+/** A spot a Far sight spell shows to its caster until the given tick. */
+export interface FarSight {
+  playerId: number;
+  x: number;
+  y: number;
+  until: number;
 }
 
 export interface GameMessage {
@@ -210,6 +232,7 @@ export interface World {
   buildings: Building[];
   settlers: Settler[];
   messages: GameMessage[];
+  farSights: FarSight[];
   nextId: number;
   randomState: number;
   /** Bumped when trees, fields, rocks or buildings change, so renderers can redraw. */
@@ -286,7 +309,7 @@ export function newBuilding(world: World, typeId: BuildingTypeId, owner: number,
     levelProgress: 0, buildProgress: 0, diggerId: null, builderId: null, workerId: null,
     garrison: [], garrisonWanted: typeId === 'castle' ? 3 : Math.min(1, type.garrisonCapacity), isOccupied: false, meals: 0,
     isPaused: false, isPriority: false, workX: null, workY: null, residentsLeft: 0,
-    blockedReason: null, blockedSince: null, hasWarned: false, damage: 0
+    blockedReason: null, blockedSince: null, hasWarned: false, damage: 0, timer: 0, blightUntil: 0
   };
   for (let dy = 0; dy < size; dy++) {
     for (let dx = 0; dx < size; dx++) {
@@ -319,7 +342,8 @@ export function newSettler(world: World, owner: number, settlerType: SettlerType
       : settlerType === 'thief' ? THIEF_HEALTH : 0,
     cooldown: 0, enemyId: null, attackId: null,
     workCentre: -1, waypoints: [], isPatrolling: false, isHolding: false, isIgnoringEnemies: false,
-    ammo: isWarMachineType(settlerType) ? WAR_MACHINE_STATS[settlerType].shots : 0
+    ammo: isWarMachineType(settlerType) ? WAR_MACHINE_STATS[settlerType].shots : 0,
+    rank: 0, shieldUntil: 0, furyUntil: 0, frozenUntil: 0
   };
   world.settlers.push(s);
   return s;
@@ -391,6 +415,7 @@ export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'ag
       'wine', 'beer', 'rice_wine', 'mead'],
     isStored, productionOrders: {}, productionShares, productionCredit: {}, distribution, distributionCount: {},
     isRecruitingAutomatic: true, recruitsLeft: 0, minCarrierPercent: DEFAULT_MIN_CARRIER_PERCENT, maxCrewPercent: DEFAULT_MAX_CREW_PERCENT,
+    manna: 0, soldierRanks: { swordsman: 0, spearman: 0, bowman: 0 },
     stats: { buildingsBuilt: 0, soldiersRecruited: 0, soldiersLost: 0, towersTaken: 0, planksMade: 0, breadBaked: 0, largestTerritory: 0 }
   };
 }
@@ -432,7 +457,7 @@ export function createWorld({ seed = 1, width, height, playerCount = 1, botType 
     rock: new Uint8Array(n), deposit: new Uint8Array(n), depositAmount: new Uint8Array(n),
     footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
     claim: new Int32Array(n), vision: players.map(() => new Uint8Array(n)), prospect: players.map(() => new Uint8Array(n)),
-    pioneerLand: new Uint8Array(n), militaryLand: new Uint8Array(n), players, buildings: [], settlers: [], messages: [],
+    pioneerLand: new Uint8Array(n), militaryLand: new Uint8Array(n), players, buildings: [], settlers: [], messages: [], farSights: [],
     nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null
   };
   generateTerrain(world);
