@@ -73,7 +73,13 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .stage { flex: 1; position: relative; min-width: 0; }
 .topbar { position: absolute; inset: 0 0 auto 0; z-index: 3; display: flex; align-items: center; gap: 16px; height: var(--top-height); padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 14px; }
 .stock { display: flex; gap: 18px; overflow-x: auto; white-space: nowrap; scrollbar-width: none; min-width: 0; }
-.stock span b { font-weight: 600; margin-left: 6px; }
+.stock > span { display: inline-flex; align-items: center; gap: 5px; }
+.stock .label { color: var(--muted); }
+.stock b { font-weight: 600; }
+.stock .good-icon, .stock svg { width: 28px; height: 28px; padding: 3px; border-radius: 50%; background: var(--muted); object-fit: contain; flex-shrink: 0; }
+.stock svg { padding: 6px; color: var(--panel); }
+/* The good's name shows on hover; the bar holds icons and numbers so everything fits. */
+.stock .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .stock .is-low { color: var(--warning-text); }
 .controls { margin-left: auto; display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
 .speed { display: flex; gap: 4px; }
@@ -228,7 +234,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .building-card .icon { height: 40px; }
   .detail-title { font-size: 16px; }
   .topbar { margin: 8px; inset: 0 0 auto 0; height: 36px; border-radius: 8px; border: 0; background: rgba(27, 36, 32, 0.92); font-size: 12px; gap: 10px; padding: 0 10px; }
-  .stock { gap: 12px; }
+  .stock { gap: 10px; }
+  .stock .good-icon, .stock svg { width: 22px; height: 22px; padding: 2px; }
+  .stock svg { padding: 4px; }
   .map { inset: 0; }
   .speed button { min-width: 36px; min-height: 30px; padding: 0 6px; font-size: 12px; }
   .menu-button { min-height: 30px; padding: 0 8px; font-size: 12px; }

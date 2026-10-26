@@ -381,9 +381,10 @@ export function renderStock(world: World, owner: number): string {
   const soldiers = world.settlers.filter((s) => s.owner === owner && isSoldierType(s.settlerType)).length;
   const goods = BAR_GOODS.map((g) => {
     const n = storedOf(world, owner, g);
-    return `<span><span class="muted">${GOOD_LABELS[g]}</span><b class="${n === 0 && (g === 'plank' || g === 'stone') ? 'is-low' : ''}">${n}</b></span>`;
+    return `<span title="${GOOD_LABELS[g]}"><img class="good-icon" src="${ART_BASE}goods/${g}.webp" alt=""><span class="label">${GOOD_LABELS[g]}</span><b class="${n === 0 && (g === 'plank' || g === 'stone') ? 'is-low' : ''}" aria-label="${GOOD_LABELS[g]} ${n}">${n}</b></span>`;
   }).join('');
-  return `${goods}<span><span class="muted">Free carriers</span><b class="${idle === 0 ? 'is-low' : ''}">${idle}</b></span><span><span class="muted">Soldiers</span><b>${soldiers}</b></span>`;
+  return `${goods}<span title="Free carriers">${icon('settlers')}<span class="label">Free carriers</span><b class="${idle === 0 ? 'is-low' : ''}" aria-label="Free carriers ${idle}">${idle}</b></span>`
+    + `<span title="Soldiers">${icon('military')}<span class="label">Soldiers</span><b aria-label="Soldiers ${soldiers}">${soldiers}</b></span>`;
 }
 
 export function formatClock(tick: number): string {
