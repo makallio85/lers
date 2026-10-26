@@ -1,3 +1,3 @@
 Lers map art is rendered from these 3D model kits by Kenney (https://kenney.nl), all released under CC0 1.0 (public domain):
-Fantasy Town Kit 2.0, Castle Kit, Survival Kit, Nature Kit, Mini Characters.
+Fantasy Town Kit 2.0, Castle Kit, Survival Kit, Nature Kit, Mini Characters, Pirate Kit.
 The Lers palette, the Egyptian, Asian and Amazon building shapes, tools, weapons and goods are made by the Lers art scripts (art/ in the repository).

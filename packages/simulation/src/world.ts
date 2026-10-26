@@ -1,9 +1,9 @@
 import type { BotType } from './bot.ts';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, buildingCost, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, DEPOSIT_SULFUR, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
-  WAR_MACHINE_STATS, consumersOf, distributedGoods, emptyGoods, isSoldierType, isWarMachineType
+  WAR_MACHINE_STATS, SHIP_HEALTH, consumersOf, distributedGoods, emptyGoods, isShipType, isSoldierType, isWarMachineType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SettlerType, SoldierType, TradeModeType } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, MapLayoutType, RaceType, SettlerType, ShipType, SoldierType, TradeModeType } from './definitions.ts';
 import { createRandom } from './random.ts';
 
 export const TICKS_PER_SECOND = 10;
@@ -86,6 +86,9 @@ export interface Building {
   /** Marketplaces only: where caravans go, and how goods are collected for them. */
   tradeRoute: TradeRoute | null;
   tradeMode: TradeModeType;
+  /** Shipyards only: ships still ordered, and the one being built. */
+  shipOrders: Partial<Record<ShipType, number>>;
+  shipInProgress: ShipType | null;
 }
 
 /** A marketplace's land route: its end, up to 3 tiles to pass on the way, and how much of each good to send. */
@@ -148,8 +151,10 @@ export interface Settler {
   shieldUntil: number;
   furyUntil: number;
   frozenUntil: number;
-  /** Donkeys only: how many of the carried good they have on their back. */
+  /** Donkeys and trade ships: how many of the carried good they have aboard. */
   cargo: number;
+  /** Passengers only: the transport ship they are aboard. */
+  shipId: number | null;
 }
 
 export interface PlayerStats {
@@ -254,6 +259,8 @@ export interface World {
   mapVersion: number;
   territoryVersion: number;
   winner: number | null;
+  /** Continent or islands; islands need ships to reach the other players. */
+  mapLayout: MapLayoutType;
 }
 
 export function tileIndex(world: World, x: number, y: number): number {
@@ -325,7 +332,7 @@ export function newBuilding(world: World, typeId: BuildingTypeId, owner: number,
     garrison: [], garrisonWanted: typeId === 'castle' ? 3 : Math.min(1, type.garrisonCapacity), isOccupied: false, meals: 0,
     isPaused: false, isPriority: false, workX: null, workY: null, residentsLeft: 0,
     blockedReason: null, blockedSince: null, hasWarned: false, damage: 0, timer: 0, blightUntil: 0,
-    tradeRoute: null, tradeMode: 'surplus'
+    tradeRoute: null, tradeMode: 'surplus', shipOrders: {}, shipInProgress: null
   };
   for (let dy = 0; dy < size; dy++) {
     for (let dx = 0; dx < size; dx++) {
@@ -355,11 +362,12 @@ export function newSettler(world: World, owner: number, settlerType: SettlerType
     id: world.nextId++, owner, settlerType, x, y, prevX: x, prevY: y, path: [], phase: 'idle', timer: 0,
     carrying: null, fromId: null, toId: null, good: null, homeId: null, targetTile: -1, isInside: true,
     health: isSoldierType(settlerType) ? SOLDIER_STATS[settlerType].health : isWarMachineType(settlerType) ? WAR_MACHINE_STATS[settlerType].health
+      : isShipType(settlerType) ? SHIP_HEALTH
       : settlerType === 'thief' ? THIEF_HEALTH : 0,
     cooldown: 0, enemyId: null, attackId: null,
     workCentre: -1, waypoints: [], isPatrolling: false, isHolding: false, isIgnoringEnemies: false,
     ammo: isWarMachineType(settlerType) ? WAR_MACHINE_STATS[settlerType].shots : 0,
-    rank: 0, shieldUntil: 0, furyUntil: 0, frozenUntil: 0, cargo: 0
+    rank: 0, shieldUntil: 0, furyUntil: 0, frozenUntil: 0, cargo: 0, shipId: null
   };
   world.settlers.push(s);
   return s;
@@ -445,6 +453,7 @@ export interface CreateWorldOptions {
   botType?: BotType;
   /** The people of each player, in player order; Romans when not given. */
   raceTypes?: readonly RaceType[];
+  mapLayout?: MapLayoutType;
 }
 
 export const STARTING_STOCK: Partial<GoodAmounts> = {
@@ -458,7 +467,7 @@ export const STARTING_SETTLERS: Partial<Record<SettlerType, number>> = {
 };
 
 /** Creates a seeded map: a sandbox for one player, or a mirrored two-player match. */
-export function createWorld({ seed = 1, width, height, playerCount = 1, botType = 'aggressive', raceTypes = [] }: CreateWorldOptions = {}): World {
+export function createWorld({ seed = 1, width, height, playerCount = 1, botType = 'aggressive', raceTypes = [], mapLayout = 'continent' }: CreateWorldOptions = {}): World {
   const w = width ?? (playerCount === 2 ? 144 : 96);
   const h = height ?? 96;
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new RangeError('seed must be a uint32');
@@ -474,12 +483,13 @@ export function createWorld({ seed = 1, width, height, playerCount = 1, botType 
     footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
     claim: new Int32Array(n), vision: players.map(() => new Uint8Array(n)), prospect: players.map(() => new Uint8Array(n)),
     pioneerLand: new Uint8Array(n), militaryLand: new Uint8Array(n), players, buildings: [], settlers: [], messages: [], farSights: [],
-    nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null
+    nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null, mapLayout
   };
   generateTerrain(world);
   const start = playerCount === 2
     ? findCastleSpot(world, Math.floor(w * 0.18), Math.floor(w / 2) - 24)
     : findCastleSpot(world, Math.floor(w * 0.35), w - 12);
+  if (mapLayout === 'islands') carveIslands(world, start.x + BUILDING_TYPES.castle.size / 2, start.y + BUILDING_TYPES.castle.size / 2);
   prepareStart(world, start.x, start.y);
   if (playerCount === 2) mirrorLeftHalf(world);
   placeCastle(world, 0, start.x, start.y);
@@ -534,6 +544,42 @@ function generateTerrain(world: World): void {
     }
     else if (world.terrain[i] === TERRAIN_GRASS && forest[i] > 0.58 && r < 0.6) world.tree[i] = TREE_MATURE;
     else if (world.terrain[i] === TERRAIN_GRASS && r < 0.012) world.rock[i] = ROCK_STONE;
+  }
+}
+
+/** Island radius around each start, in tiles: the castle's land plus room for the first towers, smaller on small maps. */
+export function islandRadius(width: number): number {
+  return Math.min(27, Math.floor(width * 0.19));
+}
+
+/**
+ * Turns the map into sea except each start's island and a neutral island in the middle, with a ragged coast.
+ * Works on the left half (the right is mirrored from it in a match).
+ */
+function carveIslands(world: World, cx: number, cy: number): void {
+  const { width, height } = world;
+  const coast = valueNoise(world.seed ^ 0x51ed270b, width, height, 7);
+  const midX = width / 2, midY = height / 2;
+  const middle = Math.min(10, width / 10);
+  const radius = islandRadius(width);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = tileIndex(world, x, y);
+      const wobble = (coast[i] - 0.5) * 8;
+      const isStart = Math.hypot(x + 0.5 - cx, y + 0.5 - cy) <= radius + wobble;
+      const isMirrorStart = Math.hypot(x + 0.5 - (width - cx), y + 0.5 - cy) <= radius + wobble;
+      const isMiddle = Math.hypot(x + 0.5 - midX, y + 0.5 - midY) <= middle + wobble * 0.6;
+      if (isStart || isMirrorStart) continue;
+      if (isMiddle) {
+        // The neutral island: a rich mountain worth sailing for.
+        if (Math.hypot(x + 0.5 - midX, y + 0.5 - midY) <= middle * 0.55) {
+          world.terrain[i] = TERRAIN_MOUNTAIN; world.tree[i] = NO_TREE; world.rock[i] = 0;
+          setDeposit(world, i, (x + y) % 3 === 0 ? DEPOSIT_GOLD : DEPOSIT_IRON);
+        } else if (world.terrain[i] === TERRAIN_WATER) world.terrain[i] = TERRAIN_GRASS;
+        continue;
+      }
+      world.terrain[i] = TERRAIN_WATER; world.tree[i] = NO_TREE; world.rock[i] = 0; setDeposit(world, i, DEPOSIT_NONE);
+    }
   }
 }
 

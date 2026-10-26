@@ -11,10 +11,13 @@ export function donkeysOf(world: World, b: Building): Settler[] {
   return world.settlers.filter((s) => s.settlerType === 'donkey' && s.homeId === b.id && s.owner === b.owner);
 }
 
-/** Whether a marketplace's caravans run: it stands, has a route, and the route is not suspended. */
+/** Whether a marketplace's caravans (or a landing dock's trade ships) run: it stands, has a route, and the route is not suspended. */
 export function isTrading(b: Building): boolean {
-  return b.typeId === 'marketplace' && b.isComplete && b.tradeRoute !== null && b.tradeMode !== 'suspended';
+  return (b.typeId === 'marketplace' || b.typeId === 'landing_dock') && b.isComplete && b.tradeRoute !== null && b.tradeMode !== 'suspended';
 }
+
+/** Trade ships a landing dock works with. */
+export const TRADE_SHIPS_PER_DOCK = 3;
 
 /** What a marketplace still asks carriers for, per good: enough for two loads, or what the order has left. */
 export function marketplaceWants(b: Building): Partial<Record<GoodType, number>> {
@@ -23,7 +26,9 @@ export function marketplaceWants(b: Building): Partial<Record<GoodType, number>>
   for (const good of GOOD_TYPES) {
     const amount = b.tradeRoute!.goods[good] ?? 0;
     if (amount === 0) continue;
-    const target = amount === TRADE_UNLIMITED ? DONKEY_LOAD * 2 : Math.min(amount, DONKEY_LOAD * 2);
+    // A dock gathers a ship's whole load; a marketplace two donkeys' worth.
+    const buffer = b.typeId === 'landing_dock' ? DONKEY_LOAD * 4 : DONKEY_LOAD * 2;
+    const target = amount === TRADE_UNLIMITED ? buffer : Math.min(amount, buffer);
     const need = target - b.input[good] - b.incoming[good];
     if (need > 0) wants[good] = need;
   }
@@ -46,7 +51,7 @@ export function finishBreeding(world: World, home: Building): void {
 }
 
 /** The player's storage nearest the end of a route, within reach of it. */
-function storageAtRouteEnd(world: World, owner: number, x: number, y: number): Building | null {
+export function storageAtRouteEnd(world: World, owner: number, x: number, y: number): Building | null {
   let best: Building | null = null, bestDistance = TRADE_UNLOAD_RADIUS;
   for (const b of world.buildings) {
     if (b.owner !== owner || !b.isComplete || !isStorageBuilding(b)) continue;

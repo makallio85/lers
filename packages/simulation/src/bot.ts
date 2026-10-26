@@ -1,4 +1,4 @@
-import { BUILDING_TYPES, GOOD_NAMES, PROMOTION_COSTS, RACE_SPELLS, SOLDIER_TYPES, SPELL_RANGE, SPELL_STATS, TOOL_TYPES, WAR_MACHINE_STATS, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
+import { BOARDING_RANGE, BUILDING_TYPES, GOOD_NAMES, TRANSPORT_CAPACITY, PROMOTION_COSTS, RACE_SPELLS, SOLDIER_TYPES, SPELL_RANGE, SPELL_STATS, TOOL_TYPES, WAR_MACHINE_STATS, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
 import type { BuildingTypeId, GoodType, MapSizeType, SpellType, ToolType } from './definitions.ts';
 import type { Command } from './commands.ts';
 import type { ObservedBuilding, ObservedSoldier, Observation, OwnBuilding } from './vision.ts';
@@ -52,7 +52,7 @@ export interface BotLogEntry {
 }
 
 /** What a spot should be close to when the bot picks where to build. */
-export type SpotNeed = 'trees' | 'rocks' | 'water' | 'deposit_coal' | 'deposit_iron' | 'deposit_gold' | 'free_land' | 'castle' | 'border' | 'ore' | 'distant_rocks';
+export type SpotNeed = 'trees' | 'rocks' | 'water' | 'deposit_coal' | 'deposit_iron' | 'deposit_gold' | 'free_land' | 'castle' | 'border' | 'ore' | 'distant_rocks' | 'shore';
 
 /**
  * The bot's only access to the map besides its observation: finding a valid spot on its own land,
@@ -62,12 +62,19 @@ export interface BotSpotFinder {
   findSpot(typeId: BuildingTypeId, need: SpotNeed, towardX: number): { x: number; y: number } | null;
   /** A seen mountain tile its geologists have not marked yet, own land first. */
   prospectTile(): { x: number; y: number } | null;
-  /** Whether the bot's settlers can walk from the castle to this tile (or next to it). */
-  canReach(x: number, y: number): boolean;
+  /** Whether the bot's settlers can walk from the castle (or from a given point) to this tile, or next to it. */
+  canReach(x: number, y: number, from?: { x: number; y: number }): boolean;
+  /** Land of the castle's own island where soldiers can wait to board a ship lying here, or null. */
+  boardingTile(shipX: number, shipY: number): { x: number; y: number } | null;
+  /**
+   * Where a ship sails next on the water it is on. Loaded: a seen shore of another island on the enemy side
+   * (isLanding), or else the seen water farthest that way, to look further. Empty: the home shore nearest the castle.
+   */
+  sailTarget(shipX: number, shipY: number, towardX: number, isLoaded: boolean): { x: number; y: number; isLanding: boolean } | null;
   /** Whether a war machine standing here can roll to open ground within `range` tiles of a point. */
   canFireAt(fromX: number, fromY: number, x: number, y: number, range: number): boolean;
-  /** The explored, walkable tile closest to the given side of the map, for scouting with the army. */
-  frontTile(towardX: number): { x: number; y: number } | null;
+  /** The explored tile closest to the given side of the map that the castle's settlers (or those at a point) can walk to, for scouting with the army. */
+  frontTile(towardX: number, from?: { x: number; y: number }): { x: number; y: number } | null;
 }
 
 /**
@@ -223,6 +230,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     }
   }
   const sites = obs.ownBuildings.filter((b) => !b.isComplete);
+  // On an islands map the enemy lives across the sea: the army needs a shipyard and a transport ship.
+  const isIslands = obs.mapLayout === 'islands';
   // The enemy is somewhere on the far side of the map until the bot sees it.
   const towardX = castle.x < obs.width / 2 ? obs.width : 0;
 
@@ -275,6 +284,13 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       for (const typeId of FOOD_CHAIN) {
         if (!isBuildableBy(typeId, obs.player.raceType) || !isUseful(typeId, count) || !hasToolFor(typeId)) continue;
         if (place(typeId, NEEDS[typeId] ?? 'castle')) { isDone = true; note(`feed ${hungryMines} hungry mines`); break; }
+      }
+    }
+    if (!isDone && isIslands && count('shipyard') === 0 && count('barracks') > 0) {
+      if (hasToolFor('shipyard')) isDone = place('shipyard', 'shore');
+      else if ((obs.player.productionOrders.hammer ?? 0) === 0 && turn % 10 === 0) {
+        commands.push({ type: 'setProductionOrder', playerId: me, good: 'hammer', count: 1 });
+        note('order hammer for shipyard');
       }
     }
     if (!isDone) {
@@ -340,7 +356,11 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
 
   // 5. Army. Intruders on own land are driven out at once, whatever the bot type.
   const machines = obs.ownSoldiers.filter((s) => isWarMachineType(s.settlerType));
-  let free = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && (s.phase === 'idle' || s.phase === 'moving'));
+  const onField = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && (s.phase === 'idle' || s.phase === 'moving'));
+  // On islands, soldiers on the castle's island defend it and wait for the ship; those landed elsewhere fight there.
+  const isAtHome = (s: ObservedSoldier) => !isIslands || spots.canReach(Math.round(s.x), Math.round(s.y));
+  let free = onField.filter(isAtHome);
+  const landed = onField.filter((s) => !isAtHome(s));
   const intruders = obs.otherSoldiers.filter((s) => isOnOwnLand(obs, s.x, s.y));
   if (intruders.length > 0 && free.length > 0) {
     const target = intruders[0];
@@ -350,6 +370,11 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     const sent = new Set(defenders.map((s) => s.id));
     free = free.filter((s) => !sent.has(s.id));
   }
+
+  // Home soldiers left after defending: on islands they wait for the ship, and the landed army is the one that attacks.
+  const waiting = isIslands ? free : [];
+  if (isIslands) free = landed;
+  const from = isIslands && landed.length > 0 ? { x: Math.round(landed[0].x), y: Math.round(landed[0].y) } : undefined;
 
   // Then attack the nearest weakly held building in sight once the army is big enough; otherwise gather at the front.
   const mapSize = mapSizeTypeOf(obs.width);
@@ -362,9 +387,10 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const isCovered = (t: ObservedBuilding) => obs.otherBuildings.some((o) => o.id !== t.id && o.owner === t.owner && o.isComplete
     && (o.typeId === 'castle' || o.garrisonCount > 0) && BUILDING_TYPES[o.typeId].territoryRadius > 0
     && Math.hypot(o.x + o.size / 2 - (t.x + t.size / 2), o.y + o.size / 2 - (t.y + t.size / 2)) <= BUILDING_TYPES[o.typeId].territoryRadius);
-  const targets = obs.otherBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0 && spots.canReach(b.doorX, b.doorY)
+  const targets = obs.otherBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0 && spots.canReach(b.doorX, b.doorY, from)
     && (b.typeId !== 'castle' || mayTakeCastle || obs.otherBuildings.every((o) => o.typeId === 'castle' || BUILDING_TYPES[o.typeId].garrisonCapacity === 0)));
-  if (mayAttack && targets.length > 0 && army >= settings.attackArmy && free.length > 0) {
+  // A landed army attacks whatever it has; it cannot wait for reinforcements the way a home army can.
+  if (mayAttack && targets.length > 0 && (army >= settings.attackArmy || landed.length > 0) && free.length > 0) {
     const cx = free.reduce((sum, s) => sum + s.x, 0) / free.length;
     const cy = free.reduce((sum, s) => sum + s.y, 0) / free.length;
     // Near and weakly held first; a large army goes for the castle to end the match.
@@ -380,15 +406,15 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       commands.push({ type: 'attackBuilding', playerId: me, soldierIds: squad.map((s) => s.id), buildingId: target.id });
       note(`attack ${target.typeId} #${target.id} with ${squad.length} (army ${army})`);
     }
-  } else if (mayAttack && targets.length === 0 && free.length >= settings.attackArmy * 2 && turn % 5 === 0) {
-    // A big army that sees nothing to attack advances into the unknown, toward the enemy side.
-    const front = spots.frontTile(towardX);
+  } else if (mayAttack && targets.length === 0 && (free.length >= settings.attackArmy * 2 || landed.length > 0) && turn % 5 === 0) {
+    // A big army that sees nothing to attack advances into the unknown, toward the enemy side; so does a landed one.
+    const front = spots.frontTile(towardX, from);
     if (front) {
       const party = settings.isSendingWholeArmy ? free : nearest(free, front.x, front.y, SCOUTS);
       commands.push({ type: 'moveSoldiers', playerId: me, soldierIds: party.map((s) => s.id), x: front.x, y: front.y });
       note(`scout toward ${front.x},${front.y} with ${party.length}`);
     }
-  } else if (free.length >= 3 && turn % 15 === 0) {
+  } else if (!isIslands && free.length >= 3 && turn % 15 === 0) {
     // An aggressive bot gathers at its front tower; a calm one at home, so its army does not provoke a border battle.
     const front = !settings.isSendingWholeArmy ? castle : obs.ownBuildings
       .filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0)
@@ -407,6 +433,60 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     machineTargets.sort((a, b) => (b.garrisonCount * 8 - Math.hypot(b.doorX - mx, b.doorY - my)) - (a.garrisonCount * 8 - Math.hypot(a.doorX - mx, a.doorY - my)) || a.id - b.id);
     commands.push({ type: 'attackBuilding', playerId: me, soldierIds: idleMachines.map((m) => m.id), buildingId: machineTargets[0].id });
     note(`machines: ${idleMachines.length} against ${machineTargets[0].typeId} #${machineTargets[0].id}`);
+  }
+  commands.push(...decideFerry(obs, spots, waiting, mayAttack, towardX, turn, note));
+  return commands;
+}
+
+/**
+ * The transport ship on an islands map. At the home shore it takes soldiers aboard until it holds an attack's worth,
+ * sails toward the enemy side (looking further while no enemy shore is in sight), puts them ashore, and comes back.
+ */
+function decideFerry(obs: Observation, spots: BotSpotFinder, waiting: readonly ObservedSoldier[], mayAttack: boolean, towardX: number,
+  turn: number, note: (text: string) => void): Command[] {
+  const me = obs.playerId;
+  const commands: Command[] = [];
+  if (obs.mapLayout !== 'islands') return commands;
+  const ship = obs.ownSoldiers.find((s) => s.settlerType === 'transport_ship');
+  const shipyard = obs.ownBuildings.find((b) => b.typeId === 'shipyard' && b.isComplete);
+  if (!ship) {
+    if (shipyard && turn % 20 === 0) {
+      commands.push({ type: 'setShipOrder', playerId: me, buildingId: shipyard.id, shipType: 'transport_ship', count: 1 });
+      note('order a transport ship');
+    }
+    return commands;
+  }
+  if (ship.phase !== 'idle' || turn % 2 !== 0) return commands;
+  const aboard = obs.ownSoldiers.filter((s) => s.shipId === ship.id);
+  const capacity = TRANSPORT_CAPACITY[obs.player.raceType];
+  const wanted = Math.min(capacity, BOT_TYPE_SETTINGS[obs.player.botType].attackArmy);
+  const sail = (isLoaded: boolean) => {
+    const target = spots.sailTarget(ship.x, ship.y, towardX, isLoaded);
+    if (!target) return;
+    if (isLoaded && target.isLanding && Math.hypot(target.x - ship.x, target.y - ship.y) <= 1.5) {
+      commands.push({ type: 'unloadShip', playerId: me, shipId: ship.id });
+      note(`land ${aboard.length} at ${Math.round(ship.x)},${Math.round(ship.y)}`);
+    } else if (Math.hypot(target.x - ship.x, target.y - ship.y) > 1.5) {
+      commands.push({ type: 'moveSoldiers', playerId: me, soldierIds: [ship.id], x: target.x, y: target.y });
+      note(`sail ${isLoaded ? `with ${aboard.length}` : 'home'} to ${target.x},${target.y}${target.isLanding ? '' : ' (looking)'}`);
+    }
+  };
+  const shore = spots.boardingTile(ship.x, ship.y);
+  if (!shore) { sail(aboard.length > 0); return commands; }
+  // At the home shore: board who is close, call the rest, and sail once an attack's worth is aboard.
+  if (!mayAttack) return commands;
+  const close = waiting.filter((s) => Math.hypot(s.x - ship.x, s.y - ship.y) <= BOARDING_RANGE + 0.5).slice(0, capacity - aboard.length);
+  if (close.length > 0) commands.push({ type: 'boardShip', playerId: me, shipId: ship.id, unitIds: close.map((s) => s.id) });
+  const loaded = aboard.length + close.length;
+  if (loaded >= wanted || (loaded > 0 && waiting.length === close.length)) {
+    if (close.length === 0) sail(true);
+    return commands;
+  }
+  const boarded = new Set(close.map((s) => s.id));
+  const called = nearest(waiting.filter((s) => !boarded.has(s.id) && s.phase === 'idle'), ship.x, ship.y, capacity - loaded);
+  if (called.length > 0 && waiting.length + aboard.length >= wanted) {
+    commands.push({ type: 'moveSoldiers', playerId: me, soldierIds: called.map((s) => s.id), x: shore.x, y: shore.y });
+    note(`call ${called.length} to the ship`);
   }
   return commands;
 }

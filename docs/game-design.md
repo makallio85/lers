@@ -160,6 +160,23 @@ Issue #12, phase 5, following the manual.
   - Up to four donkeys work for a marketplace. Each carries 8 of one good along the route, across any land, unloads at the player's storage within 12 tiles of the route's end, and comes back. Without a storage there, it brings the load back and warns.
 - **Computer player:** it does not trade yet. Its settlements grow in one piece.
 
+## Sea
+
+Issue #12, phase 6, following the manual.
+
+- **Map layout:** a match is set up on a continent or on islands. On islands each player starts on an island of their own, with a neutral island between them; nobody can walk to anyone else.
+- **Shipyard:** stands on a shore of the open sea (a lake does not count). A shipbuilder with a hammer builds the ships ordered there, three minutes each. Costs per people, in planks and iron:
+
+  | Ship | Romans | Egyptians | Asians | Amazons |
+  |---|---|---|---|---|
+  | Transport ship | 4 + 1 | 7 | 5 | 4 + 1 |
+  | Trade ship | 6 + 1 | 8 + 2 | 4 | 6 + 1 |
+
+- **Transport ship:** carries soldiers, specialists and priests (Romans 7, Egyptians 9, Asians 6, Amazons 8). They board within 3 tiles of the ship and go ashore on the land next to it. Ships sail 30 % faster than settlers walk and cannot attack.
+- **Landing dock:** the sea version of the marketplace, also on the open sea. Carriers bring the goods of its sea route; up to three trade ships take a load each (Romans 3 piles of 8, Egyptians 4, Asians 2, Amazons 3), sail to the water nearest the route's end, unload at the player's storage there, and come back.
+- **Colonies:** a building on land cut off from the castle must connect to one of the player's buildings on that land.
+- **Computer player:** on islands it builds a shipyard once it has barracks, orders a transport ship, and ferries an attack's worth of soldiers toward the enemy side, scouting by sea until it sees a shore there. Landed soldiers attack from where they stand; soldiers at home defend and wait for the ship. It does not build trade ships or colonies yet.
+
 ## Pace
 
 At 1× the game runs at the pace of The Settlers III at normal speed, which has no speed setting of its own. These values were timed by watching the original run (screenshots and a stopwatch, nothing decompiled), on 2026-10-25:

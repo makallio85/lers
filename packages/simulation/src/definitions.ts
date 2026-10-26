@@ -76,8 +76,12 @@ export type SoldierType = (typeof SOLDIER_TYPES)[number];
 export const WAR_MACHINE_TYPES = ['catapult', 'ballista', 'cannon', 'war_gong'] as const;
 export type WarMachineType = (typeof WAR_MACHINE_TYPES)[number];
 
+/** Ships sail the sea: transport ships carry soldiers and specialists, trade ships carry goods. */
+export const SHIP_TYPES = ['transport_ship', 'trade_ship'] as const;
+export type ShipType = (typeof SHIP_TYPES)[number];
+
 export type SettlerType =
-  | 'carrier' | 'digger' | 'builder' | SoldierType | WarMachineType | 'machinist' | 'temple_servant' | 'priest' | 'breeder' | 'donkey'
+  | 'carrier' | 'digger' | 'builder' | SoldierType | WarMachineType | ShipType | 'machinist' | 'temple_servant' | 'priest' | 'breeder' | 'donkey' | 'shipbuilder'
   | 'woodcutter' | 'forester' | 'carpenter' | 'stonecutter'
   | 'farmer' | 'miller' | 'baker' | 'waterworker' | 'fisher' | 'pig_farmer' | 'butcher'
   | 'miner' | 'smelter' | 'smith' | 'healer'
@@ -92,13 +96,17 @@ export const SPECIALIST_TOOLS: Record<SpecialistType, ToolType | null> = { geolo
 /** A thief can take this many hits; soldiers who come close see through the disguise. */
 export const THIEF_HEALTH = 30;
 
+export function isShipType(type: SettlerType): type is ShipType {
+  return (SHIP_TYPES as readonly string[]).includes(type);
+}
+
 export function isWarMachineType(type: SettlerType): type is WarMachineType {
   return (WAR_MACHINE_TYPES as readonly string[]).includes(type);
 }
 
 /** Units are what a player selects and moves on the map in groups: soldiers and war machines. */
-export function isUnitType(type: SettlerType): type is SoldierType | WarMachineType {
-  return isSoldierType(type) || isWarMachineType(type);
+export function isUnitType(type: SettlerType): type is SoldierType | WarMachineType | ShipType {
+  return isSoldierType(type) || isWarMachineType(type) || isShipType(type);
 }
 
 export function isSpecialistType(type: SettlerType): type is SpecialistType {
@@ -115,7 +123,8 @@ export const SETTLER_LABELS: Record<SettlerType, string> = {
   wine_grower: 'Wine grower', charcoal_maker: 'Charcoal maker', brewer: 'Brewer', rice_farmer: 'Rice farmer', distiller: 'Distiller',
   gunpowder_maker: 'Gunpowder maker', beekeeper: 'Beekeeper', mead_maker: 'Mead maker', alchemist: 'Alchemist',
   machinist: 'Machinist', catapult: 'Catapult', ballista: 'Ballista', cannon: 'Cannon', war_gong: 'War gong',
-  temple_servant: 'Temple servant', priest: 'Priest', breeder: 'Breeder', donkey: 'Donkey'
+  temple_servant: 'Temple servant', priest: 'Priest', breeder: 'Breeder', donkey: 'Donkey',
+  transport_ship: 'Transport ship', trade_ship: 'Trade ship', shipbuilder: 'Shipbuilder'
 };
 
 export const SETTLER_PLURALS: Record<SettlerType, string> = {
@@ -128,7 +137,8 @@ export const SETTLER_PLURALS: Record<SettlerType, string> = {
   wine_grower: 'Wine growers', charcoal_maker: 'Charcoal makers', brewer: 'Brewers', rice_farmer: 'Rice farmers', distiller: 'Distillers',
   gunpowder_maker: 'Gunpowder makers', beekeeper: 'Beekeepers', mead_maker: 'Mead makers', alchemist: 'Alchemists',
   machinist: 'Machinists', catapult: 'Catapults', ballista: 'Ballistas', cannon: 'Cannons', war_gong: 'War gongs',
-  temple_servant: 'Temple servants', priest: 'Priests', breeder: 'Breeders', donkey: 'Donkeys'
+  temple_servant: 'Temple servants', priest: 'Priests', breeder: 'Breeders', donkey: 'Donkeys',
+  transport_ship: 'Transport ships', trade_ship: 'Trade ships', shipbuilder: 'Shipbuilders'
 };
 
 export function isSoldierType(type: SettlerType): type is SoldierType {
@@ -217,7 +227,7 @@ export type BuildingTypeId =
   | 'farm' | 'mill' | 'bakery' | 'waterworks' | 'fisher' | 'pig_farm' | 'slaughterhouse' | 'donkey_ranch'
   | 'winery' | 'brewery' | 'rice_farm' | 'distillery' | 'beekeeper' | 'mead_maker'
   | 'guard_tower_small' | 'guard_tower_large' | 'castle' | 'lookout' | 'barracks' | 'weaponsmith' | 'gunpowder_maker'
-  | 'catapult_hall' | 'ballista_hall' | 'cannon_hall' | 'gong_hall' | 'small_temple' | 'large_temple'
+  | 'catapult_hall' | 'ballista_hall' | 'cannon_hall' | 'gong_hall' | 'small_temple' | 'large_temple' | 'shipyard' | 'landing_dock'
   | 'residence_small' | 'residence_medium' | 'residence_large' | 'storage' | 'healer' | 'marketplace';
 
 /**
@@ -253,7 +263,8 @@ export const FAVOURITE_FOOD_MEALS = 5;
 export const OTHER_FOOD_MEALS = 1;
 
 /** Where a building may stand beyond flat land in your territory. */
-export type PlacementType = 'land' | 'near_water' | 'mountain';
+/** Where a building may stand: any land, near water, on a shore of the open sea (not a lake), or on mountains. */
+export type PlacementType = 'land' | 'near_water' | 'shore' | 'mountain';
 
 export interface BuildingType {
   id: BuildingTypeId;
@@ -438,6 +449,10 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   residence_large: building('residence_large', 'Large residence', 'misc', 4, 15, 24, 'None', 'Nothing', '40 settlers', { residents: 40 }),
   storage: building('storage', 'Storage area', 'misc', 3, 2, 2, 'None', 'Goods marked for storage', 'Holds 48 goods', { storageCapacity: 48 }),
   healer: building('healer', 'Healer', 'misc', 2, 3, 3, 'Healer', 'Nothing', 'Heals soldiers nearby', { worker: 'healer' }),
+  shipyard: building('shipyard', 'Shipyard', 'misc', 3, 3, 5, 'Shipbuilder + hammer', 'Planks, iron', 'Ships',
+    { worker: 'shipbuilder', tool: 'hammer', placementType: 'shore', inputLimits: { plank: 8, iron: 2 } }),
+  landing_dock: building('landing_dock', 'Landing dock', 'misc', 2, 2, 4, 'None', 'Goods for its sea route', 'Trade ships to a far storage',
+    { placementType: 'shore' }),
   marketplace: building('marketplace', 'Marketplace', 'misc', 3, 1, 5, 'Donkeys', 'Goods for its route', 'Caravans to a far storage')
 };
 
@@ -459,6 +474,11 @@ export function distributedGoods(): GoodType[] {
 }
 
 /** Match map sizes. Small maps make short test games; medium is the default. */
+/** Map layouts: one continent, or each player on an island across the sea, with a neutral island between. */
+export const MAP_LAYOUT_TYPES = ['continent', 'islands'] as const;
+export type MapLayoutType = (typeof MAP_LAYOUT_TYPES)[number];
+export const MAP_LAYOUT_LABELS: Record<MapLayoutType, string> = { continent: 'Continent', islands: 'Islands' };
+
 export const MAP_SIZE_TYPES = ['small', 'medium', 'large'] as const;
 export type MapSizeType = (typeof MAP_SIZE_TYPES)[number];
 
@@ -516,7 +536,9 @@ const RACE_COSTS: Partial<Record<BuildingTypeId, Record<RaceType, readonly [numb
   gem_mine: { romans: [5, 3], egyptians: [5, 3], asians: [5, 3], amazons: [3, 2] },
   sulfur_mine: { romans: [5, 1], egyptians: [5, 1], asians: [5, 1], amazons: [3, 2] },
   small_temple: { romans: [5, 8], egyptians: [2, 10], asians: [9, 4], amazons: [7, 6] },
-  large_temple: { romans: [8, 14], egyptians: [6, 20], asians: [15, 6], amazons: [13, 11] }
+  large_temple: { romans: [8, 14], egyptians: [6, 20], asians: [15, 6], amazons: [13, 11] },
+  shipyard: { romans: [3, 5], egyptians: [1, 6], asians: [5, 2], amazons: [5, 2] },
+  landing_dock: { romans: [2, 4], egyptians: [1, 4], asians: [4, 1], amazons: [4, 3] }
 };
 
 /** What a building costs for a player of this race. */
@@ -635,3 +657,23 @@ export const TRADE_UNLOAD_RADIUS = 12;
 export const TRADE_SURPLUS_RESERVE = 8;
 /** At most this many waypoints before the route's end. */
 export const MAX_TRADE_WAYPOINTS = 3;
+
+
+// ---------------------------------------------------------------- sea
+
+/** Each people's ships, from the manual: planks and iron to build one, settlers a transport ship carries, and
+ * piles of 8 goods a trade ship carries. */
+export const SHIP_COSTS: Record<ShipType, Record<RaceType, { plank: number; iron: number }>> = {
+  transport_ship: { romans: { plank: 4, iron: 1 }, egyptians: { plank: 7, iron: 0 }, asians: { plank: 5, iron: 0 }, amazons: { plank: 4, iron: 1 } },
+  trade_ship: { romans: { plank: 6, iron: 1 }, egyptians: { plank: 8, iron: 2 }, asians: { plank: 4, iron: 0 }, amazons: { plank: 6, iron: 1 } }
+};
+export const TRANSPORT_CAPACITY: Record<RaceType, number> = { romans: 7, egyptians: 9, asians: 6, amazons: 8 };
+export const TRADE_SHIP_PILES: Record<RaceType, number> = { romans: 3, egyptians: 4, asians: 2, amazons: 3 };
+/** Ticks a shipbuilder needs for one ship. */
+export const SHIP_TICKS = 1800;
+/** Ships sail a little faster than people walk. */
+export const SHIP_SPEED_SHARE = 1.3;
+/** A ship's health: soldiers on the shore can shoot at it later; for now ships are not attacked. */
+export const SHIP_HEALTH = 200;
+/** Units board a ship from the shore within this many tiles, and land within this many tiles of it. */
+export const BOARDING_RANGE = 3;

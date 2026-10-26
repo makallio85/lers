@@ -15,7 +15,8 @@ SIZES = {
     'distillery': 3, 'beekeeper': 2, 'mead_maker': 3, 'donkey_ranch': 3, 'guard_tower_small': 2, 'guard_tower_large': 3, 'castle': 4,
     'lookout': 2, 'barracks': 3, 'weaponsmith': 3, 'gunpowder_maker': 3, 'residence_small': 2, 'residence_medium': 3,
     'residence_large': 4, 'storage': 3, 'healer': 2, 'marketplace': 3,
-    'catapult_hall': 3, 'ballista_hall': 3, 'cannon_hall': 3, 'gong_hall': 3, 'small_temple': 2, 'large_temple': 3}
+    'catapult_hall': 3, 'ballista_hall': 3, 'cannon_hall': 3, 'gong_hall': 3, 'small_temple': 2, 'large_temple': 3,
+    'shipyard': 3, 'landing_dock': 2}
 ONLY = {'gem_mine': ('egyptians', 'amazons'), 'sulfur_mine': ('asians', 'amazons'), 'charcoal_maker': ('romans',), 'alchemist': ('amazons',),
         'winery': ('romans',), 'brewery': ('egyptians',), 'rice_farm': ('asians',), 'distillery': ('asians',), 'beekeeper': ('amazons',),
         'mead_maker': ('amazons',), 'gunpowder_maker': ('asians',),
@@ -445,6 +446,19 @@ def recipe(b, typeId):
         for i in range(3): s.box(-0.35 + i * 0.18, -1.15, 0, 0.14, 0.07, 0.06, b.IRON)
     elif typeId in ('small_temple', 'large_temple'):
         temple(b, typeId == 'large_temple')
+    elif typeId == 'shipyard':
+        # A workshop at the back, and a boat taking shape on its slipway in front, planks and a mast waiting.
+        b.body(1.5, 1.1, -0.75, 0.6, wood=True)
+        for x in (0.25, 0.85): s.box(x, -0.45, 0, 0.12, 1.7, 0.08, b.DARKWOOD)
+        for y in (-1.0, -0.45, 0.1): s.box(0.55, y, 0.08, 0.8, 0.14, 0.1, b.WOOD)
+        s.put(PIRATE + 'boat-row-large.glb', 0.55, -0.45, 0.16, 90, 0.42)
+        b.planks(-0.75, -0.75, 3); s.box(-0.2, -1.2, 0, 1.3, 0.09, 0.09, b.WOOD)
+        s.put(SURV + 'workbench-anvil.glb', -1.15, -0.25, 0, 90, 0.7)
+    elif typeId == 'landing_dock':
+        # A small harbour office at the back, and a plank pier in front with goods waiting to be loaded.
+        b.body(1.0, 0.8, -0.35, 0.45)
+        s.put(PIRATE + 'structure-platform-dock-small.glb', 0.25, -0.45, 0, 0, 0.5)
+        b.crates(-0.6, -0.65, 2); b.barrels(0.55, -0.8, 1); b.sacks(-0.25, -0.95, 2)
     else:
         raise KeyError(typeId)
 

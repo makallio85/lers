@@ -15,7 +15,7 @@ interface Manifest {
 export type SettlerLook =
   | 'carrier' | 'builder' | 'digger' | 'woodcutter' | 'stonecutter' | 'farmer' | 'fisher' | 'worker'
   | 'geologist' | 'pioneer' | 'thief' | 'swordsman' | 'spearman' | 'bowman'
-  | 'catapult' | 'ballista' | 'cannon' | 'war_gong' | 'priest' | 'donkey';
+  | 'catapult' | 'ballista' | 'cannon' | 'war_gong' | 'priest' | 'donkey' | 'transport_ship' | 'trade_ship';
 export type SettlerAnim = 'walk' | 'carry' | 'work' | 'attack';
 
 /** Several settler types share a look; workers who stay indoors all share one. */
@@ -23,11 +23,12 @@ const SETTLER_LOOKS: Partial<Record<SettlerType, SettlerLook>> = {
   carrier: 'carrier', builder: 'builder', digger: 'digger', woodcutter: 'woodcutter', stonecutter: 'stonecutter', miner: 'stonecutter',
   forester: 'farmer', farmer: 'farmer', wine_grower: 'farmer', rice_farmer: 'farmer', beekeeper: 'farmer', fisher: 'fisher',
   geologist: 'geologist', pioneer: 'pioneer', thief: 'thief', swordsman: 'swordsman', spearman: 'spearman', bowman: 'bowman',
-  catapult: 'catapult', ballista: 'ballista', cannon: 'cannon', war_gong: 'war_gong', priest: 'priest', donkey: 'donkey'
+  catapult: 'catapult', ballista: 'ballista', cannon: 'cannon', war_gong: 'war_gong', priest: 'priest', donkey: 'donkey',
+  transport_ship: 'transport_ship', trade_ship: 'trade_ship'
 };
 
 /** Looks drawn once for every people, such as the donkey. */
-const SHARED_LOOKS: readonly SettlerLook[] = ['donkey'];
+const SHARED_LOOKS: readonly SettlerLook[] = ['donkey', 'transport_ship', 'trade_ship'];
 export function lookOf(type: SettlerType): SettlerLook { return SETTLER_LOOKS[type] ?? 'worker'; }
 
 export const TREE_VARIANTS = ['tree_oak', 'tree_default', 'tree_pineRoundB', 'tree_fat'] as const;

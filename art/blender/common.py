@@ -18,6 +18,7 @@ CASTLE = os.path.join(KITS, 'castle/Models/GLB format/')
 SURV = os.path.join(KITS, 'survival/Models/GLB format/')
 NAT = os.path.join(KITS, 'nature/Models/GLTF format/')
 CHAR = os.path.join(KITS, 'characters/Models/GLB format/')
+PIRATE = os.path.join(KITS, 'pirate/Models/GLB format/')
 
 # Sprites are rendered at twice the on-screen size. On screen a tile is 64 px wide (a 64 x 32 diamond).
 TILE_SCREEN_W = 64
@@ -87,7 +88,7 @@ def palette_map(kit, race=None):
 
 
 def kit_of(path):
-    for kit in ('town', 'castle', 'survival', 'characters'):
+    for kit in ('town', 'castle', 'survival', 'characters', 'pirate'):
         if os.path.join(KITS, kit) in path: return kit
     return None
 

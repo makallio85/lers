@@ -2,7 +2,7 @@ import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Matrix, Sprite, Text, Texture } from 'pixi.js';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
-  TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, tileIndex,
+  TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, isShipType, tileIndex,
   BUILDING_STRUCTURE, WAR_MACHINE_STATS, buildingLabel
 } from '../../simulation/src/index.ts';
 import type { Building, BuildingTypeId, GoodType, Settler, World } from '../../simulation/src/index.ts';
@@ -473,13 +473,16 @@ export class MapView {
       // Machines play their shot once, from the moment it was fired (ticks since the shot, two per frame).
       frame = Math.min(5, Math.floor((WAR_MACHINE_STATS[s.settlerType].cooldown - s.cooldown) / 2)) - s.id;
     }
+    // Ships rock on the swell all the time, slowly.
+    if (isShipType(s.settlerType)) { anim = 'walk'; frame = Math.floor(now / 260); }
     const art = this.bank.settler(race, look, anim, v.dir, frame + s.id);
     if (!art) return false;
     this.place(v.body, art, 0, 0);
     const p = iso(tx, ty);
     v.root.position.set(p.x, p.y);
     v.root.zIndex = tx + ty;
-    const good = s.carrying ? this.bank.good(s.carrying) : null;
+    // A trade ship's cargo is in its hold.
+    const good = s.carrying && !isShipType(s.settlerType) ? this.bank.good(s.carrying) : null;
     v.load.visible = !!good;
     if (good) {
       this.place(v.load, good, 0, 0);

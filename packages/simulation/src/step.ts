@@ -12,6 +12,7 @@ import { WALK_SPEED, advance, distance, doorTile, tileOf, walkTo } from './movem
 import { updateVision } from './vision.ts';
 import { landRegion } from './regions.ts';
 import { decideBreeding, finishBreeding, marketplaceWants, updateDonkey } from './trade.ts';
+import { decideShip, launchShip } from './sea.ts';
 import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
@@ -210,7 +211,7 @@ function runLogistics(world: World): void {
       }
       continue;
     }
-    if (b.typeId === 'marketplace') {
+    if (b.typeId === 'marketplace' || b.typeId === 'landing_dock') {
       const wants = marketplaceWants(b);
       for (const good of GOOD_TYPES) {
         for (let k = 0; k < (wants[good] ?? 0); k++) {
@@ -682,6 +683,12 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
   const buildingType = BUILDING_TYPES[home.typeId];
   if (buildingType.warMachine) return decideWarMachine(world, s, home, buildingType.warMachine);
   if (home.typeId === 'small_temple') return decideOffering(world, s, home);
+  if (home.typeId === 'shipyard') {
+    const problem = decideShip(world, s, home);
+    setBlocked(world, home, problem === 'No ship ordered' ? null : problem);
+    if (problem) s.timer = 20;
+    return;
+  }
   if (home.typeId === 'donkey_ranch') {
     const problem = decideBreeding(world, s, home);
     setBlocked(world, home, problem);
@@ -842,6 +849,11 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
 }
 
 function finishWork(world: World, s: Settler, home: Building, type: SettlerType): void {
+  if (home.typeId === 'shipyard') {
+    launchShip(world, home);
+    s.phase = 'inside'; s.timer = 5;
+    return;
+  }
   if (home.typeId === 'donkey_ranch') {
     finishBreeding(world, home);
     s.phase = 'inside'; s.timer = 5;

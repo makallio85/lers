@@ -107,9 +107,41 @@ def donkey():
     write_meta(base + '.json', {'anchor': s.anchor(), 'anims': DONKEY_FRAMES, 'cell': list(CELL)})
 
 
+SHIP_CELL = (352, 384)
+SHIP_FRAMES = {'walk': 4}
+# Kit ship per ship type, and its scale: a transport ship is about three tiles long, a trade ship two and a half.
+SHIPS = {'transport_ship': ('ship-medium', 0.27), 'trade_ship': ('ship-small', 0.27)}
+
+
+def ship(kind, quick=False):
+    """A sailing ship rocking on the swell, in 8 directions: one sheet shared by every people."""
+    model, scale = SHIPS[kind]
+    s = Scene(None)
+    root = bpy.data.objects.new(kind, None); s.sc.collection.objects.link(root); root.rotation_mode = 'XYZ'
+    parts = [o for o in s.put(PIRATE + model + '.glb', 0, 0, 0, 0, scale) if o.parent is None]
+    bpy.context.view_layer.update()
+    for o in parts:
+        mw = o.matrix_world.copy(); o.parent = root; o.matrix_world = mw
+    s.camera(*SHIP_CELL, target_z=1.15)
+    base = os.path.join(RENDERS, 'settlers', 'romans', kind)
+    n = SHIP_FRAMES['walk']
+    for d in range(8):
+        if quick and d % 2: continue
+        for k in range(1 if quick else n):
+            t = k / n
+            # The kit's bow points along -Y, which is game direction 0.
+            root.rotation_euler = (0.035 * math.sin(2 * math.pi * t), 0.02 * math.cos(2 * math.pi * t), math.radians(d * 45))
+            root.location = (0, 0, 0.02 * math.sin(2 * math.pi * t))
+            s.render(os.path.join(base, f'walk_{d}_{k}.png'), 16)
+    if not quick: write_meta(base + '.json', {'anchor': s.anchor(), 'anims': SHIP_FRAMES, 'cell': list(SHIP_CELL)})
+
+
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 if 'donkey' in args:
     donkey()
+    sys.exit(0)
+if 'ships' in args:
+    for kind in SHIPS: ship(kind, 'quick' in args)
     sys.exit(0)
 for race in [a for a in args if a in RACES] or list(RACES):
     render(race, 'quick' in args)

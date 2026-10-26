@@ -2,9 +2,10 @@ import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
-  placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED
+  placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
+  BOARDING_RANGE, MAP_LAYOUT_TYPES, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
 } from '../../simulation/src/index.ts';
-import type { BotType, MapSizeType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotType, MapLayoutType, MapSizeType, ShipType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
@@ -16,8 +17,8 @@ import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } fr
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v9';
-const AUTOSAVE_KEY = 'lers.autosave.v9';
+const SAVE_KEY = 'lers.save.v10';
+const AUTOSAVE_KEY = 'lers.autosave.v10';
 const AUTOSAVE_MS = 5 * 60 * 1000;
 const DRAG_THRESHOLD = 6;
 
@@ -37,6 +38,7 @@ const params = new URLSearchParams(location.search);
 const BOT_TYPE_KEY = 'lers.botType';
 const MAP_SIZE_KEY = 'lers.mapSize';
 const RACE_KEY = 'lers.race';
+const MAP_LAYOUT_KEY = 'lers.mapLayout';
 /** Hash words such as `#calm`, `#small` or `#calm-small`, for hosts that pass only the hash to the page. */
 const hashWords = location.hash.slice(1).split('-');
 
@@ -58,12 +60,13 @@ function remember(key: string, value: string): void {
 let lastBotType: BotType = chosen(BOT_TYPES, BOT_TYPE_KEY, 'bot', 'aggressive');
 let lastMapSize: MapSizeType = chosen(MAP_SIZE_TYPES, MAP_SIZE_KEY, 'size', 'medium');
 let lastRace: RaceType = chosen(RACE_TYPES, RACE_KEY, 'race', 'romans');
+let lastMapLayout: MapLayoutType = chosen(MAP_LAYOUT_TYPES, MAP_LAYOUT_KEY, 'land', 'continent');
 const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
 const mapSize = (): MapSizeType => (isMatch() ? mapSizeTypeOf(world.width) : lastMapSize);
 const seedParam = Number(params.get('seed'));
 let world: World = params.get('mode') === 'sandbox'
   ? createWorld({ seed: Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed() })
-  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType, lastMapSize, lastRace);
+  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType, lastMapSize, lastRace, undefined, lastMapLayout);
 
 const ui = {
   tab: 'build' as TabId,
@@ -184,7 +187,7 @@ function renderMenu(): void {
     els.menu.innerHTML = renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
       isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
-      botType: botType(), mapSize: lastMapSize, raceType: lastRace
+      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, raceType: lastRace
     });
   }
 }
@@ -246,7 +249,7 @@ function renderOrders(): void {
   const isShown = world.winner === null && !ui.placing && (soldiers.length > 0 || ui.orderMode !== null || (isMatch() && ui.tab === 'military'));
   els.orders.hidden = !isShown;
   if (isShown) els.orders.innerHTML = renderOrderBar(soldiers, ui.orderMode, isTouchDevice(), outsideStrength(storedGold(world, PLAYER)),
-    { manna: world.players[PLAYER].manna, race: world.players[PLAYER].raceType, spell: ui.spell });
+    { manna: world.players[PLAYER].manna, race: world.players[PLAYER].raceType, spell: ui.spell }, world);
 }
 
 function renderEnd(): void {
@@ -429,7 +432,9 @@ function soldierAt(clientX: number, clientY: number): Settler | undefined {
   for (const s of world.settlers) {
     if (!isOwnUnit(s)) continue;
     const feet = view.tileToCanvas(s.x, s.y);
-    const d = Math.hypot(feet.x - px, feet.y - 12 * view.scale - py);
+    // A ship is several times a settler's size: its middle sits higher and it is easier to hit.
+    const isShip = isShipType(s.settlerType);
+    const d = Math.hypot(feet.x - px, feet.y - (isShip ? 40 : 12) * view.scale - py) * (isShip ? 0.5 : 1);
     if (d < bestDistance) { bestDistance = d; best = s; }
   }
   return best;
@@ -866,7 +871,7 @@ document.addEventListener('click', (e) => {
     case 'new-match': {
       const type = (BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '') ? target.dataset.bot as BotType : botType();
       lastBotType = type; remember(BOT_TYPE_KEY, type);
-      startNew(createMatch(randomSeed(), type, lastMapSize, lastRace));
+      startNew(createMatch(randomSeed(), type, lastMapSize, lastRace, undefined, lastMapLayout));
       break;
     }
     case 'race':
@@ -877,8 +882,38 @@ document.addEventListener('click', (e) => {
         lastMapSize = target.dataset.size as MapSizeType; remember(MAP_SIZE_KEY, lastMapSize);
       }
       renderMenu(); break;
+    case 'map-layout':
+      if ((MAP_LAYOUT_TYPES as readonly string[]).includes(target.dataset.layout ?? '')) {
+        lastMapLayout = target.dataset.layout as MapLayoutType; remember(MAP_LAYOUT_KEY, lastMapLayout);
+      }
+      renderMenu(); break;
+    case 'ship-order': {
+      const b = buildingById(world, Number(target.dataset.id));
+      const ship = target.dataset.ship as ShipType;
+      if (!b || b.typeId !== 'shipyard' || !(SHIP_TYPES as readonly string[]).includes(ship)) break;
+      submit({ type: 'setShipOrder', playerId: PLAYER, buildingId: b.id, shipType: ship, count: Math.max(0, Math.min(20, (b.shipOrders[ship] ?? 0) + delta)) });
+      renderSelectionCard(); break;
+    }
+    case 'board-nearby': {
+      // Each selected transport ship takes the player's units waiting near it, nearest first, while it has room.
+      const taken = new Set<number>();
+      for (const ship of selectedSoldierList().filter((s) => s.settlerType === 'transport_ship')) {
+        const room = TRANSPORT_CAPACITY[world.players[PLAYER].raceType] - passengersOf(world, ship).length;
+        const near = world.settlers.filter((u) => isOwnUnit(u) && !isShipType(u.settlerType) && !isWarMachineType(u.settlerType) && !taken.has(u.id)
+          && Math.hypot(u.x - ship.x, u.y - ship.y) <= BOARDING_RANGE + 0.5)
+          .sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y)).slice(0, room);
+        if (near.length === 0) continue;
+        near.forEach((u) => taken.add(u.id));
+        submit({ type: 'boardShip', playerId: PLAYER, shipId: ship.id, unitIds: near.map((u) => u.id) });
+      }
+      if (taken.size === 0) showProblem(`Nobody waits within ${BOARDING_RANGE} tiles of the ship`);
+      renderOrders(); break;
+    }
+    case 'unload-ships':
+      for (const ship of selectedSoldierList().filter((s) => passengersOf(world, s).length > 0)) submit({ type: 'unloadShip', playerId: PLAYER, shipId: ship.id });
+      renderOrders(); break;
     case 'new-sandbox': startNew(createWorld({ seed: randomSeed(), raceTypes: [lastRace] })); break;
-    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, world.players[1].raceType) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
+    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, world.players[1].raceType, world.mapLayout) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;
     case 'surrender': ui.isConfirmingSurrender = true; renderMenu(); break;
     case 'cancel-surrender': ui.isConfirmingSurrender = false; renderMenu(); break;
@@ -951,7 +986,7 @@ function frame(now: number): void {
 /** The route of the selected marketplace, or the one being set: from its door through the spots in order. */
 function tradeRouteShown(): { from: { x: number; y: number }; points: { x: number; y: number }[] } | null {
   const b = buildingById(world, ui.routeFor ?? ui.selectedId);
-  if (!b || b.typeId !== 'marketplace' || b.owner !== PLAYER) return null;
+  if (!b || (b.typeId !== 'marketplace' && b.typeId !== 'landing_dock') || b.owner !== PLAYER) return null;
   if (ui.routeFor !== null) return { from: { x: b.doorX, y: b.doorY }, points: ui.routePoints };
   if (!b.tradeRoute) return null;
   const w = world.width;

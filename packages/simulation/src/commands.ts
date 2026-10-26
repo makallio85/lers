@@ -2,10 +2,12 @@ import {
   BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_REACH,
   RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType, isUnitType, isWarMachineType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodType, SoldierType, SpecialistType, SpellType, ToolType, TradeModeType } from './definitions.ts';
-import { MAX_TRADE_WAYPOINTS, SOLDIER_TYPES, SPELL_STATS, SPELL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED } from './definitions.ts';
+import type { BuildingTypeId, GoodType, ShipType, SoldierType, SpecialistType, SpellType, ToolType, TradeModeType } from './definitions.ts';
+import { MAX_TRADE_WAYPOINTS, SHIP_TYPES, SOLDIER_TYPES, SPELL_STATS, SPELL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED, isShipType } from './definitions.ts';
+import { board, boardingProblem, isOpenSea, isSeaPassable, unload } from './sea.ts';
 import { castSpell, promote, promotionProblem, spellProblem } from './magic.ts';
 import { isMachinePassable } from './movement.ts';
+import { landRegion } from './regions.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
 import { hasExplored, hasExploredBuilding } from './vision.ts';
 import {
@@ -45,6 +47,9 @@ export type Command =
   | { type: 'setTradeRoute'; playerId: number; buildingId: number; x: number; y: number; waypoints: { x: number; y: number }[] }
   | { type: 'setTradeGood'; playerId: number; buildingId: number; good: GoodType; amount: number }
   | { type: 'setTradeMode'; playerId: number; buildingId: number; mode: TradeModeType }
+  | { type: 'setShipOrder'; playerId: number; buildingId: number; shipType: ShipType; count: number }
+  | { type: 'boardShip'; playerId: number; shipId: number; unitIds: number[] }
+  | { type: 'unloadShip'; playerId: number; shipId: number }
   | { type: 'surrender'; playerId: number };
 
 export type CommandResult = { isAccepted: true; buildingId?: number } | { isAccepted: false; reason: string };
@@ -86,10 +91,12 @@ function isIntIn(value: unknown, min: number, max: number): value is number {
   return Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
 }
 
-function hasWaterNearby(world: World, x: number, y: number, size: number): boolean {
+function hasWaterNearby(world: World, x: number, y: number, size: number, isSeaOnly = false): boolean {
   for (let ty = y - WATER_REACH; ty < y + size + WATER_REACH; ty++) {
     for (let tx = x - WATER_REACH; tx < x + size + WATER_REACH; tx++) {
-      if (inBounds(world, tx, ty) && world.terrain[tileIndex(world, tx, ty)] === TERRAIN_WATER) return true;
+      if (!inBounds(world, tx, ty)) continue;
+      const i = tileIndex(world, tx, ty);
+      if (isSeaOnly ? isOpenSea(world, i) : world.terrain[i] === TERRAIN_WATER) return true;
     }
   }
   return false;
@@ -124,6 +131,7 @@ export function groundProblem(world: World, playerId: number, buildingType: Buil
   if (world.territory[door] !== owned) return 'Outside your territory';
   if (!isWalkable(world, door) || world.door[door] !== 0 || world.tree[door] >= 0) return 'The entrance is blocked';
   if (type.placementType === 'near_water' && !hasWaterNearby(world, x, y, size)) return 'Needs water nearby';
+  if (type.placementType === 'shore' && !hasWaterNearby(world, x, y, size, true)) return 'Needs the open sea nearby, not a lake';
   return null;
 }
 
@@ -144,15 +152,23 @@ export function placementProblem(world: World, playerId: number, buildingType: B
     }
   }
   const door = tileIndex(world, x + Math.floor(size / 2), y + size);
+  const doorX = x + Math.floor(size / 2), doorY = y + size;
+  // Stretches of own land as they are now, before the new building stands.
+  const home = landRegion(world, castle.doorX, castle.doorY);
+  const here = landRegion(world, doorX, doorY);
   const isReachable = reachableFrom(world, tileIndex(world, castle.doorX, castle.doorY));
+  // On a colony's land (cut off from the castle), the entrance must connect to one of the player's buildings there.
+  const colony = here !== home ? world.buildings.find((b) => b.owner === playerId && landRegion(world, b.doorX, b.doorY) === here) : undefined;
+  const isColonyReachable = colony ? reachableFrom(world, door)(tileIndex(world, colony.doorX, colony.doorY)) : false;
   let k = 0;
   for (let dy = 0; dy < size; dy++) {
     for (let dx = 0; dx < size; dx++) world.footprint[tileIndex(world, x + dx, y + dy)] = saved[k++];
   }
-  if (!isReachable(door)) return 'Settlers cannot reach the entrance';
-  // The new building must not wall in the entrance of one you already have.
+  if (!isReachable(door) && !isColonyReachable) return 'Settlers cannot reach the entrance';
+  // The new building must not wall in the entrance of one you already have (on the castle's land; colonies are checked by their own reach).
   for (const b of world.buildings) {
-    if (b.owner === playerId && !isReachable(tileIndex(world, b.doorX, b.doorY))) return 'This would block the entrance of another building';
+    if (b.owner !== playerId || landRegion(world, b.doorX, b.doorY) !== home) continue;
+    if (!isReachable(tileIndex(world, b.doorX, b.doorY))) return 'This would block the entrance of another building';
   }
   return null;
 }
@@ -181,18 +197,18 @@ function ownFieldSoldiers(world: World, playerId: number, ids: unknown): Settler
 /** A unit's route: war machines keep to open ground. */
 function unitPath(world: World, s: Settler, goal: number): number[] | null {
   const start = tileIndex(world, Math.round(s.x), Math.round(s.y));
-  return findPath(world, start, goal, 40_000, isWarMachineType(s.settlerType) ? isMachinePassable : isWalkable);
+  return findPath(world, start, goal, 40_000, isShipType(s.settlerType) ? isSeaPassable : isWarMachineType(s.settlerType) ? isMachinePassable : isWalkable);
 }
 
 /** Walkable tiles around a point, nearest first, so a group spreads out instead of stacking on one tile. */
-function formationTiles(world: World, x: number, y: number, count: number): number[] {
+function formationTiles(world: World, x: number, y: number, count: number, isPassable: (world: World, i: number) => boolean = isWalkable): number[] {
   const tiles: number[] = [];
   for (let r = 0; tiles.length < count && r < 8; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || !inBounds(world, x + dx, y + dy)) continue;
         const i = tileIndex(world, x + dx, y + dy);
-        if (isWalkable(world, i)) tiles.push(i);
+        if (isPassable(world, i)) tiles.push(i);
       }
     }
   }
@@ -286,8 +302,11 @@ export function applyCommand(world: World, command: Command): CommandResult {
       if (!hasExplored(world, command.playerId, command.x, command.y)) return refuse('You have not explored that land');
       if (command.isAppending !== undefined && typeof command.isAppending !== 'boolean') return refuse('Malformed command');
       if (command.isIgnoringEnemies !== undefined && typeof command.isIgnoringEnemies !== 'boolean') return refuse('Malformed command');
-      const tiles = formationTiles(world, command.x, command.y, soldiers.length);
-      if (tiles.length === 0) return refuse('Soldiers cannot stand there');
+      // Ships gather on the water, everyone else on land.
+      const isFleet = soldiers.every((s) => isShipType(s.settlerType));
+      if (!isFleet && soldiers.some((s) => isShipType(s.settlerType))) return refuse('Order ships and soldiers separately');
+      const tiles = formationTiles(world, command.x, command.y, soldiers.length, isFleet ? isSeaPassable : isWalkable);
+      if (tiles.length === 0) return refuse(isFleet ? 'Ships need open water there' : 'Soldiers cannot stand there');
       soldiers.forEach((s, k) => {
         const tile = tiles[k % tiles.length];
         s.isHolding = false; s.isPatrolling = false;
@@ -339,6 +358,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
         return refuse('Choose an enemy building you can see');
       }
       if (!isMilitaryBuilding(target) || !target.isComplete) return refuse('Only towers and castles can be attacked');
+      if (soldiers.some((s) => isShipType(s.settlerType))) return refuse('Ships cannot attack: land the soldiers first');
       for (const s of soldiers) {
         s.phase = 'attacking'; s.attackId = target.id; s.path = []; s.enemyId = null;
         // A war machine keeps its hall, where it reloads.
@@ -382,7 +402,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
     }
     case 'setTradeRoute': {
       const b = ownBuilding(world, command.playerId, command.buildingId);
-      if (!b || b.typeId !== 'marketplace' || !b.isComplete) return refuse('Choose one of your marketplaces');
+      if (!b || (b.typeId !== 'marketplace' && b.typeId !== 'landing_dock') || !b.isComplete) return refuse('Choose one of your marketplaces or landing docks');
       if (!Number.isInteger(command.x) || !Number.isInteger(command.y) || !inBounds(world, command.x, command.y)) return refuse('Invalid position');
       if (!Array.isArray(command.waypoints) || command.waypoints.length > MAX_TRADE_WAYPOINTS) return refuse(`At most ${MAX_TRADE_WAYPOINTS} waypoints`);
       const waypoints: number[] = [];
@@ -397,14 +417,41 @@ export function applyCommand(world: World, command: Command): CommandResult {
     }
     case 'setTradeGood': {
       const b = ownBuilding(world, command.playerId, command.buildingId);
-      if (!b || b.typeId !== 'marketplace' || !b.tradeRoute) return refuse('Set the marketplace\'s route first');
+      if (!b || (b.typeId !== 'marketplace' && b.typeId !== 'landing_dock') || !b.tradeRoute) return refuse('Set the route first');
       if (!isKnownGood(command.good) || !isIntIn(command.amount, TRADE_UNLIMITED, 10_000)) return refuse('Malformed command');
       b.tradeRoute.goods[command.good] = command.amount;
       return accept();
     }
+    case 'setShipOrder': {
+      const b = ownBuilding(world, command.playerId, command.buildingId);
+      if (!b || b.typeId !== 'shipyard') return refuse('Choose one of your shipyards');
+      if (!(SHIP_TYPES as readonly string[]).includes(command.shipType) || !isIntIn(command.count, 0, 20)) return refuse('Malformed command');
+      b.shipOrders[command.shipType] = command.count;
+      return accept();
+    }
+    case 'boardShip': {
+      const ship = Number.isInteger(command.shipId) ? world.settlers.find((s) => s.id === command.shipId) : undefined;
+      if (!ship || ship.owner !== command.playerId || !isShipType(ship.settlerType)) return refuse('Choose one of your ships');
+      if (!Array.isArray(command.unitIds) || command.unitIds.length === 0) return refuse('Choose who boards');
+      const units = command.unitIds.map((id) => world.settlers.find((s) => s.id === id));
+      if (units.some((u) => !u || u.owner !== command.playerId || u.isInside || u.health <= 0 && isUnitType(u.settlerType)
+        || !(isSoldierType(u.settlerType) || isSpecialistType(u.settlerType) || u.settlerType === 'priest'))) {
+        return refuse('Only your soldiers, specialists and priests outside buildings can board');
+      }
+      const problem = boardingProblem(world, ship, units as Settler[]);
+      if (problem) return refuse(problem);
+      board(world, ship, units as Settler[]);
+      return accept();
+    }
+    case 'unloadShip': {
+      const ship = Number.isInteger(command.shipId) ? world.settlers.find((s) => s.id === command.shipId) : undefined;
+      if (!ship || ship.owner !== command.playerId || !isShipType(ship.settlerType)) return refuse('Choose one of your ships');
+      const problem = unload(world, ship);
+      return problem ? refuse(problem) : accept();
+    }
     case 'setTradeMode': {
       const b = ownBuilding(world, command.playerId, command.buildingId);
-      if (!b || b.typeId !== 'marketplace') return refuse('Choose one of your marketplaces');
+      if (!b || (b.typeId !== 'marketplace' && b.typeId !== 'landing_dock')) return refuse('Choose one of your marketplaces or landing docks');
       if (!(TRADE_MODE_TYPES as readonly string[]).includes(command.mode)) return refuse('Malformed command');
       b.tradeMode = command.mode;
       return accept();
