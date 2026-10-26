@@ -259,13 +259,6 @@ export class MapView {
       }
       g.stroke({ width: 2, color: OWNER_COLORS[owner - 1], alpha: 0.9 });
     }
-    // Pioneer posts on land claimed by pioneers, one post per 3×3 tiles where military land does not cover it.
-    for (let i = 0; i < world.pioneerLand.length; i++) {
-      const owner = world.pioneerLand[i];
-      const x = i % world.width, y = Math.floor(i / world.width);
-      if (owner === 0 || world.militaryLand[i] !== 0 || world.territory[i] !== owner || x % 3 !== 1 || y % 3 !== 1) continue;
-      g.circle(x * TILE + TILE / 2, y * TILE + TILE / 2, 3).fill(OWNER_COLORS[owner - 1]).stroke({ width: 1, color: 0x1b2420 });
-    }
   }
 
   /** What a tile shows upright, as a number: -1 nothing, else an index into tileArt(). */
