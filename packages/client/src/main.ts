@@ -3,9 +3,9 @@ import {
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
-  BOARDING_RANGE, MAP_LAYOUT_TYPES, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
+  BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
 } from '../../simulation/src/index.ts';
-import type { BotType, MapLayoutType, MapSizeType, ShipType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
@@ -17,8 +17,8 @@ import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } fr
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v10';
-const AUTOSAVE_KEY = 'lers.autosave.v10';
+const SAVE_KEY = 'lers.save.v11';
+const AUTOSAVE_KEY = 'lers.autosave.v11';
 const AUTOSAVE_MS = 5 * 60 * 1000;
 const DRAG_THRESHOLD = 6;
 
@@ -39,6 +39,8 @@ const BOT_TYPE_KEY = 'lers.botType';
 const MAP_SIZE_KEY = 'lers.mapSize';
 const RACE_KEY = 'lers.race';
 const MAP_LAYOUT_KEY = 'lers.mapLayout';
+const MAP_HALVES_KEY = 'lers.mapHalves';
+const STARTING_GOODS_KEY = 'lers.startingGoods';
 /** Hash words such as `#calm`, `#small` or `#calm-small`, for hosts that pass only the hash to the page. */
 const hashWords = location.hash.slice(1).split('-');
 
@@ -61,12 +63,16 @@ let lastBotType: BotType = chosen(BOT_TYPES, BOT_TYPE_KEY, 'bot', 'aggressive');
 let lastMapSize: MapSizeType = chosen(MAP_SIZE_TYPES, MAP_SIZE_KEY, 'size', 'medium');
 let lastRace: RaceType = chosen(RACE_TYPES, RACE_KEY, 'race', 'romans');
 let lastMapLayout: MapLayoutType = chosen(MAP_LAYOUT_TYPES, MAP_LAYOUT_KEY, 'land', 'continent');
+let lastIsMirrored = chosen(['mirrored', 'own'] as const, MAP_HALVES_KEY, 'halves', 'mirrored') === 'mirrored';
+let lastStartingGoods: StartingGoodsType = chosen(STARTING_GOODS_TYPES, STARTING_GOODS_KEY, 'goods', 'default');
+/** The setup the menu has selected for the next match. */
+const nextSetup = () => ({ isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods });
 const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
 const mapSize = (): MapSizeType => (isMatch() ? mapSizeTypeOf(world.width) : lastMapSize);
 const seedParam = Number(params.get('seed'));
 let world: World = params.get('mode') === 'sandbox'
   ? createWorld({ seed: Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed() })
-  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType, lastMapSize, lastRace, undefined, lastMapLayout);
+  : createMatch(Number.isInteger(seedParam) && seedParam > 0 ? seedParam : randomSeed(), lastBotType, lastMapSize, lastRace, undefined, lastMapLayout, nextSetup());
 
 const ui = {
   tab: 'build' as TabId,
@@ -187,7 +193,7 @@ function renderMenu(): void {
     els.menu.innerHTML = renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
       isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
-      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, raceType: lastRace
+      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, raceType: lastRace
     });
   }
 }
@@ -871,7 +877,7 @@ document.addEventListener('click', (e) => {
     case 'new-match': {
       const type = (BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '') ? target.dataset.bot as BotType : botType();
       lastBotType = type; remember(BOT_TYPE_KEY, type);
-      startNew(createMatch(randomSeed(), type, lastMapSize, lastRace, undefined, lastMapLayout));
+      startNew(createMatch(randomSeed(), type, lastMapSize, lastRace, undefined, lastMapLayout, nextSetup()));
       break;
     }
     case 'race':
@@ -885,6 +891,14 @@ document.addEventListener('click', (e) => {
     case 'map-layout':
       if ((MAP_LAYOUT_TYPES as readonly string[]).includes(target.dataset.layout ?? '')) {
         lastMapLayout = target.dataset.layout as MapLayoutType; remember(MAP_LAYOUT_KEY, lastMapLayout);
+      }
+      renderMenu(); break;
+    case 'map-mirror':
+      lastIsMirrored = target.dataset.mirrored === 'true'; remember(MAP_HALVES_KEY, lastIsMirrored ? 'mirrored' : 'own');
+      renderMenu(); break;
+    case 'starting-goods':
+      if ((STARTING_GOODS_TYPES as readonly string[]).includes(target.dataset.goods ?? '')) {
+        lastStartingGoods = target.dataset.goods as StartingGoodsType; remember(STARTING_GOODS_KEY, lastStartingGoods);
       }
       renderMenu(); break;
     case 'ship-order': {
@@ -919,7 +933,8 @@ document.addEventListener('click', (e) => {
       for (const ship of selectedSoldierList().filter((s) => passengersOf(world, s).length > 0)) submit({ type: 'unloadShip', playerId: PLAYER, shipId: ship.id });
       renderOrders(); break;
     case 'new-sandbox': startNew(createWorld({ seed: randomSeed(), raceTypes: [lastRace] })); break;
-    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, world.players[1].raceType, world.mapLayout) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
+    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, world.players[1].raceType, world.mapLayout,
+      { isMirrored: world.isMirrored, startingGoodsType: world.startingGoodsType }) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;
     case 'surrender': ui.isConfirmingSurrender = true; renderMenu(); break;
     case 'cancel-surrender': ui.isConfirmingSurrender = false; renderMenu(); break;

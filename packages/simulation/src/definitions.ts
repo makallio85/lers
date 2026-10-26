@@ -473,7 +473,17 @@ export function distributedGoods(): GoodType[] {
   return GOOD_TYPES.filter((g) => consumersOf(g).length > 1);
 }
 
-/** Match map sizes. Small maps make short test games; medium is the default. */
+/** How much each player starts with: as in the original's game setup, few, normal or many goods and settlers. */
+export const STARTING_GOODS_TYPES = ['few', 'default', 'many'] as const;
+export type StartingGoodsType = (typeof STARTING_GOODS_TYPES)[number];
+export const STARTING_GOODS_LABELS: Record<StartingGoodsType, string> = { few: 'Few', default: 'Normal', many: 'Many' };
+/** Factors on the normal start: materials and food, tools, civilians, and soldiers. Every kind keeps at least one of each. */
+export const STARTING_GOODS_SETTINGS: Record<StartingGoodsType, { goods: number; tools: number; settlers: number; soldiers: number }> = {
+  few: { goods: 0.5, tools: 0.5, settlers: 0.75, soldiers: 0.5 },
+  default: { goods: 1, tools: 1, settlers: 1, soldiers: 1 },
+  many: { goods: 2, tools: 2, settlers: 1.5, soldiers: 2 }
+};
+
 /** Map layouts: one continent, or each player on an island across the sea, with a neutral island between. */
 export const MAP_LAYOUT_TYPES = ['continent', 'islands'] as const;
 export type MapLayoutType = (typeof MAP_LAYOUT_TYPES)[number];

@@ -1,9 +1,9 @@
 import type { BotType } from './bot.ts';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, buildingCost, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, DEPOSIT_SULFUR, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
-  WAR_MACHINE_STATS, SHIP_HEALTH, consumersOf, distributedGoods, emptyGoods, isShipType, isSoldierType, isWarMachineType
+  WAR_MACHINE_STATS, SHIP_HEALTH, STARTING_GOODS_SETTINGS, consumersOf, distributedGoods, emptyGoods, isShipType, isSoldierType, isWarMachineType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, MapLayoutType, RaceType, SettlerType, ShipType, SoldierType, TradeModeType } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, MapLayoutType, RaceType, SettlerType, ShipType, SoldierType, StartingGoodsType, TradeModeType } from './definitions.ts';
 import { createRandom } from './random.ts';
 
 export const TICKS_PER_SECOND = 10;
@@ -261,6 +261,9 @@ export interface World {
   winner: number | null;
   /** Continent or islands; islands need ships to reach the other players. */
   mapLayout: MapLayoutType;
+  /** Whether the right half of a match map mirrors the left, so both players start on the same land. */
+  isMirrored: boolean;
+  startingGoodsType: StartingGoodsType;
 }
 
 export function tileIndex(world: World, x: number, y: number): number {
@@ -454,6 +457,9 @@ export interface CreateWorldOptions {
   /** The people of each player, in player order; Romans when not given. */
   raceTypes?: readonly RaceType[];
   mapLayout?: MapLayoutType;
+  /** Matches only: mirror the left half onto the right (the default), or generate both halves on their own. */
+  isMirrored?: boolean;
+  startingGoodsType?: StartingGoodsType;
 }
 
 export const STARTING_STOCK: Partial<GoodAmounts> = {
@@ -467,7 +473,9 @@ export const STARTING_SETTLERS: Partial<Record<SettlerType, number>> = {
 };
 
 /** Creates a seeded map: a sandbox for one player, or a mirrored two-player match. */
-export function createWorld({ seed = 1, width, height, playerCount = 1, botType = 'aggressive', raceTypes = [], mapLayout = 'continent' }: CreateWorldOptions = {}): World {
+export function createWorld({
+  seed = 1, width, height, playerCount = 1, botType = 'aggressive', raceTypes = [], mapLayout = 'continent', isMirrored = true, startingGoodsType = 'default'
+}: CreateWorldOptions = {}): World {
   const w = width ?? (playerCount === 2 ? 144 : 96);
   const h = height ?? 96;
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new RangeError('seed must be a uint32');
@@ -483,17 +491,24 @@ export function createWorld({ seed = 1, width, height, playerCount = 1, botType 
     footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
     claim: new Int32Array(n), vision: players.map(() => new Uint8Array(n)), prospect: players.map(() => new Uint8Array(n)),
     pioneerLand: new Uint8Array(n), militaryLand: new Uint8Array(n), players, buildings: [], settlers: [], messages: [], farSights: [],
-    nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null, mapLayout
+    nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null, mapLayout,
+    isMirrored: playerCount === 2 && isMirrored, startingGoodsType
   };
   generateTerrain(world);
+  const size = BUILDING_TYPES.castle.size;
   const start = playerCount === 2
-    ? findCastleSpot(world, Math.floor(w * 0.18), Math.floor(w / 2) - 24)
-    : findCastleSpot(world, Math.floor(w * 0.35), w - 12);
-  if (mapLayout === 'islands') carveIslands(world, start.x + BUILDING_TYPES.castle.size / 2, start.y + BUILDING_TYPES.castle.size / 2);
-  prepareStart(world, start.x, start.y);
-  if (playerCount === 2) mirrorLeftHalf(world);
+    ? findCastleSpot(world, Math.floor(w * 0.18), 12, Math.floor(w / 2) - 24)
+    : findCastleSpot(world, Math.floor(w * 0.35), 12, w - 12);
+  // The second start: mirrored, or the best spot on the right half's own land.
+  const second = playerCount !== 2 ? null : world.isMirrored ? { x: w - start.x - size, y: start.y }
+    : findCastleSpot(world, w - Math.floor(w * 0.18) - size, Math.floor(w / 2) + 24, w - 12 - size);
+  if (mapLayout === 'islands') carveIslands(world, [start, ...(second ? [second] : [])].map((p) => ({ x: p.x + size / 2, y: p.y + size / 2 })));
+  const half = Math.floor(w / 2);
+  prepareStart(world, start.x, start.y, 0, playerCount === 2 ? half : w);
+  if (second && world.isMirrored) mirrorLeftHalf(world);
+  else if (second) prepareStart(world, second.x, second.y, half, w, 1);
   placeCastle(world, 0, start.x, start.y);
-  if (playerCount === 2) placeCastle(world, 1, w - start.x - BUILDING_TYPES.castle.size, start.y);
+  if (second) placeCastle(world, 1, second.x, second.y);
   recomputeTerritory(world);
   return world;
 }
@@ -554,9 +569,8 @@ export function islandRadius(width: number): number {
 
 /**
  * Turns the map into sea except each start's island and a neutral island in the middle, with a ragged coast.
- * Works on the left half (the right is mirrored from it in a match).
  */
-function carveIslands(world: World, cx: number, cy: number): void {
+function carveIslands(world: World, starts: readonly { x: number; y: number }[]): void {
   const { width, height } = world;
   const coast = valueNoise(world.seed ^ 0x51ed270b, width, height, 7);
   const midX = width / 2, midY = height / 2;
@@ -566,10 +580,11 @@ function carveIslands(world: World, cx: number, cy: number): void {
     for (let x = 0; x < width; x++) {
       const i = tileIndex(world, x, y);
       const wobble = (coast[i] - 0.5) * 8;
-      const isStart = Math.hypot(x + 0.5 - cx, y + 0.5 - cy) <= radius + wobble;
-      const isMirrorStart = Math.hypot(x + 0.5 - (width - cx), y + 0.5 - cy) <= radius + wobble;
+      // Each start's island; with one start given, its mirror image on the right too.
+      const centres = starts.length === 1 ? [starts[0], { x: width - starts[0].x, y: starts[0].y }] : starts;
+      const isStart = centres.some((c) => Math.hypot(x + 0.5 - c.x, y + 0.5 - c.y) <= radius + wobble);
       const isMiddle = Math.hypot(x + 0.5 - midX, y + 0.5 - midY) <= middle + wobble * 0.6;
-      if (isStart || isMirrorStart) continue;
+      if (isStart) continue;
       if (isMiddle) {
         // The neutral island: a rich mountain worth sailing for.
         if (Math.hypot(x + 0.5 - midX, y + 0.5 - midY) <= middle * 0.55) {
@@ -588,12 +603,12 @@ function setDeposit(world: World, i: number, deposit: number): void {
   world.depositAmount[i] = deposit === DEPOSIT_NONE ? 0 : DEPOSIT_AMOUNT;
 }
 
-function findCastleSpot(world: World, targetX: number, maxX: number): { x: number; y: number } {
+function findCastleSpot(world: World, targetX: number, minX: number, maxX: number): { x: number; y: number } {
   const cy = Math.floor(world.height * 0.5);
   let best = { x: targetX, y: cy };
   let bestScore = -Infinity;
   for (let y = 12; y < world.height - 16; y++) {
-    for (let x = 12; x < maxX; x++) {
+    for (let x = minX; x < maxX; x++) {
       let grass = 0;
       for (let dy = -6; dy <= 9; dy++) {
         for (let dx = -6; dx <= 9; dx++) {
@@ -611,19 +626,18 @@ function findCastleSpot(world: World, targetX: number, maxX: number): { x: numbe
  * Clears room around the castle and guarantees the same start everywhere: a grove, a rock cluster and a
  * pond inside the territory, and a mountain with coal and iron just outside it, so expansion matters.
  */
-function prepareStart(world: World, x: number, y: number): void {
+function prepareStart(world: World, x: number, y: number, minX: number, maxX: number, variant = 0): void {
   const size = BUILDING_TYPES.castle.size;
   const radius = BUILDING_TYPES.castle.territoryRadius;
   const centreX = x + size / 2, centreY = y + size / 2;
-  const random = createRandom(world.seed ^ 0x165667b1);
+  const random = createRandom((world.seed ^ 0x165667b1) + variant * 0x9e3779b9);
   const at = (a: number, d: number) => ({ x: centreX + Math.cos(a) * d, y: centreY + Math.sin(a) * d });
   // The ore mountain straddles the starting border, so mines fit on the player's own land from the start.
   const layout = (a: number) => ({
     grove: at(a, 11), quarry: at(a + Math.PI, 11), pond: at(a + Math.PI / 2, 10), mountain: at(a - Math.PI / 2, radius - 1)
   });
   // Every guaranteed resource must lie on the map and on this player's half, so mirroring keeps it.
-  const fits = (p: { x: number; y: number }, r: number) => p.x - r >= 1 && p.y - r >= 1 && p.y + r <= world.height - 2
-    && p.x + r <= (world.players.length > 1 ? world.width / 2 - 2 : world.width - 2);
+  const fits = (p: { x: number; y: number }, r: number) => p.x - r >= minX + 1 && p.y - r >= 1 && p.y + r <= world.height - 2 && p.x + r <= maxX - 2;
   const first = random.next() * Math.PI * 2;
   let angle = first;
   for (let k = 0; k < 16; k++) {
@@ -678,13 +692,17 @@ function placeCastle(world: World, owner: number, x: number, y: number): void {
   castle.isComplete = true;
   castle.levelProgress = 1;
   castle.buildProgress = 1;
-  for (const good of GOOD_TYPES) castle.stock[good] = STARTING_STOCK[good] ?? 0;
+  // The match's starting goods scale the normal start; each kind keeps at least one.
+  const factors = STARTING_GOODS_SETTINGS[world.startingGoodsType];
+  const scaled = (n: number, factor: number) => (n === 0 ? 0 : Math.max(1, Math.round(n * factor)));
+  for (const good of GOOD_TYPES) castle.stock[good] = scaled(STARTING_STOCK[good] ?? 0, (TOOL_TYPES as readonly string[]).includes(good) ? factors.tools : factors.goods);
   // Planks and stone follow the people's building needs, as in the manual's balance per race; the total stays the same.
   const race = playerOf(world, owner)?.raceType ?? 'romans';
-  const total = (STARTING_STOCK.plank ?? 0) + (STARTING_STOCK.stone ?? 0);
+  const total = scaled((STARTING_STOCK.plank ?? 0) + (STARTING_STOCK.stone ?? 0), factors.goods);
   castle.stock.plank = Math.round(total * RACE_PLANK_SHARE[race]);
   castle.stock.stone = total - castle.stock.plank;
-  for (const [type, count] of Object.entries(STARTING_SETTLERS) as [SettlerType, number][]) {
+  for (const [type, base] of Object.entries(STARTING_SETTLERS) as [SettlerType, number][]) {
+    const count = scaled(base, isSoldierType(type) ? factors.soldiers : factors.settlers);
     for (let i = 0; i < count; i++) {
       const s = newSettler(world, owner, type, castle.doorX, castle.doorY);
       if (isSoldierType(type) && castle.garrison.length < castle.garrisonWanted) {
