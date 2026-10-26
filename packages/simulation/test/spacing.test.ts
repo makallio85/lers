@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { WAIT_RADIUS, castleOf, createMatch, newBuilding, newSettler, step, tileIndex } from '../src/index.ts';
+import type { Building } from '../src/index.ts';
 
 test('settlers standing still keep a tile each, next to each other, and keep doors free', () => {
   const world = createMatch(5, 'calm', 'small', 'romans', 'romans');
@@ -38,4 +39,28 @@ test('settlers stay in the world: idle ones wait outside near storage, and step 
   b.isComplete = true;
   for (let t = 0; t < 20; t++) step(world);
   assert.equal(world.footprint[tileIndex(world, Math.round(s.x), Math.round(s.y))], 0, 'no longer inside the footprint');
+});
+
+test('a construction site takes a crew: several diggers level it and several builders put it up, each on its own spot', () => {
+  const world = createMatch(5, 'calm', 'small', 'romans', 'romans');
+  for (let t = 0; t < 300; t++) step(world);
+  const castle = castleOf(world, 0)!;
+  let site: Building | null = null;
+  for (let r = 4; r < 12 && !site; r++) for (let dx = -r; dx <= r && !site; dx++) {
+    const [result] = step(world, [{ type: 'placeBuilding', playerId: 0, buildingType: 'woodcutter', x: castle.x + dx, y: castle.y + r }]);
+    if (result.isAccepted) site = world.buildings.find((b) => b.id === result.buildingId)!;
+  }
+  assert.ok(site, 'a spot for the site');
+  const placed: Building = site;
+  for (let t = 0; t < 400 && placed.levelProgress < 1; t++) step(world);
+  for (let t = 0; t < 100 && placed.diggerIds.length < 3; t++) step(world);
+  const diggers = world.settlers.filter((s) => s.settlerType === 'digger' && s.homeId === placed.id);
+  assert.ok(diggers.length >= 2 || placed.levelProgress >= 1, 'several diggers on one site');
+  for (let t = 0; t < 3000 && !placed.isComplete; t++) {
+    step(world);
+    const builders = world.settlers.filter((s) => s.settlerType === 'builder' && s.homeId === placed.id && s.phase === 'building');
+    const tiles = new Set(builders.map((s) => tileIndex(world, Math.round(s.x), Math.round(s.y))));
+    assert.equal(tiles.size, builders.length, 'each builder on its own spot');
+  }
+  assert.ok(placed.isComplete, 'the crew finishes it');
 });

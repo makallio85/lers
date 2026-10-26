@@ -54,8 +54,9 @@ export interface Building {
   /** 0..1: diggers level the site before builders start. */
   levelProgress: number;
   buildProgress: number;
-  diggerId: number | null;
-  builderId: number | null;
+  /** The diggers levelling the site and the builders putting it up: a crew of several, as in The Settlers III. */
+  diggerIds: number[];
+  builderIds: number[];
   /** The civilian worker. */
   workerId: number | null;
   /** Soldiers inside a military building, and how many it asks for. */
@@ -357,7 +358,7 @@ export function newBuilding(world: World, typeId: BuildingTypeId, owner: number,
     isComplete: false,
     stock: emptyGoods(), input: emptyGoods(), incoming: emptyGoods(), reserved: emptyGoods(),
     delivered: emptyGoods(), built: emptyGoods(),
-    levelProgress: 0, buildProgress: 0, diggerId: null, builderId: null, workerId: null,
+    levelProgress: 0, buildProgress: 0, diggerIds: [], builderIds: [], workerId: null,
     garrison: [], garrisonWanted: typeId === 'castle' ? 3 : Math.min(1, type.garrisonCapacity), isOccupied: false, meals: 0,
     isPaused: false, isPriority: false, workX: null, workY: null, residentsLeft: 0,
     blockedReason: null, blockedSince: null, hasWarned: false, damage: 0, timer: 0, blightUntil: 0,
