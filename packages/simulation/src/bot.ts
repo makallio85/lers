@@ -1,4 +1,4 @@
-import { BOARDING_RANGE, BUILDING_TYPES, GOOD_NAMES, TRANSPORT_CAPACITY, PROMOTION_COSTS, RACE_SPELLS, SOLDIER_TYPES, SPELL_RANGE, SPELL_STATS, TOOL_TYPES, WAR_MACHINE_STATS, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
+import { BOARDING_RANGE, BUILDING_TYPES, GOOD_NAMES, GOOD_TYPES, TRANSPORT_CAPACITY, PROMOTION_COSTS, RACE_SPELLS, SOLDIER_TYPES, SPELL_RANGE, SPELL_STATS, TOOL_TYPES, WAR_MACHINE_STATS, WEAPON_TYPES, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
 import type { BuildingTypeId, GoodType, MapSizeType, SpellType, ToolType } from './definitions.ts';
 import type { Command } from './commands.ts';
 import type { ObservedBuilding, ObservedSoldier, Observation, OwnBuilding } from './vision.ts';
@@ -14,6 +14,14 @@ const TICKS_PER_MINUTE = 600;
 /** A squad attacking a building: three per defender inside, plus these. */
 const SQUAD_EXTRA = 4;
 const SCOUTS = 3;
+/** Room a storage area should still have; with less in all of them the bot builds another, up to this many. */
+const STORAGE_ROOM = 8;
+const MAX_STORAGE_AREAS = 6;
+/**
+ * What the bot keeps in storage: building materials and valuables. Everything else (raw goods, food, drinks)
+ * waits at its workplace until a workshop, mine or temple needs it, so storage keeps room for stone.
+ */
+const STORED_GOODS: readonly GoodType[] = ['plank', 'stone', 'gold', 'gems', 'gunpowder', ...TOOL_TYPES, ...WEAPON_TYPES];
 const GEOLOGISTS = 2;
 
 /** How a built-in bot plays. Calm follows the original game's computer players, which build for a long time before attacking. */
@@ -218,8 +226,10 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const count = (t: BuildingTypeId) => obs.ownBuildings.filter((b) => b.typeId === t).length;
   // On an islands map the enemy lives across the sea: the army needs a shipyard and a transport ship.
   const isIslands = obs.mapLayout === 'islands';
-  const storedGood = (good: GoodType) => obs.ownBuildings.reduce((sum, b) => sum + (BUILDING_TYPES[b.typeId].storageCapacity > 0 ? b.stock[good] : 0), 0);
-  const stored = (good: ToolType) => obs.ownBuildings.reduce((sum, b) => sum + (BUILDING_TYPES[b.typeId].storageCapacity > 0 ? b.stock[good] : 0), 0);
+  // What can be fetched: storage, and finished goods waiting at workplaces (towers hold none).
+  const canSupply = (b: OwnBuilding) => BUILDING_TYPES[b.typeId].storageCapacity > 0 || BUILDING_TYPES[b.typeId].garrisonCapacity === 0;
+  const storedGood = (good: GoodType) => obs.ownBuildings.reduce((sum, b) => sum + (canSupply(b) ? b.stock[good] : 0), 0);
+  const stored = (good: ToolType) => obs.ownBuildings.reduce((sum, b) => sum + (canSupply(b) ? b.stock[good] : 0), 0);
   // Keep back one of each tool for every key building that still has to come, so extra gatherers do not
   // take the picks the mines need (and with them the iron that would make new tools).
   // Key buildings themselves need just one tool in storage.
@@ -232,6 +242,19 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     return stored(tool) > reserveOf(tool, t) || hasToolsmith;
   };
 
+  // Only materials and valuables go to storage; the rest waits at its workplace until needed.
+  for (const good of GOOD_TYPES) {
+    const isWanted = STORED_GOODS.includes(good);
+    if (obs.player.isStored[good] !== isWanted) commands.push({ type: 'setGoodStored', playerId: me, good, isStored: isWanted });
+  }
+  // A mine waiting for its pick while a stonecutter stands idle with a full pile: the stonecutter's pick is worth
+  // more in the mine, since the iron it brings makes new tools.
+  const isMineShortOfPick = obs.ownBuildings.some((b) => (b.typeId === 'iron_mine' || b.typeId === 'coal_mine') && b.blockedReason === 'Missing tool: pick');
+  const idleCutter = obs.ownBuildings.find((b) => b.typeId === 'stonecutter' && b.blockedReason === 'Output full: goods wait until needed');
+  if (isMineShortOfPick && idleCutter && stored('pick') === 0 && storedGood('stone') >= STONE_RESERVE * 2) {
+    commands.push({ type: 'demolishBuilding', playerId: me, buildingId: idleCutter.id });
+    note(`demolish stonecutter #${idleCutter.id}: its pick goes to a mine`);
+  }
   for (const b of obs.ownBuildings) {
     if (b.blockedReason && EXHAUSTED_REASONS.includes(b.blockedReason)) {
       commands.push({ type: 'demolishBuilding', playerId: me, buildingId: b.id });
@@ -286,6 +309,16 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       const tower = towers.length % 3 === 2 ? 'guard_tower_large' : 'guard_tower_small';
       // Without ore of its own, the bot expands toward the mountains it has seen.
       isDone = (!hasOre(obs, spots) && place(tower, 'ore')) || place(tower, 'border');
+    }
+    // Spare goods only go to storage areas: when workplaces wait with full piles and every storage area is
+    // nearly full, another one comes, so production goes on.
+    const isOutputWaiting = obs.ownBuildings.some((b) => b.blockedReason === 'Output full: goods wait until needed');
+    const areas = obs.ownBuildings.filter((b) => b.typeId === 'storage');
+    const hasStoreRoom = areas.some((b) => !b.isComplete
+      || GOOD_TYPES.reduce((sum, g) => sum + b.stock[g], 0) < BUILDING_TYPES.storage.storageCapacity - STORAGE_ROOM);
+    if (!isDone && isOutputWaiting && !hasStoreRoom && areas.length < MAX_STORAGE_AREAS) {
+      isDone = place('storage', 'castle');
+      if (isDone) note('storage areas full');
     }
     // Mines waiting for food get more of the food chain first, up to a few food buildings per mine.
     const hungryMines = obs.ownBuildings.filter((b) => BUILDING_TYPES[b.typeId].mine && b.blockedReason === 'Waiting: no food').length;

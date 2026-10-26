@@ -9,7 +9,7 @@ import { advance, distance, doorTile, isMachinePassable, tileOf, walkTo } from '
 import { reachableFrom } from './pathfinding.ts';
 import { damageFactor, damageTaken, isFrozen } from './magic.ts';
 import {
-  buildingById, castleOf, inBounds, isMilitaryBuilding, nextRandom, playerOf, pushMessage, recomputeTerritory, removeBuilding,
+  buildingById, castleOf, inBounds, isMilitaryBuilding, isSupplyBuilding, nextRandom, playerOf, pushMessage, recomputeTerritory, removeBuilding,
   settlerById, tileIndex, isEnemy, settleWinner
 } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
@@ -26,12 +26,12 @@ const CASTLE_WARNING_TICKS = 600;
 
 /**
  * The treasure that sets a player's soldiers' strength outside its own land, counted in gold bars: gold in
- * storage, and for the Egyptians, as in the original, gold at half value and gems at double.
+ * storage or waiting at the gold smelter, and for the Egyptians, as in the original, gold at half value and gems at double.
  */
 export function storedGold(world: World, owner: number): number {
   let gold = 0, gems = 0;
   for (const b of world.buildings) {
-    if (b.owner !== owner || !b.isComplete || BUILDING_TYPES[b.typeId].storageCapacity === 0) continue;
+    if (b.owner !== owner || !isSupplyBuilding(b)) continue;
     gold += b.stock.gold; gems += b.stock.gems;
   }
   return world.players[owner]?.raceType === 'egyptians' ? gold / 2 + gems * 2 : gold;

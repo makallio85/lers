@@ -16,7 +16,7 @@ import { decideShip, launchShip } from './sea.ts';
 import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
-  WAIT_RADIUS, spreadSpots, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
+  WAIT_RADIUS, spreadSpots, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isSupplyBuilding, isWalkable, newSettler, playerOf, pushMessage,
   recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex, isEnemy, STATS_SAMPLE_TICKS
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
@@ -208,8 +208,9 @@ function nearestIdle(world: World, type: SettlerType, owner: number, x: number, 
 }
 
 /**
- * The nearest storage with room for a good. With `respectFlags`, goods the player does not store get none;
- * without it (goods that must go somewhere), the castle is the fallback.
+ * The nearest storage with room for a good. With `respectFlags` (spare goods from a workplace) only storage areas
+ * the player built count, and goods the player does not store get none: spare goods are never carried to the
+ * castle. Without it (goods that must go somewhere), the castle is the fallback.
  */
 function storageFor(world: World, owner: number, good: GoodType, x: number, y: number, respectFlags: boolean, isAnyLand = false): Building | null {
   const player = playerOf(world, owner);
@@ -222,10 +223,12 @@ function storageFor(world: World, owner: number, good: GoodType, x: number, y: n
   let best: Building | null = null, bestDistance = Infinity;
   for (const b of world.buildings) {
     if (b.owner !== owner || !isStorageBuilding(b) || !isReachable(b)) continue;
+    if (respectFlags && b.typeId === 'castle') continue;
     if (storedTotal(b) >= BUILDING_TYPES[b.typeId].storageCapacity) continue;
     const d = distance(b.doorX, b.doorY, x, y);
     if (d < bestDistance) { bestDistance = d; best = b; }
   }
+  if (respectFlags) return best;
   const castle = castleOf(world, owner);
   return best ?? (castle && isReachable(castle) ? castle : null);
 }
@@ -324,7 +327,7 @@ function runLogistics(world: World): void {
     const toRegion = landRegion(world, to.doorX, to.doorY);
     let from: Building | null = null, fromDistance = Infinity;
     for (const b of world.buildings) {
-      if (b === to || !b.isComplete || b.owner !== to.owner || isMilitaryBuilding(b) && !isStorageBuilding(b)) continue;
+      if (b === to || b.owner !== to.owner || !isSupplyBuilding(b)) continue;
       if (landRegion(world, b.doorX, b.doorY) !== toRegion) continue;
       // "Only surplus" leaves each storage a reserve for the settlement.
       const spare = request.isSurplusOnly ? (isStorageBuilding(b) ? TRADE_SURPLUS_RESERVE : 0) : 0;
@@ -341,7 +344,7 @@ function runLogistics(world: World): void {
     }
   }
 
-  // Surplus output moves to storage, most important goods first.
+  // Spare output moves to storage areas, most important goods first; without one it waits at the workplace.
   const producers = world.buildings.filter((b) => b.isComplete && !isStorageBuilding(b));
   for (const player of world.players) {
     for (const good of player.transportPriority) {
@@ -413,10 +416,10 @@ function assignWorkers(world: World): void {
     let store: Building | null = null;
     if (type.tool) {
       let bestDistance = Infinity;
-      // The new worker carries the tool from storage to the workplace on foot, so it must lie on the same land.
+      // The new worker carries the tool from storage (or the toolsmith) to the workplace on foot, so it must lie on the same land.
       const region = landRegion(world, b.doorX, b.doorY);
       for (const other of world.buildings) {
-        if (other.owner !== b.owner || !isStorageBuilding(other)) continue;
+        if (other.owner !== b.owner || !isSupplyBuilding(other)) continue;
         if (other.stock[type.tool] - other.reserved[type.tool] <= 0) continue;
         if (region !== 0 && landRegion(world, other.doorX, other.doorY) !== region) continue;
         const d = distance(other.doorX, other.doorY, b.doorX, b.doorY);
@@ -867,7 +870,7 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
   if (!isGatherType(type) && recipe && player) {
     const output = recipe.outputChoices ? chooseOutput(player, recipe.outputChoices) : recipe.output;
     if (output === null) { setBlocked(world, home, 'Nothing ordered'); s.timer = 20; return; }
-    if (home.stock[output] >= OUTPUT_LIMIT) { setBlocked(world, home, 'Output full: waiting for carriers'); s.timer = 20; return; }
+    if (home.stock[output] >= OUTPUT_LIMIT) { setBlocked(world, home, 'Output full: goods wait until needed'); s.timer = 20; return; }
     const mine = buildingType.mine;
     let oreTile: number | null = null;
     if (mine) {
@@ -898,7 +901,7 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
   }
   if (!isGatherType(type)) return;
   const rule = GATHER_RULES[type];
-  if (rule.output && home.stock[rule.output] >= OUTPUT_LIMIT) { setBlocked(world, home, 'Output full: waiting for carriers'); s.timer = 20; return; }
+  if (rule.output && home.stock[rule.output] >= OUTPUT_LIMIT) { setBlocked(world, home, 'Output full: goods wait until needed'); s.timer = 20; return; }
   const target = findTarget(world, s, home, type);
   if (target === null) {
     // A farmer whose fields are still growing is waiting, not stuck.
@@ -1105,7 +1108,7 @@ function applyOccupations(world: World, player: PlayerState): void {
     const needed: SettlerType | null = site.blockedReason === 'Waiting for a digger' ? 'digger' : site.blockedReason === 'Waiting for a builder' ? 'builder' : null;
     if (!needed || own.some((s) => s.settlerType === needed && landRegion(world, s.x, s.y) === region)) continue;
     const tool = needed === 'digger' ? 'shovel' : 'hammer';
-    const store = world.buildings.find((b) => b.owner === player.id && isStorageBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
+    const store = world.buildings.find((b) => b.owner === player.id && isSupplyBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
     const carrier = nearestIdle(world, 'carrier', player.id, site.doorX, site.doorY);
     if (!store || !carrier || landRegion(world, carrier.x, carrier.y) !== region) continue;
     store.stock[tool]--;
@@ -1128,7 +1131,7 @@ function applyOccupations(world: World, player: PlayerState): void {
     : atHome.some((b) => b.blockedReason === 'Waiting for a builder') ? 'builder' : null;
   if (!needed) return;
   const tool = needed === 'digger' ? 'shovel' : 'hammer';
-  const store = world.buildings.find((b) => b.owner === player.id && isStorageBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
+  const store = world.buildings.find((b) => b.owner === player.id && isSupplyBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
   const carrier = nearestIdle(world, 'carrier', player.id, castle.doorX, castle.doorY);
   if (!store || !carrier) return;
   store.stock[tool]--;
