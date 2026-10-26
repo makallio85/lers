@@ -1,5 +1,6 @@
-import { BOARDING_RANGE, BUILDING_TYPES, GOOD_NAMES, GOOD_TYPES, TRANSPORT_CAPACITY, PROMOTION_COSTS, RACE_SPELLS, SOLDIER_TYPES, SPELL_RANGE, SPELL_STATS, TOOL_TYPES, WAR_MACHINE_STATS, WEAPON_TYPES, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
-import type { BuildingTypeId, GoodType, MapSizeType, SpellType, ToolType } from './definitions.ts';
+import { BOARDING_RANGE, BUILDING_TYPES, GOOD_NAMES, GOOD_TYPES, TRANSPORT_CAPACITY, PROMOTION_COSTS, RACE_SPELLS, SOLDIER_TYPES, SPELL_RANGE, SPELL_STATS, TOOL_TYPES, WAR_MACHINE_STATS, WEAPON_TYPES, buildingCost, isBuildableBy, isSoldierType, isUnitType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
+import type { BuildingTypeId, GoodType, MapSizeType, SettlerType, SpellType, ToolType } from './definitions.ts';
+import { DEFAULT_MAX_CREW_PERCENT } from './world.ts';
 import type { Command } from './commands.ts';
 import type { ObservedBuilding, ObservedSoldier, Observation, OwnBuilding } from './vision.ts';
 
@@ -12,7 +13,7 @@ const TICKS_PER_MINUTE = 600;
 const SCOUTS = 3;
 /** Room a storage area should still have; with less in all of them the bot builds another, up to this many. */
 const STORAGE_ROOM = 8;
-const MAX_STORAGE_AREAS = 6;
+const MAX_STORAGE_AREAS = 3;
 /**
  * What the bot keeps in storage: building materials and valuables. Everything else (raw goods, food, drinks)
  * waits at its workplace until a workshop, mine or temple needs it, so storage keeps room for stone.
@@ -127,6 +128,21 @@ const BUILD_PLAN: readonly BuildingTypeId[] = [
   'woodcutter', 'forester', 'coal_mine', 'farm', 'bakery', 'mill', 'fisher', 'iron_mine', 'coal_mine',
   'weaponsmith', 'sawmill', 'farm', 'stonecutter', 'large_temple'
 ];
+
+/** What turns iron into soldiers; the bot makes room for these when its land is full. */
+const ARMY_BUILDINGS: readonly BuildingTypeId[] = ['smelter', 'weaponsmith', 'barracks', 'toolsmith'];
+
+/**
+ * A building the bot can do without, to make room: a spare storage area, a residence while carriers are plenty,
+ * or a second workplace of a kind that stands idle with a full pile.
+ */
+function sparableBuilding(obs: Observation, count: (t: BuildingTypeId) => number): OwnBuilding | undefined {
+  const done = obs.ownBuildings.filter((b) => b.isComplete);
+  const idle = (b: OwnBuilding) => b.blockedReason === 'Output full: goods wait until needed';
+  return done.find((b) => b.typeId === 'storage' && count('storage') > 1)
+    ?? (obs.freeCarriers > 12 ? done.find((b) => BUILDING_TYPES[b.typeId].residents > 0 && b.residentsLeft === 0) : undefined)
+    ?? done.find((b) => idle(b) && count(b.typeId) > 1 && ['sawmill', 'stonecutter', 'woodcutter', 'fisher', 'farm', 'mill', 'bakery', 'coal_mine'].includes(b.typeId));
+}
 
 /** Buildings each tool must be saved for until they stand: without them the settlement cannot make more tools. */
 const KEY_TOOL_USERS: Partial<Record<ToolType, readonly BuildingTypeId[]>> = {
@@ -268,6 +284,15 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     return stored(tool) > reserveOf(tool, t) || hasToolsmith;
   };
 
+  // Crews keep their tools for good, so hammers for the smiths still to come are kept from new builders: while
+  // they are short, the bot makes no new crew (as a player would by lowering the share).
+  const civilians = Object.entries(obs.settlerCounts).reduce((n, [t, k]) => n + (isUnitType(t as SettlerType) ? 0 : k ?? 0), 0);
+  const crewNow = (obs.settlerCounts.digger ?? 0) + (obs.settlerCounts.builder ?? 0);
+  const smithsToCome = (KEY_TOOL_USERS.hammer ?? []).filter((k) => count(k) === 0 && isBuildableBy(k, obs.player.raceType) && (k !== 'shipyard' || isIslands)).length;
+  const crewShare = stored('hammer') <= smithsToCome && civilians > 0 ? Math.min(DEFAULT_MAX_CREW_PERCENT, Math.floor((crewNow * 100) / civilians)) : DEFAULT_MAX_CREW_PERCENT;
+  if (obs.player.maxCrewPercent !== crewShare) {
+    commands.push({ type: 'setOccupations', playerId: me, minCarrierPercent: obs.player.minCarrierPercent, maxCrewPercent: crewShare });
+  }
   // Only materials and valuables go to storage; the rest waits at its workplace until needed.
   for (const good of GOOD_TYPES) {
     const isWanted = STORED_GOODS.includes(good);
@@ -298,11 +323,13 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
 
   // Materials not yet promised to a site; a new site must be covered by them, or it would wait forever.
   const spare = (good: 'plank' | 'stone') => storedGood(good) - sites.reduce((sum, b) => sum + b.materialsOwed[good], 0);
+  /** Planned buildings that found no room on the bot's land this turn. */
+  const noRoomFor: BuildingTypeId[] = [];
   const place = (typeId: BuildingTypeId, need: SpotNeed): boolean => {
     const cost = buildingCost(typeId, obs.player.raceType);
     if ((cost.plank ?? 0) > spare('plank') || (cost.stone ?? 0) > spare('stone')) return false;
     const spot = spots.findSpot(typeId, need, toward);
-    if (!spot) return false;
+    if (!spot) { noRoomFor.push(typeId); return false; }
     commands.push({ type: 'placeBuilding', playerId: me, buildingType: typeId, x: spot.x, y: spot.y });
     note(`place ${typeId} at ${spot.x},${spot.y} (${need})`);
     return true;
@@ -338,7 +365,9 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     }
     // Spare goods only go to storage areas: when workplaces wait with full piles and every storage area is
     // nearly full, another one comes, so production goes on.
-    const isOutputWaiting = obs.ownBuildings.some((b) => b.blockedReason === 'Output full: goods wait until needed');
+    // Only goods it stores count: raw goods wait at their workplace on purpose.
+    const isOutputWaiting = obs.ownBuildings.some((b) => b.blockedReason === 'Output full: goods wait until needed'
+      && STORED_GOODS.some((g) => b.stock[g] > 0));
     const areas = obs.ownBuildings.filter((b) => b.typeId === 'storage');
     const hasStoreRoom = areas.some((b) => !b.isComplete
       || GOOD_TYPES.reduce((sum, g) => sum + b.stock[g], 0) < BUILDING_TYPES.storage.storageCapacity - STORAGE_ROOM);
@@ -382,6 +411,16 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
           continue;
         }
         if (place(typeId, NEEDS[typeId] ?? 'castle')) break;
+      }
+    }
+    // Land full (an island taken up, or no soldier free to man a new tower): without room for the smiths and the
+    // barracks that make soldiers, the bot would stand still for good. It clears a building it can spare.
+    const blocksArmy = noRoomFor.some((t) => ARMY_BUILDINGS.includes(t) && count(t) === 0);
+    if (!isDone && sites.length === 0 && blocksArmy) {
+      const spare = sparableBuilding(obs, count);
+      if (spare) {
+        commands.push({ type: 'demolishBuilding', playerId: me, buildingId: spare.id });
+        note(`demolish ${spare.typeId} #${spare.id}: room for ${noRoomFor.filter((t) => ARMY_BUILDINGS.includes(t)).join(', ')}`);
       }
     }
   }
