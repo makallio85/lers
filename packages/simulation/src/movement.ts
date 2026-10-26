@@ -67,27 +67,32 @@ export function distance(ax: number, ay: number, bx: number, by: number): number
 const SPREAD_TICKS = 5;
 
 /**
- * Settlers standing still keep a tile each. A soldier, war machine, specialist or priest standing on a tile another
- * standing one already holds, or in front of a building's door, steps to the nearest free tile next to it. The
- * one with the lower id keeps its place, so every player sees the same.
+ * Settlers standing still keep a tile each: soldiers, war machines, specialists, priests and idle civilians waiting
+ * for work. One standing on a tile another holds, in a doorway, or where a building has since been put up steps to
+ * the nearest free tile. Units keep their place before civilians, then the lower id, so every player sees the same.
  */
 export function spreadStanding(world: World): void {
   if (world.tick % SPREAD_TICKS !== 0) return;
+  // Everyone standing about: soldiers and machines, specialists, priests, and idle civilians waiting for a job.
   const isStanding = (s: Settler) => !s.isInside && s.phase === 'idle' && s.path.length === 0 && s.waypoints.length === 0 && !s.isPatrolling
-    && !isShipType(s.settlerType) && (isUnitType(s.settlerType) ? s.health > 0 : isSpecialistType(s.settlerType) || s.settlerType === 'priest');
-  const standing = world.settlers.filter(isStanding).sort((a, b) => a.id - b.id);
+    && !isShipType(s.settlerType) && s.settlerType !== 'donkey' && (!isUnitType(s.settlerType) || s.health > 0) && s.carrying === null;
+  // Units keep where they were sent; idle civilians make room for them. Among equals the lower id keeps its tile.
+  const isCivilianStanding = (s: Settler) => !isUnitType(s.settlerType) && !isSpecialistType(s.settlerType) && s.settlerType !== 'priest';
+  const standing = world.settlers.filter(isStanding).sort((a, b) => Number(isCivilianStanding(a)) - Number(isCivilianStanding(b)) || a.id - b.id);
   const taken = new Set<number>();
   const crowded: Settler[] = [];
   for (const s of standing) {
     const i = tileOf(world, s);
-    if (taken.has(i) || world.door[i] !== 0) crowded.push(s);
+    if (taken.has(i) || world.door[i] !== 0 || !isWalkable(world, i)) crowded.push(s);
     else taken.add(i);
   }
   for (const s of crowded) {
     const sx = Math.round(s.x), sy = Math.round(s.y);
     let best = -1, bestDistance = Infinity;
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
+    // Out of a building's footprint it may have to look a little further.
+    const reach = isWalkable(world, tileOf(world, s)) ? 3 : 5;
+    for (let dy = -reach; dy <= reach; dy++) {
+      for (let dx = -reach; dx <= reach; dx++) {
         const x = sx + dx, y = sy + dy;
         if ((dx === 0 && dy === 0) || x < 0 || y < 0 || x >= world.width || y >= world.height) continue;
         const i = tileIndex(world, x, y);
@@ -99,8 +104,16 @@ export function spreadStanding(world: World): void {
         if (d < bestDistance) { bestDistance = d; best = i; }
       }
     }
-    if (best < 0 || !walkTo(world, s, best, 200)) { taken.add(tileOf(world, s)); continue; }
+    if (best < 0) { taken.add(tileOf(world, s)); continue; }
+    // A building put up where it stood: it steps straight out to the free tile beside it.
+    if (!isWalkable(world, tileOf(world, s))) {
+      s.x = best % world.width; s.y = Math.floor(best / world.width); s.prevX = s.x; s.prevY = s.y;
+      taken.add(best);
+      continue;
+    }
+    if (!walkTo(world, s, best, 200)) { taken.add(tileOf(world, s)); continue; }
     taken.add(best);
-    s.phase = 'moving';
+    // Units walk under their own orders; an idle civilian simply follows its path while it waits.
+    if (isUnitType(s.settlerType) || isSpecialistType(s.settlerType) || s.settlerType === 'priest') s.phase = 'moving';
   }
 }

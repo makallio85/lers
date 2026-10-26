@@ -332,9 +332,12 @@ function assignWorkers(world: World): void {
     let store: Building | null = null;
     if (type.tool) {
       let bestDistance = Infinity;
+      // The new worker carries the tool from storage to the workplace on foot, so it must lie on the same land.
+      const region = landRegion(world, b.doorX, b.doorY);
       for (const other of world.buildings) {
         if (other.owner !== b.owner || !isStorageBuilding(other)) continue;
         if (other.stock[type.tool] - other.reserved[type.tool] <= 0) continue;
+        if (region !== 0 && landRegion(world, other.doorX, other.doorY) !== region) continue;
         const d = distance(other.doorX, other.doorY, b.doorX, b.doorY);
         if (d < bestDistance) { bestDistance = d; store = other; }
       }
@@ -467,18 +470,46 @@ function updateSettler(world: World, s: Settler): void {
   }
 }
 
-/** Idle settlers wait a moment where they are, then go into the nearest storage building. */
+/** How far from a storage area's door idle settlers wait, in tiles. */
+const WAIT_RADIUS = 4;
+
+/**
+ * Idle settlers stay in the world: they wait outside, near the nearest storage area on their land, each on a tile of
+ * its own (see spreadStanding), until a job comes. Only a building's workers and garrison go inside.
+ */
 function updateIdle(world: World, s: Settler): void {
   // Geologists and pioneers wait where they are for their next order.
-  if (s.isInside || isSpecialistType(s.settlerType)) return;
-  if (s.timer > 0) { s.timer--; return; }
-  if (s.path.length === 0) {
+  if (isSpecialistType(s.settlerType)) return;
+  if (s.isInside) {
+    // Waiting indoors (from a save made before settlers waited outside): step out of the door.
     const home = storageFor(world, s.owner, 'log', s.x, s.y, false);
-    if (!home) return;
-    // Cut off from storage: wait a while before trying again.
-    if (tileOf(world, s) !== doorTile(world, home) && !walkTo(world, s, doorTile(world, home))) { s.timer = 50; return; }
+    s.isInside = false;
+    if (home) { s.x = home.doorX; s.y = home.doorY; s.prevX = s.x; s.prevY = s.y; }
+    return;
   }
-  if (advance(world, s)) s.isInside = true;
+  if (s.timer > 0) { s.timer--; return; }
+  if (s.path.length > 0) { advance(world, s); return; }
+  const home = storageFor(world, s.owner, 'log', s.x, s.y, false);
+  if (!home || distance(s.x, s.y, home.doorX, home.doorY) <= WAIT_RADIUS) return;
+  // Cut off from storage: wait a while before trying again.
+  if (!walkTo(world, s, waitingTile(world, s, home))) s.timer = 50;
+}
+
+/** A free spot of the settler's own land near a storage area's door, out of its doorway, to wait on. */
+function waitingTile(world: World, s: Settler, store: Building): number {
+  let best = doorTile(world, store), bestDistance = Infinity;
+  for (let dy = -WAIT_RADIUS + 1; dy <= WAIT_RADIUS - 1; dy++) {
+    for (let dx = -WAIT_RADIUS + 1; dx <= WAIT_RADIUS - 1; dx++) {
+      const x = store.doorX + dx, y = store.doorY + dy;
+      if (!inBounds(world, x, y)) continue;
+      const i = tileIndex(world, x, y);
+      if (world.door[i] !== 0 || !isWalkable(world, i) || world.territory[i] !== s.owner + 1) continue;
+      // Spread out by id, so a crowd heads for different spots.
+      const d = Math.hypot(dx, dy - 1.5) + ((i * 7 + s.id * 13) % 17) * 0.05;
+      if (d < bestDistance) { bestDistance = d; best = i; }
+    }
+  }
+  return best;
 }
 
 function updateToStore(world: World, s: Settler): void {
@@ -492,8 +523,8 @@ function updateToStore(world: World, s: Settler): void {
   const store = buildingById(world, s.toId) ?? castleOf(world, s.owner);
   if (s.carrying && store) store.stock[s.carrying]++;
   s.carrying = null;
+  // The carrier stays outside, ready for the next load.
   becomeIdle(s);
-  s.isInside = true;
 }
 
 function updatePickup(world: World, s: Settler): void {

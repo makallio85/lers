@@ -800,8 +800,9 @@ function placeCastle(world: World, owner: number, x: number, y: number): void {
       if (isSoldierType(type) && castle.garrison.length < castle.garrisonWanted) {
         castle.garrison.push(s.id);
         s.phase = 'inside'; s.homeId = castle.id;
-      } else if (isSoldierType(type)) {
-        // The rest of the soldiers wait outside, free to be sent to towers or into battle.
+      } else {
+        // Everyone else waits outside the castle: the rest of the soldiers free to be sent to towers or into battle,
+        // the civilians ready for work. They spread out to a tile each in their first moments.
         s.isInside = false;
       }
     }

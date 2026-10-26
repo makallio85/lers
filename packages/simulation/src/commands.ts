@@ -159,14 +159,16 @@ export function placementProblem(world: World, playerId: number, buildingType: B
   // Stretches of own land as they are now, before the new building stands.
   const home = landRegion(world, castle.doorX, castle.doorY);
   const here = landRegion(world, doorX, doorY);
-  const isReachable = reachableFrom(world, tileIndex(world, castle.doorX, castle.doorY));
+  // Carriers walk on their own land only, so entrances must connect over it, not just over any walkable ground.
+  const isOwnLand = (w: World, i: number) => w.territory[i] === playerId + 1 && isWalkable(w, i);
+  const isReachable = reachableFrom(world, tileIndex(world, castle.doorX, castle.doorY), isOwnLand);
   // On a colony's land (cut off from the castle), the entrance must connect to one of the player's buildings there,
   // or, before the first one, to where the player's settlers stand on that land.
   const colony = here !== home ? world.buildings.find((b) => b.owner === playerId && landRegion(world, b.doorX, b.doorY) === here) : undefined;
   const settler = here !== home && !colony
     ? world.settlers.find((s) => s.owner === playerId && !s.isInside && !isUnitType(s.settlerType) && landRegion(world, s.x, s.y) === here) : undefined;
   const anchor = colony ? tileIndex(world, colony.doorX, colony.doorY) : settler ? tileIndex(world, Math.round(settler.x), Math.round(settler.y)) : -1;
-  const isColonyReachable = here !== 0 && anchor >= 0 ? reachableFrom(world, door)(anchor) : false;
+  const isColonyReachable = here !== 0 && anchor >= 0 ? reachableFrom(world, door, isOwnLand)(anchor) : false;
   let k = 0;
   for (let dy = 0; dy < size; dy++) {
     for (let dx = 0; dx < size; dx++) world.footprint[tileIndex(world, x + dx, y + dy)] = saved[k++];
