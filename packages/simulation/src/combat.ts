@@ -1,10 +1,13 @@
 import {
-  BUILDING_TYPES, GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, emptyGoods, isSoldierType
+  BUILDING_STRUCTURE, BUILDING_TYPES, GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SETTLER_LABELS, SOLDIER_STATS, WAR_MACHINE_STATS,
+  emptyGoods, isSoldierType, isUnitType, isWarMachineType
 } from './definitions.ts';
+import type { WarMachineType } from './definitions.ts';
 import { coveringBuilding, releaseFromBuilding } from './commands.ts';
-import { advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
+import { advance, distance, doorTile, isMachinePassable, tileOf, walkTo } from './movement.ts';
+import { reachableFrom } from './pathfinding.ts';
 import {
-  buildingById, castleOf, isMilitaryBuilding, nextRandom, playerOf, pushMessage, recomputeTerritory, removeBuilding,
+  buildingById, castleOf, inBounds, isMilitaryBuilding, nextRandom, playerOf, pushMessage, recomputeTerritory, removeBuilding,
   settlerById, tileIndex
 } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
@@ -38,10 +41,10 @@ export function strengthOf(world: World, s: Settler): number {
   return OUTSIDE_MIN_STRENGTH + (1 - OUTSIDE_MIN_STRENGTH) * Math.min(1, storedGold(world, s.owner) / GOLD_FOR_FULL_STRENGTH);
 }
 
-/** An enemy a soldier can fight: a soldier outside, or a thief close enough to be recognised. */
+/** An enemy a soldier can fight: a soldier or war machine outside, or a thief close enough to be recognised. */
 function isFoe(s: Settler, other: Settler): boolean {
   if (other.owner === s.owner || other.isInside || other.health <= 0) return false;
-  if (isSoldierType(other.settlerType)) return true;
+  if (isUnitType(other.settlerType)) return true;
   return other.settlerType === 'thief' && distance(other.x, other.y, s.x, s.y) <= THIEF_SPOT_RANGE;
 }
 
@@ -49,8 +52,12 @@ function isAliveSoldier(s: Settler): boolean {
   return isSoldierType(s.settlerType) && s.health > 0;
 }
 
+function isAliveUnit(s: Settler): boolean {
+  return isUnitType(s.settlerType) && s.health > 0;
+}
+
 function enemiesNear(world: World, owner: number, x: number, y: number, radius: number): Settler[] {
-  return world.settlers.filter((s) => s.owner !== owner && isAliveSoldier(s) && !s.isInside
+  return world.settlers.filter((s) => s.owner !== owner && isAliveUnit(s) && !s.isInside
     && distance(s.x, s.y, x, y) <= radius);
 }
 
@@ -93,13 +100,14 @@ function hit(world: World, attacker: Settler, target: Settler): void {
     const loser = playerOf(world, target.owner);
     if (loser && isSoldierType(target.settlerType)) loser.stats.soldiersLost++;
     if (target.settlerType === 'thief') pushMessage(world, target.owner, 'A thief was caught', 'Enemy soldiers saw through the disguise.', true, null);
+    if (isWarMachineType(target.settlerType)) pushMessage(world, target.owner, `Your ${SETTLER_LABELS[target.settlerType].toLowerCase()} was destroyed`, 'Enemy soldiers broke it.', true, null);
     attacker.enemyId = null;
   }
 }
 
 /** Removes fallen soldiers from the world and from any garrison. */
 export function removeDead(world: World): void {
-  const dead = new Set(world.settlers.filter((s) => (isSoldierType(s.settlerType) || s.settlerType === 'thief') && s.health <= 0).map((s) => s.id));
+  const dead = new Set(world.settlers.filter((s) => (isUnitType(s.settlerType) || s.settlerType === 'thief') && s.health <= 0).map((s) => s.id));
   if (dead.size === 0) return;
   world.settlers = world.settlers.filter((s) => !dead.has(s.id));
   for (const b of world.buildings) {
@@ -136,6 +144,7 @@ function nearestEnemy(world: World, s: Settler): Settler | null {
 export function updateSoldier(world: World, s: Settler): void {
   if (s.health <= 0 || s.isInside) return;
   if (s.cooldown > 0) s.cooldown--;
+  if (isWarMachineType(s.settlerType)) return updateWarMachine(world, s, s.settlerType);
   if (s.phase === 'toGarrison') return updateToGarrison(world, s);
 
   // Moving without fighting: walk on until they arrive.
@@ -275,7 +284,12 @@ function capture(world: World, b: Building, s: Settler): void {
     pushMessage(world, s.owner, `${label} taken`, 'The land around it is yours now.', false, b.id);
     pushMessage(world, loser, `${label} lost`, 'Your buildings in its area were destroyed.', true, null);
   }
-  // As in the original game, the loser's buildings on land that changed hands are destroyed.
+  destroyBuildingsOnLostLand(world, loser);
+  checkVictory(world);
+}
+
+/** As in the original game, a player's buildings on land that another player now holds are destroyed. */
+function destroyBuildingsOnLostLand(world: World, loser: number): void {
   for (const other of [...world.buildings]) {
     if (other.owner !== loser) continue;
     let isLost = false;
@@ -288,6 +302,116 @@ function capture(world: World, b: Building, s: Settler): void {
     if (isLost) destroyBuilding(world, other);
   }
   recomputeTerritory(world);
+}
+
+// ---------------------------------------------------------------- war machines
+
+/** A war machine under fire warns its target's owner at most this often. */
+const UNDER_FIRE_WARNING_TICKS = 300;
+
+/** Distance from a machine to the middle of a building's footprint. */
+function distanceToBuilding(s: Settler, b: Building): number {
+  return distance(s.x, s.y, b.x + (b.size - 1) / 2, b.y + (b.size - 1) / 2);
+}
+
+/**
+ * One tick of a war machine outside. It never fights people. Ordered against a tower or castle it rolls into
+ * range and fires until the building falls or its ammunition runs out; then it goes back to its hall to
+ * reload and, when it has shots again, returns to the same target.
+ */
+function updateWarMachine(world: World, s: Settler, machine: WarMachineType): void {
+  const stats = WAR_MACHINE_STATS[machine];
+  switch (s.phase) {
+    case 'attacking': {
+      const target = buildingById(world, s.attackId);
+      if (!target || target.owner === s.owner) { s.phase = 'idle'; s.attackId = null; s.path = []; return; }
+      if (s.ammo <= 0) { goReload(world, s); return; }
+      if (distanceToBuilding(s, target) <= stats.range) {
+        s.path = [];
+        if (s.cooldown === 0) fireAt(world, s, target, machine);
+        return;
+      }
+      if ((s.path.length === 0 || world.tick % (REPATH_TICKS * 5) === 0) && !walkToFiringSpot(world, s, target, stats.range)) {
+        s.phase = 'idle'; s.attackId = null;
+        pushMessage(world, s.owner, `Your ${SETTLER_LABELS[machine].toLowerCase()} cannot get there`, 'War machines need open ground: no forest, rocks or mountains.', true, null);
+        return;
+      }
+      advance(world, s);
+      return;
+    }
+    case 'returning': {
+      const hall = buildingById(world, s.homeId);
+      if (!hall || hall.owner !== s.owner || !hall.isComplete) { s.phase = 'idle'; s.homeId = null; s.path = []; return; }
+      if (tileOf(world, s) !== doorTile(world, hall)) {
+        if (s.path.length === 0 && !walkTo(world, s, doorTile(world, hall), 20_000)) { s.phase = 'idle'; return; }
+        advance(world, s);
+        return;
+      }
+      const taken = Math.min(stats.shots - s.ammo, hall.input[stats.ammo]);
+      hall.input[stats.ammo] -= taken; s.ammo += taken;
+      // Wait at the hall until there is something to shoot with.
+      if (s.ammo === 0) return;
+      if (s.attackId !== null && buildingById(world, s.attackId)) { s.phase = 'attacking'; s.path = []; }
+      else if (s.ammo >= stats.shots) s.phase = 'idle';
+      return;
+    }
+    case 'moving':
+      if (advance(world, s)) arrive(world, s);
+      return;
+    default:
+      return;
+  }
+}
+
+/** Heads for the nearest open-ground tile within range of the target that the machine can roll to. */
+function walkToFiringSpot(world: World, s: Settler, target: Building, range: number): boolean {
+  const reach = reachableFrom(world, tileOf(world, s), isMachinePassable);
+  const cx = target.x + (target.size - 1) / 2, cy = target.y + (target.size - 1) / 2;
+  let best = -1, bestDistance = Infinity;
+  for (let y = Math.floor(cy - range); y <= Math.ceil(cy + range); y++) {
+    for (let x = Math.floor(cx - range); x <= Math.ceil(cx + range); x++) {
+      if (!inBounds(world, x, y) || Math.hypot(x - cx, y - cy) > range - 0.5) continue;
+      const i = tileIndex(world, x, y);
+      if (!reach(i)) continue;
+      const d = Math.hypot(x - s.x, y - s.y);
+      if (d < bestDistance) { bestDistance = d; best = i; }
+    }
+  }
+  return best >= 0 && walkTo(world, s, best, 20_000);
+}
+
+function goReload(world: World, s: Settler): void {
+  const hall = buildingById(world, s.homeId);
+  if (!hall) { s.phase = 'idle'; s.attackId = null; s.path = []; return; }
+  s.phase = 'returning'; s.path = [];
+}
+
+function fireAt(world: World, s: Settler, target: Building, machine: WarMachineType): void {
+  const stats = WAR_MACHINE_STATS[machine];
+  s.ammo--;
+  s.cooldown = stats.cooldown;
+  if (nextRandom(world) >= stats.accuracy) return;
+  target.damage += stats.damage * (0.85 + 0.3 * nextRandom(world));
+  const label = BUILDING_TYPES[target.typeId].label;
+  const last = [...world.messages].reverse().find((m) => m.owner === target.owner && m.buildingId === target.id && m.text.endsWith('is under fire'));
+  if (!last || world.tick - last.tick >= UNDER_FIRE_WARNING_TICKS) {
+    pushMessage(world, target.owner, `Your ${label.toLowerCase()} is under fire`, `An enemy ${SETTLER_LABELS[machine].toLowerCase()} is shooting at it.`, true, target.id);
+  }
+  if (target.damage >= (BUILDING_STRUCTURE[target.typeId] ?? Infinity)) bringDown(world, target, s.owner);
+}
+
+/** A building shot to pieces is destroyed: its soldiers step outside and its land is lost. */
+function bringDown(world: World, b: Building, by: number): void {
+  const loser = b.owner;
+  const label = BUILDING_TYPES[b.typeId].label;
+  const stats = playerOf(world, by)?.stats;
+  if (stats) stats.towersTaken++;
+  for (const s of world.settlers) if (s.attackId === b.id) { s.attackId = null; s.phase = 'idle'; s.path = []; }
+  destroyBuilding(world, b);
+  recomputeTerritory(world);
+  pushMessage(world, by, `Enemy ${label.toLowerCase()} destroyed`, 'Your war machines brought it down.', false, null);
+  pushMessage(world, loser, `Your ${label.toLowerCase()} was destroyed`, 'Enemy war machines brought it down.', true, null);
+  destroyBuildingsOnLostLand(world, loser);
   checkVictory(world);
 }
 

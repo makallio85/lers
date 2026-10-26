@@ -1,8 +1,9 @@
 import {
   BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_REACH,
-  RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType
+  RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType, isUnitType, isWarMachineType
 } from './definitions.ts';
 import type { BuildingTypeId, GoodType, SpecialistType, ToolType } from './definitions.ts';
+import { isMachinePassable } from './movement.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
 import { hasExplored, hasExploredBuilding } from './vision.ts';
 import {
@@ -155,7 +156,7 @@ function ownBuilding(world: World, playerId: number, buildingId: unknown): Build
   return b && b.owner === playerId ? b : null;
 }
 
-/** Soldiers of this player standing outside, by id. Null when any id is not one. */
+/** Soldiers and war machines of this player standing outside, by id. Null when any id is not one. */
 function ownFieldSoldiers(world: World, playerId: number, ids: unknown): Settler[] | null {
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > 500) return null;
   const out: Settler[] = [];
@@ -164,10 +165,16 @@ function ownFieldSoldiers(world: World, playerId: number, ids: unknown): Settler
     if (!Number.isInteger(id) || seen.has(id)) return null;
     seen.add(id);
     const s = world.settlers.find((settler) => settler.id === id);
-    if (!s || s.owner !== playerId || !isSoldierType(s.settlerType) || s.isInside || s.health <= 0) return null;
+    if (!s || s.owner !== playerId || !isUnitType(s.settlerType) || s.isInside || s.health <= 0) return null;
     out.push(s);
   }
   return out;
+}
+
+/** A unit's route: war machines keep to open ground. */
+function unitPath(world: World, s: Settler, goal: number): number[] | null {
+  const start = tileIndex(world, Math.round(s.x), Math.round(s.y));
+  return findPath(world, start, goal, 40_000, isWarMachineType(s.settlerType) ? isMachinePassable : isWalkable);
 }
 
 /** Walkable tiles around a point, nearest first, so a group spreads out instead of stacking on one tile. */
@@ -274,7 +281,6 @@ export function applyCommand(world: World, command: Command): CommandResult {
       if (command.isIgnoringEnemies !== undefined && typeof command.isIgnoringEnemies !== 'boolean') return refuse('Malformed command');
       const tiles = formationTiles(world, command.x, command.y, soldiers.length);
       if (tiles.length === 0) return refuse('Soldiers cannot stand there');
-      const start = (s: Settler) => tileIndex(world, Math.round(s.x), Math.round(s.y));
       soldiers.forEach((s, k) => {
         const tile = tiles[k % tiles.length];
         s.isHolding = false; s.isPatrolling = false;
@@ -282,9 +288,10 @@ export function applyCommand(world: World, command: Command): CommandResult {
           if (s.waypoints.length < MAX_WAYPOINTS) s.waypoints.push(tile);
           return;
         }
-        const path = findPath(world, start(s), tile);
+        const path = unitPath(world, s, tile);
         if (!path) return;
-        s.path = path; s.phase = 'moving'; s.attackId = null; s.homeId = null; s.enemyId = null; s.waypoints = [];
+        s.path = path; s.phase = 'moving'; s.attackId = null; s.enemyId = null; s.waypoints = [];
+        if (!isWarMachineType(s.settlerType)) s.homeId = null;
         s.isIgnoringEnemies = command.isIgnoringEnemies === true;
       });
       return accept();
@@ -298,10 +305,11 @@ export function applyCommand(world: World, command: Command): CommandResult {
       if (tiles.length === 0) return refuse('Soldiers cannot stand there');
       soldiers.forEach((s, k) => {
         const from = tileIndex(world, Math.round(s.x), Math.round(s.y));
-        const path = findPath(world, from, tiles[k % tiles.length]);
+        const path = unitPath(world, s, tiles[k % tiles.length]);
         if (!path) return;
         // Patrol between where each soldier stands now and its spot at the target, until another order.
-        s.path = path; s.phase = 'moving'; s.attackId = null; s.homeId = null; s.enemyId = null; s.waypoints = [];
+        s.path = path; s.phase = 'moving'; s.attackId = null; s.enemyId = null; s.waypoints = [];
+        if (!isWarMachineType(s.settlerType)) s.homeId = null;
         s.isPatrolling = true; s.isHolding = false; s.isIgnoringEnemies = false;
         s.workCentre = from; s.targetTile = tiles[k % tiles.length];
       });
@@ -325,7 +333,9 @@ export function applyCommand(world: World, command: Command): CommandResult {
       }
       if (!isMilitaryBuilding(target) || !target.isComplete) return refuse('Only towers and castles can be attacked');
       for (const s of soldiers) {
-        s.phase = 'attacking'; s.attackId = target.id; s.homeId = null; s.path = []; s.enemyId = null;
+        s.phase = 'attacking'; s.attackId = target.id; s.path = []; s.enemyId = null;
+        // A war machine keeps its hall, where it reloads.
+        if (!isWarMachineType(s.settlerType)) s.homeId = null;
         s.waypoints = []; s.isPatrolling = false; s.isHolding = false; s.isIgnoringEnemies = false;
       }
       return accept();
@@ -444,11 +454,11 @@ export function releaseFromBuilding(world: World, settlerId: number, buildingId:
   const s = world.settlers.find((settler) => settler.id === settlerId)!;
   if (s.fromId !== buildingId && s.toId !== buildingId && s.homeId !== buildingId && s.attackId !== buildingId) return;
   const castle = castleOf(world, s.owner);
-  if (isSoldierType(s.settlerType)) {
-    // Soldiers heading for, defending or attacking the building simply stop where they are.
+  if (isUnitType(s.settlerType)) {
+    // Soldiers and war machines heading for, defending or attacking the building simply stop where they are.
     if (s.homeId === buildingId) s.homeId = null;
     if (s.attackId === buildingId) s.attackId = null;
-    if (s.phase === 'toGarrison' || s.phase === 'defending' || s.phase === 'attacking' || s.phase === 'inside') {
+    if (s.phase === 'toGarrison' || s.phase === 'defending' || s.phase === 'attacking' || s.phase === 'inside' || s.phase === 'returning') {
       s.phase = 'idle'; s.isInside = false; s.path = [];
     }
     return;
