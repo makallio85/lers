@@ -143,8 +143,8 @@ test('observations hide what a player cannot see', () => {
   spy.isInside = false; spy.phase = 'idle';
   run(world, 10);
   const mine = observe(world, 0);
-  assert.equal(mine.otherBuildings.length, 0);
-  assert.equal(mine.otherSoldiers.some((s) => s.id === spy.id), false);
+  assert.equal(mine.enemyBuildings.length, 0);
+  assert.equal(mine.enemySoldiers.some((s) => s.id === spy.id), false);
   assert.ok(observe(world, 1).ownSoldiers.some((s) => s.id === spy.id));
 });
 

@@ -4,6 +4,7 @@ import {
 } from './definitions.ts';
 import type { BuildingTypeId, GoodType, ShipType, SoldierType, SpecialistType, SpellType, ToolType, TradeModeType } from './definitions.ts';
 import { MAX_TRADE_WAYPOINTS, SHIP_TYPES, SOLDIER_TYPES, SPELL_STATS, SPELL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED, isShipType } from './definitions.ts';
+import { settleWinner } from './world.ts';
 import { board, boardingProblem, isOpenSea, isSeaPassable, unload } from './sea.ts';
 import { castSpell, promote, promotionProblem, spellProblem } from './magic.ts';
 import { isMachinePassable } from './movement.ts';
@@ -12,7 +13,7 @@ import { findPath, reachableFrom } from './pathfinding.ts';
 import { hasExplored, hasExploredBuilding } from './vision.ts';
 import {
   TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, buildingById, castleOf, claimsTerritory, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable,
-  newBuilding, playerOf, pushMessage, recomputeTerritory, removeBuilding, siteCost, tileIndex
+  newBuilding, playerOf, pushMessage, recomputeTerritory, removeBuilding, siteCost, tileIndex, isEnemy
 } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
 
@@ -360,7 +361,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
       const soldiers = ownFieldSoldiers(world, command.playerId, command.soldierIds);
       if (!soldiers) return refuse('Choose your own soldiers outside buildings');
       const target = Number.isInteger(command.buildingId) ? buildingById(world, command.buildingId) : undefined;
-      if (!target || target.owner === command.playerId || !hasExploredBuilding(world, command.playerId, target)) {
+      if (!target || !isEnemy(world, command.playerId, target.owner) || !hasExploredBuilding(world, command.playerId, target)) {
         return refuse('Choose an enemy building you can see');
       }
       if (!isMilitaryBuilding(target) || !target.isComplete) return refuse('Only towers and castles can be attacked');
@@ -511,8 +512,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
     case 'surrender': {
       player.isEliminated = true;
       pushMessage(world, player.id, 'Defeat', 'You surrendered.', true, null);
-      const alive = world.players.filter((p) => !p.isEliminated);
-      if (alive.length === 1 && world.players.length > 1) world.winner = alive[0].id;
+      settleWinner(world);
       return accept();
     }
   }

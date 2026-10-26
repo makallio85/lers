@@ -9,7 +9,7 @@ import type { BotType } from './bot.ts';
 import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, TradeRoute, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
 function raceType(value: unknown): RaceType {
   if (typeof value !== 'string' || !(RACE_TYPES as readonly string[]).includes(value)) fail('a people is unknown');
@@ -198,7 +198,7 @@ export function loadGame(data: unknown): World {
     for (const key of STAT_KEYS) (stats as unknown as Record<string, number>)[key] = int(raw.stats[key], 0, Number.MAX_SAFE_INTEGER, `statistic ${key}`);
     stats.goodsMade = goodRecord(raw.stats.goodsMade, GOOD_TYPES, (v, what) => int(v, 0, Number.MAX_SAFE_INTEGER, what), 'goods made');
     return {
-      id: int(raw.id, k, k, 'player id'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), raceType: raceType(raw.raceType), isEliminated: bool(raw.isEliminated, 'player state'),
+      id: int(raw.id, k, k, 'player id'), teamId: int(raw.teamId, 0, 7, 'player team'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), raceType: raceType(raw.raceType), isEliminated: bool(raw.isEliminated, 'player state'),
       transportPriority: order.map((g) => good(g, 'priority entry')), isStored,
       productionOrders: goodRecord(raw.productionOrders, MADE_GOODS, (v, w) => int(v, 0, 99, w), 'production orders'),
       productionShares: goodRecord(raw.productionShares, MADE_GOODS, (v, w) => int(v, 0, 10, w), 'production shares'),

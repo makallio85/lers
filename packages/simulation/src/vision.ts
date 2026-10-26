@@ -1,6 +1,6 @@
 import { BUILDING_TYPES, SPELL_STATS, isSpecialistType, isUnitType } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, MapLayoutType, SettlerType, VictoryType } from './definitions.ts';
-import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, siteCost, tileIndex } from './world.ts';
+import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, isEnemy, siteCost, tileIndex } from './world.ts';
 import type { PlayerState, World } from './world.ts';
 
 const BUILDING_SIGHT = 7;
@@ -33,6 +33,18 @@ export function updateVision(world: World): void {
       reveal(world, vision, s.x, s.y, isUnitType(s.settlerType) ? SOLDIER_SIGHT : SETTLER_SIGHT);
     }
     for (const f of world.farSights) if (f.playerId === player.id) reveal(world, vision, f.x, f.y, SPELL_STATS.far_sight.radius);
+  }
+  // Allies share what they see and what they have explored.
+  for (const player of world.players) {
+    const allies = world.players.filter((p) => p.id !== player.id && p.teamId === player.teamId);
+    if (allies.length === 0 || allies[0].id < player.id) continue;
+    const team = [player, ...allies].map((p) => world.vision[p.id]);
+    const n = team[0].length;
+    for (let i = 0; i < n; i++) {
+      let best = 0;
+      for (const v of team) if (v[i] > best) best = v[i];
+      if (best !== 0) for (const v of team) v[i] = best;
+    }
   }
 }
 
@@ -101,13 +113,15 @@ export interface Observation {
   width: number;
   height: number;
   ownBuildings: OwnBuilding[];
-  /** Other players' buildings this player can see right now. */
-  otherBuildings: ObservedBuilding[];
+  /** Enemy players' buildings this player can see right now. */
+  enemyBuildings: ObservedBuilding[];
+  /** Allies' buildings this player can see right now. */
+  allyBuildings: ObservedBuilding[];
   ownSoldiers: ObservedSoldier[];
   /** Own geologists, pioneers, thieves and priests, with what they are doing. */
   ownSpecialists: ObservedSoldier[];
-  /** Other players' soldiers in view right now, outside buildings. */
-  otherSoldiers: ObservedSoldier[];
+  /** Enemy soldiers in view right now, outside buildings. */
+  enemySoldiers: ObservedSoldier[];
   settlerCounts: Partial<Record<SettlerType, number>>;
   freeCarriers: number;
   /** The kind of map, chosen in the open when the match was set up. */
@@ -119,7 +133,8 @@ export interface Observation {
 export function observe(world: World, playerId: number): Observation {
   const player = world.players[playerId];
   const ownBuildings: OwnBuilding[] = [];
-  const otherBuildings: ObservedBuilding[] = [];
+  const enemyBuildings: ObservedBuilding[] = [];
+  const allyBuildings: ObservedBuilding[] = [];
   for (const b of world.buildings) {
     const seen: ObservedBuilding = {
       id: b.id, typeId: b.typeId, owner: b.owner, x: b.x, y: b.y, size: b.size, doorX: b.doorX, doorY: b.doorY,
@@ -135,12 +150,12 @@ export function observe(world: World, playerId: number): Observation {
         }
       });
     } else if (canSee(world, playerId, b.doorX, b.doorY) || canSee(world, playerId, b.x + b.size / 2, b.y + b.size / 2)) {
-      otherBuildings.push(seen);
+      (isEnemy(world, playerId, b.owner) ? enemyBuildings : allyBuildings).push(seen);
     }
   }
   const ownSoldiers: ObservedSoldier[] = [];
   const ownSpecialists: ObservedSoldier[] = [];
-  const otherSoldiers: ObservedSoldier[] = [];
+  const enemySoldiers: ObservedSoldier[] = [];
   const settlerCounts: Partial<Record<SettlerType, number>> = {};
   let freeCarriers = 0;
   for (const s of world.settlers) {
@@ -155,11 +170,11 @@ export function observe(world: World, playerId: number): Observation {
         ownSoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.isInside ? 'inside' : s.phase, shipId: s.shipId });
       }
     } else if (isUnitType(s.settlerType) && !s.isInside && canSee(world, playerId, s.x, s.y)) {
-      otherSoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health });
+      if (isEnemy(world, playerId, s.owner)) enemySoldiers.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health });
     }
   }
   return {
     tick: world.tick, playerId, player: structuredClone(player), width: world.width, height: world.height,
-    ownBuildings, otherBuildings, ownSoldiers, ownSpecialists, otherSoldiers, settlerCounts, freeCarriers, mapLayout: world.mapLayout, victoryType: world.victoryType
+    ownBuildings, enemyBuildings, allyBuildings, ownSoldiers, ownSpecialists, enemySoldiers, settlerCounts, freeCarriers, mapLayout: world.mapLayout, victoryType: world.victoryType
   };
 }

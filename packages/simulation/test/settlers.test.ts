@@ -157,7 +157,7 @@ test('a geologist takes a hammer, marks the ore on a mountain, and hands the ham
   const geologist = world.settlers.find((s) => s.settlerType === 'geologist')!;
   assert.equal(world.prospect[0][tileIndex(world, m.x + 1, m.y + 1)], 0);
   // The bot's spot finder knows nothing about this gold yet.
-  assert.equal(spotFinder(world, 0).findSpot('gold_mine', 'deposit_gold', 0), null);
+  assert.equal(spotFinder(world, 0).findSpot('gold_mine', 'deposit_gold', { x: 0, y: 0 }), null);
   assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [geologist.id], x: m.x + 1, y: m.y + 1 }).isAccepted, true);
   runUntil(world, () => world.prospect[0][tileIndex(world, m.x + 1, m.y + 1)] === 1, 2000);
   assert.equal(world.prospect[1]?.[0], undefined, 'a sandbox has one player');

@@ -59,7 +59,9 @@ export type SpotNeed = 'trees' | 'rocks' | 'water' | 'deposit_coal' | 'deposit_i
  * scored by what it can see there. The match supplies it; it never reveals hidden land.
  */
 export interface BotSpotFinder {
-  findSpot(typeId: BuildingTypeId, need: SpotNeed, towardX: number): { x: number; y: number } | null;
+  findSpot(typeId: BuildingTypeId, need: SpotNeed, toward: { x: number; y: number }): { x: number; y: number } | null;
+  /** Where the enemy lies: with two players the far side of the map, with more the nearest enemy castle's start. */
+  towardEnemy(): { x: number; y: number };
   /** A seen mountain tile its geologists have not marked yet, own land first. */
   prospectTile(): { x: number; y: number } | null;
   /** Whether the bot's settlers can walk from the castle (or from a given point) to this tile, or next to it. */
@@ -70,11 +72,11 @@ export interface BotSpotFinder {
    * Where a ship sails next on the water it is on. Loaded: a seen shore of another island on the enemy side
    * (isLanding), or else the seen water farthest that way, to look further. Empty: the home shore nearest the castle.
    */
-  sailTarget(shipX: number, shipY: number, towardX: number, isLoaded: boolean): { x: number; y: number; isLanding: boolean } | null;
+  sailTarget(shipX: number, shipY: number, toward: { x: number; y: number }, isLoaded: boolean): { x: number; y: number; isLanding: boolean } | null;
   /** Whether a war machine standing here can roll to open ground within `range` tiles of a point. */
   canFireAt(fromX: number, fromY: number, x: number, y: number, range: number): boolean;
   /** The explored tile closest to the given side of the map that the castle's settlers (or those at a point) can walk to, for scouting with the army. */
-  frontTile(towardX: number, from?: { x: number; y: number }): { x: number; y: number } | null;
+  frontTile(toward: { x: number; y: number }, from?: { x: number; y: number }): { x: number; y: number } | null;
 }
 
 /**
@@ -142,7 +144,7 @@ const PRIEST_FOLLOW_DISTANCE = 3;
  * Persuade on enemies there. With all ranks bought, spare manna goes to Harvest at home, Blight on enemy mines
  * in sight and Far sight toward the enemy. Idle priests follow the army.
  */
-function decideSpells(obs: Observation, castle: OwnBuilding, turn: number, note: (text: string) => void): Command[] {
+function decideSpells(obs: Observation, castle: OwnBuilding, toward: { x: number; y: number }, turn: number, note: (text: string) => void): Command[] {
   const me = obs.playerId;
   const priests = obs.ownSpecialists.filter((s) => s.settlerType === 'priest');
   if (priests.length === 0) return [];
@@ -159,7 +161,7 @@ function decideSpells(obs: Observation, castle: OwnBuilding, turn: number, note:
   const near = (list: readonly ObservedSoldier[], x: number, y: number, r: number) => list.filter((s) => Math.hypot(s.x - x, s.y - y) <= r);
   for (const priest of priests.filter((p) => p.isReady)) {
     // Enemies close to the priest: hold them or win them over, then strengthen own soldiers there.
-    const enemies = near(obs.otherSoldiers.filter((s) => isSoldierType(s.settlerType)), priest.x, priest.y, SPELL_RANGE);
+    const enemies = near(obs.enemySoldiers.filter((s) => isSoldierType(s.settlerType)), priest.x, priest.y, SPELL_RANGE);
     if (enemies.length > 0) {
       const cx = enemies.reduce((sum, s) => sum + s.x, 0) / enemies.length, cy = enemies.reduce((sum, s) => sum + s.y, 0) / enemies.length;
       const friends = near(soldiers, cx, cy, SPELL_STATS.shield.radius);
@@ -174,11 +176,16 @@ function decideSpells(obs: Observation, castle: OwnBuilding, turn: number, note:
   const isRanked = SOLDIER_TYPES.every((t) => obs.player.soldierRanks[t] >= PROMOTION_COSTS.length);
   const ready = priests.find((p) => p.isReady);
   if (isRanked && ready && turn % 6 === 0) {
-    const mine = obs.otherBuildings.find((b) => BUILDING_TYPES[b.typeId].mine);
+    const mine = obs.enemyBuildings.find((b) => BUILDING_TYPES[b.typeId].mine);
     const farm = obs.ownBuildings.find((b) => b.typeId === 'farm' && b.isComplete);
     if (mine && can('blight')) cast(ready, 'blight', mine.doorX, mine.doorY);
     else if (farm && can('harvest') && Math.hypot(farm.doorX - ready.x, farm.doorY - ready.y) <= SPELL_RANGE) cast(ready, 'harvest', farm.doorX, farm.doorY);
-    else if (obs.otherBuildings.length === 0 && can('far_sight')) cast(ready, 'far_sight', castle.x < obs.width / 2 ? obs.width - 20 : 20, obs.height / 2);
+    else if (obs.enemyBuildings.length === 0 && can('far_sight')) {
+      // Look 20 tiles short of where the enemy lies, inside the map.
+      const d = Math.hypot(toward.x - castle.doorX, toward.y - castle.doorY) || 1, back = Math.min(20, d);
+      cast(ready, 'far_sight', Math.max(0, Math.min(obs.width - 1, toward.x - ((toward.x - castle.doorX) / d) * back)),
+        Math.max(0, Math.min(obs.height - 1, toward.y - ((toward.y - castle.doorY) / d) * back)));
+    }
   }
   // Idle priests walk to the army, a little behind it, so they are at hand when it fights.
   const army = soldiers.filter((s) => s.phase === 'attacking' || s.phase === 'moving' || s.phase === 'defending');
@@ -233,14 +240,19 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   // On an islands map the enemy lives across the sea: the army needs a shipyard and a transport ship.
   const isIslands = obs.mapLayout === 'islands';
   // The enemy is somewhere on the far side of the map until the bot sees it.
-  const towardX = castle.x < obs.width / 2 ? obs.width : 0;
+  const toward = spots.towardEnemy();
+  // How far along the line toward the enemy a point lies, from the castle.
+  const ahead = (x: number, y: number) => {
+    const d = Math.hypot(toward.x - castle.doorX, toward.y - castle.doorY) || 1;
+    return ((x - castle.doorX) * (toward.x - castle.doorX) + (y - castle.doorY) * (toward.y - castle.doorY)) / d;
+  };
 
   // Materials not yet promised to a site; a new site must be covered by them, or it would wait forever.
   const spare = (good: 'plank' | 'stone') => storedGood(good) - sites.reduce((sum, b) => sum + b.materialsOwed[good], 0);
   const place = (typeId: BuildingTypeId, need: SpotNeed): boolean => {
     const cost = buildingCost(typeId, obs.player.raceType);
     if ((cost.plank ?? 0) > spare('plank') || (cost.stone ?? 0) > spare('stone')) return false;
-    const spot = spots.findSpot(typeId, need, towardX);
+    const spot = spots.findSpot(typeId, need, toward);
     if (!spot) return false;
     commands.push({ type: 'placeBuilding', playerId: me, buildingType: typeId, x: spot.x, y: spot.y });
     note(`place ${typeId} at ${spot.x},${spot.y} (${need})`);
@@ -264,7 +276,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     const areTowersSettled = towers.every((b) => b.isComplete && b.garrisonCount > 0);
     let isDone = false;
     // Rocks about to run out on own land: claim land toward rocks before the stone is gone.
-    if (workingStonecutters < 2 && !isTowerComing && !spots.findSpot('stonecutter', 'rocks', towardX)) {
+    if (workingStonecutters < 2 && !isTowerComing && !spots.findSpot('stonecutter', 'rocks', toward)) {
       isDone = place('guard_tower_small', 'distant_rocks');
     }
     // Weapons waiting at the barracks need settlers to become soldiers.
@@ -348,7 +360,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   }
 
   // 4. Priests and promotions. In a fight near a priest, manna goes to spells first; otherwise into ranks.
-  const spells = decideSpells(obs, castle, turn, note);
+  const spells = decideSpells(obs, castle, toward, turn, note);
   commands.push(...spells);
   for (const soldierType of spells.length > 0 ? [] : SOLDIER_TYPES) {
     const rank = obs.player.soldierRanks[soldierType];
@@ -366,7 +378,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const isAtHome = (s: ObservedSoldier) => !isIslands || spots.canReach(Math.round(s.x), Math.round(s.y));
   let free = onField.filter(isAtHome);
   const landed = onField.filter((s) => !isAtHome(s));
-  const intruders = obs.otherSoldiers.filter((s) => isOnOwnLand(obs, s.x, s.y));
+  const intruders = obs.enemySoldiers.filter((s) => isOnOwnLand(obs, s.x, s.y));
   if (intruders.length > 0 && free.length > 0) {
     const target = intruders[0];
     const defenders = nearest(free, target.x, target.y, Math.max(3, intruders.length * 2));
@@ -390,11 +402,11 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const mayTakeCastle = army >= settings.castleArmy && obs.tick >= settings.castleMinutes[mapSize] * TICKS_PER_MINUTE;
   // A building another visible tower of its owner covers cannot be taken yet; attacking it still thins out
   // its defenders, so it is a target, but a later one.
-  const isCovered = (t: ObservedBuilding) => obs.otherBuildings.some((o) => o.id !== t.id && o.owner === t.owner && o.isComplete
+  const isCovered = (t: ObservedBuilding) => obs.enemyBuildings.some((o) => o.id !== t.id && o.owner === t.owner && o.isComplete
     && (o.typeId === 'castle' || o.garrisonCount > 0) && BUILDING_TYPES[o.typeId].territoryRadius > 0
     && Math.hypot(o.x + o.size / 2 - (t.x + t.size / 2), o.y + o.size / 2 - (t.y + t.size / 2)) <= BUILDING_TYPES[o.typeId].territoryRadius);
-  const targets = obs.otherBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0 && spots.canReach(b.doorX, b.doorY, from)
-    && (b.typeId !== 'castle' || mayTakeCastle || obs.otherBuildings.every((o) => o.typeId === 'castle' || BUILDING_TYPES[o.typeId].garrisonCapacity === 0)));
+  const targets = obs.enemyBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0 && spots.canReach(b.doorX, b.doorY, from)
+    && (b.typeId !== 'castle' || mayTakeCastle || obs.enemyBuildings.every((o) => o.typeId === 'castle' || BUILDING_TYPES[o.typeId].garrisonCapacity === 0)));
   // A landed army attacks whatever it has; it cannot wait for reinforcements the way a home army can.
   if (mayAttack && targets.length > 0 && (army >= settings.attackArmy || landed.length > 0) && free.length > 0) {
     const cx = free.reduce((sum, s) => sum + s.x, 0) / free.length;
@@ -414,7 +426,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     }
   } else if (mayAttack && targets.length === 0 && (free.length >= settings.attackArmy * 2 || landed.length > 0) && turn % 5 === 0) {
     // A big army that sees nothing to attack advances into the unknown, toward the enemy side; so does a landed one.
-    const front = spots.frontTile(towardX, from);
+    const front = spots.frontTile(toward, from);
     if (front) {
       const party = settings.isSendingWholeArmy ? free : nearest(free, front.x, front.y, SCOUTS);
       commands.push({ type: 'moveSoldiers', playerId: me, soldierIds: party.map((s) => s.id), x: front.x, y: front.y });
@@ -424,7 +436,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     // An aggressive bot gathers at its front tower; a calm one at home, so its army does not provoke a border battle.
     const front = !settings.isSendingWholeArmy ? castle : obs.ownBuildings
       .filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0)
-      .sort((a, b) => Math.abs(a.doorX - towardX) - Math.abs(b.doorX - towardX))[0];
+      .sort((a, b) => ahead(b.doorX, b.doorY) - ahead(a.doorX, a.doorY))[0];
     if (front) commands.push({ type: 'moveSoldiers', playerId: me, soldierIds: free.map((s) => s.id), x: front.doorX, y: front.doorY + 2 });
   }
   // War machines join once attacks are allowed: idle ones go for the most strongly held tower in reach,
@@ -440,7 +452,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     commands.push({ type: 'attackBuilding', playerId: me, soldierIds: idleMachines.map((m) => m.id), buildingId: machineTargets[0].id });
     note(`machines: ${idleMachines.length} against ${machineTargets[0].typeId} #${machineTargets[0].id}`);
   }
-  commands.push(...decideFerry(obs, spots, waiting, mayAttack, towardX, turn, note));
+  commands.push(...decideFerry(obs, spots, waiting, mayAttack, toward, turn, note));
   return commands;
 }
 
@@ -448,7 +460,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
  * The transport ship on an islands map. At the home shore it takes soldiers aboard until it holds an attack's worth,
  * sails toward the enemy side (looking further while no enemy shore is in sight), puts them ashore, and comes back.
  */
-function decideFerry(obs: Observation, spots: BotSpotFinder, waiting: readonly ObservedSoldier[], mayAttack: boolean, towardX: number,
+function decideFerry(obs: Observation, spots: BotSpotFinder, waiting: readonly ObservedSoldier[], mayAttack: boolean, toward: { x: number; y: number },
   turn: number, note: (text: string) => void): Command[] {
   const me = obs.playerId;
   const commands: Command[] = [];
@@ -467,7 +479,7 @@ function decideFerry(obs: Observation, spots: BotSpotFinder, waiting: readonly O
   const capacity = TRANSPORT_CAPACITY[obs.player.raceType];
   const wanted = Math.min(capacity, BOT_TYPE_SETTINGS[obs.player.botType].attackArmy);
   const sail = (isLoaded: boolean) => {
-    const target = spots.sailTarget(ship.x, ship.y, towardX, isLoaded);
+    const target = spots.sailTarget(ship.x, ship.y, toward, isLoaded);
     if (!target) return;
     if (isLoaded && target.isLanding && Math.hypot(target.x - ship.x, target.y - ship.y) <= 1.5) {
       commands.push({ type: 'unloadShip', playerId: me, shipId: ship.id });
@@ -514,7 +526,7 @@ function isOnOwnLand(obs: Observation, x: number, y: number): boolean {
     return d <= radius ? d : Infinity;
   };
   const own = Math.min(...obs.ownBuildings.map(claim));
-  return own < Infinity && own < Math.min(Infinity, ...obs.otherBuildings.map(claim));
+  return own < Infinity && own < Math.min(Infinity, ...obs.enemyBuildings.map(claim), ...obs.allyBuildings.map(claim));
 }
 
 function missingTool(b: OwnBuilding): ToolType | null {
@@ -525,8 +537,8 @@ function missingTool(b: OwnBuilding): ToolType | null {
 
 function hasOre(obs: Observation, spots: BotSpotFinder): boolean {
   const has = (t: BuildingTypeId) => obs.ownBuildings.some((b) => b.typeId === t);
-  return (has('coal_mine') || !!spots.findSpot('coal_mine', 'deposit_coal', 0))
-    && (has('iron_mine') || !!spots.findSpot('iron_mine', 'deposit_iron', 0));
+  return (has('coal_mine') || !!spots.findSpot('coal_mine', 'deposit_coal', { x: 0, y: 0 }))
+    && (has('iron_mine') || !!spots.findSpot('iron_mine', 'deposit_iron', { x: 0, y: 0 }));
 }
 
 /** More land when there is no ore to mine, or regularly to push toward the enemy. */

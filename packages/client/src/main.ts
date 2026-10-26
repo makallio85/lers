@@ -3,7 +3,7 @@ import {
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
-  BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
+  BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, isEnemy, maxPlayersOf, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
 } from '../../simulation/src/index.ts';
 import type { BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
@@ -42,6 +42,9 @@ const MAP_LAYOUT_KEY = 'lers.mapLayout';
 const MAP_HALVES_KEY = 'lers.mapHalves';
 const STARTING_GOODS_KEY = 'lers.startingGoods';
 const VICTORY_KEY = 'lers.victory';
+const ALLIES_KEY = 'lers.allies';
+const ENEMIES_KEY = 'lers.enemies';
+const ENEMY_TEAMS_KEY = 'lers.enemyTeams';
 /** Hash words such as `#calm`, `#small` or `#calm-small`, for hosts that pass only the hash to the page. */
 const hashWords = location.hash.slice(1).split('-');
 
@@ -68,7 +71,21 @@ let lastIsMirrored = chosen(['mirrored', 'own'] as const, MAP_HALVES_KEY, 'halve
 let lastStartingGoods: StartingGoodsType = chosen(STARTING_GOODS_TYPES, STARTING_GOODS_KEY, 'goods', 'default');
 /** The setup the menu has selected for the next match. */
 let lastVictory: VictoryType = chosen(VICTORY_TYPES, VICTORY_KEY, 'victory', 'conquest');
-const nextSetup = () => ({ isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory });
+const COUNTS = ['0', '1', '2', '3', '4', '5', '6', '7'] as const;
+let lastAllies = Number(chosen(COUNTS, ALLIES_KEY, 'allies', '0'));
+let lastEnemies = Math.max(1, Number(chosen(COUNTS, ENEMIES_KEY, 'enemies', '1')));
+let lastEnemiesAllied = chosen(['together', 'alone'] as const, ENEMY_TEAMS_KEY, 'enemyTeams', 'alone') === 'together';
+/** Keeps the chosen allies and enemies within what the chosen map holds, dropping allies first. */
+function fitPlayers(): void {
+  const max = maxPlayersOf(lastMapSize, lastMapLayout);
+  lastEnemies = Math.max(1, Math.min(lastEnemies, max - 1));
+  lastAllies = Math.max(0, Math.min(lastAllies, max - 1 - lastEnemies));
+}
+fitPlayers();
+const nextSetup = () => ({
+  isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory,
+  allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied
+});
 const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
 const mapSize = (): MapSizeType => (isMatch() ? mapSizeTypeOf(world.width) : lastMapSize);
 const seedParam = Number(params.get('seed'));
@@ -119,10 +136,27 @@ const ui = {
 const queue: Command[] = [];
 const view = await MapView.create(els.map, world);
 const isMatch = () => world.players.length > 1;
+/** The computer players of this match, in a few words: one opponent by name and people, more by count and team. */
+/** This match's allies and enemies, to play it again the same way. */
+function teamsOf(): { allyCount: number; enemyCount: number; areEnemiesAllied: boolean } {
+  const enemies = world.players.filter((p) => isEnemy(world, PLAYER, p.id));
+  return { allyCount: world.players.length - 1 - enemies.length, enemyCount: enemies.length,
+    areEnemiesAllied: enemies.length > 1 && enemies.every((p) => p.teamId === enemies[0].teamId) };
+}
+const firstEnemyRace = () => world.players.find((p) => isEnemy(world, PLAYER, p.id))?.raceType;
+
+function opponentsLabel(): string {
+  const bot = BOT_TYPE_SETTINGS[world.players[1].botType].label;
+  const allies = world.players.filter((p) => p.id !== PLAYER && !isEnemy(world, PLAYER, p.id));
+  const enemies = world.players.filter((p) => isEnemy(world, PLAYER, p.id));
+  if (allies.length === 0 && enemies.length === 1) return `${bot} computer (${RACE_SETTINGS[enemies[0].raceType].label})`;
+  const together = enemies.length > 1 && enemies.every((p) => p.teamId === enemies[0].teamId);
+  return `${bot} computers · ${allies.length ? `${allies.length} ${allies.length === 1 ? 'ally' : 'allies'} · ` : ''}${enemies.length} ${enemies.length === 1 ? 'enemy' : together ? 'enemies in one team' : 'enemies each alone'}`;
+}
 
 function showWorld(): void {
   els.mapName.textContent = isMatch()
-    ? `${RACE_SETTINGS[world.players[PLAYER].raceType].label} · ${MAP_SIZE_SETTINGS[mapSizeTypeOf(world.width)].label.toLowerCase()} map ${world.seed} · ${BOT_TYPE_SETTINGS[world.players[1].botType].label} computer (${RACE_SETTINGS[world.players[1].raceType].label})`
+    ? `${RACE_SETTINGS[world.players[PLAYER].raceType].label} · ${MAP_SIZE_SETTINGS[mapSizeTypeOf(world.width)].label.toLowerCase()} map ${world.seed} · ${opponentsLabel()}`
     : `${RACE_SETTINGS[world.players[PLAYER].raceType].label} · sandbox · map ${world.seed}`;
   // Work out the fog of war before the first frame, so the start is not drawn as unexplored.
   updateVision(world);
@@ -195,7 +229,8 @@ function renderMenu(): void {
     els.menu.innerHTML = renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
       isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
-      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace
+      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace,
+      allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied, maxPlayers: maxPlayersOf(lastMapSize, lastMapLayout)
     });
   }
 }
@@ -300,7 +335,9 @@ function buildMinimapBase(): void {
     if (world.tree[i] >= 0) [r, g, b] = [61, 90, 46];
     if (world.field[i] >= 0) [r, g, b] = [217, 180, 74];
     const owner = world.territory[i];
-    if (owner === 2) { r = r * 0.6 + 80; g *= 0.55; b *= 0.55; }
+    // Enemy land in red, an ally's in blue, unclaimed land darker.
+    if (owner !== 0 && owner !== PLAYER + 1 && isEnemy(world, PLAYER, owner - 1)) { r = r * 0.6 + 80; g *= 0.55; b *= 0.55; }
+    else if (owner !== 0 && owner !== PLAYER + 1) { r *= 0.6; g *= 0.65; b = b * 0.6 + 60; }
     else if (owner !== PLAYER + 1) { r *= 0.6; g *= 0.6; b *= 0.6; }
     if (vision && vision[i] === 0) [r, g, b] = [15, 20, 18];
     img.data.set([r, g, b, 255], i * 4);
@@ -317,7 +354,7 @@ function drawMinimap(): void {
   ctx.drawImage(minimapBase, 0, 0, els.minimap.width, els.minimap.height);
   for (const b of world.buildings) {
     if (!view.isBuildingVisible(b)) continue;
-    ctx.fillStyle = b.owner === PLAYER ? '#ece6d6' : '#d05a5a';
+    ctx.fillStyle = b.owner === PLAYER ? '#ece6d6' : isEnemy(world, PLAYER, b.owner) ? '#d05a5a' : '#8fb3d9';
     ctx.fillRect(b.x * sx, b.y * sy, b.size * sx, b.size * sy);
   }
   const v = view.visibleTiles();
@@ -490,7 +527,7 @@ function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'au
     submit({ type: 'moveSpecialists', playerId: PLAYER, settlerIds: specialistIds, x: tile.x, y: tile.y });
   }
   if (soldierIds.length > 0) {
-    if (b && b.owner !== PLAYER && mode !== 'move') {
+    if (b && isEnemy(world, PLAYER, b.owner) && mode !== 'move') {
       submit({ type: 'attackBuilding', playerId: PLAYER, soldierIds, buildingId: b.id });
     } else if (mode === 'attack') {
       showProblem('Choose an enemy tower or castle to attack');
@@ -889,11 +926,23 @@ document.addEventListener('click', (e) => {
       if ((MAP_SIZE_TYPES as readonly string[]).includes(target.dataset.size ?? '')) {
         lastMapSize = target.dataset.size as MapSizeType; remember(MAP_SIZE_KEY, lastMapSize);
       }
+      fitPlayers();
       renderMenu(); break;
     case 'map-layout':
       if ((MAP_LAYOUT_TYPES as readonly string[]).includes(target.dataset.layout ?? '')) {
         lastMapLayout = target.dataset.layout as MapLayoutType; remember(MAP_LAYOUT_KEY, lastMapLayout);
       }
+      fitPlayers();
+      renderMenu(); break;
+    case 'team-count': {
+      const max = maxPlayersOf(lastMapSize, lastMapLayout);
+      if (target.dataset.side === 'allies') lastAllies = Math.max(0, Math.min(max - 1 - lastEnemies, lastAllies + delta));
+      else lastEnemies = Math.max(1, Math.min(max - 1 - lastAllies, lastEnemies + delta));
+      remember(ALLIES_KEY, String(lastAllies)); remember(ENEMIES_KEY, String(lastEnemies));
+      renderMenu(); break;
+    }
+    case 'enemy-teams':
+      lastEnemiesAllied = target.dataset.together === 'true'; remember(ENEMY_TEAMS_KEY, lastEnemiesAllied ? 'together' : 'alone');
       renderMenu(); break;
     case 'victory':
       if ((VICTORY_TYPES as readonly string[]).includes(target.dataset.victory ?? '')) { lastVictory = target.dataset.victory as VictoryType; remember(VICTORY_KEY, lastVictory); }
@@ -938,8 +987,8 @@ document.addEventListener('click', (e) => {
       for (const ship of selectedSoldierList().filter((s) => passengersOf(world, s).length > 0)) submit({ type: 'unloadShip', playerId: PLAYER, shipId: ship.id });
       renderOrders(); break;
     case 'new-sandbox': startNew(createWorld({ seed: randomSeed(), raceTypes: [lastRace] })); break;
-    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, world.players[1].raceType, world.mapLayout,
-      { isMirrored: world.isMirrored, startingGoodsType: world.startingGoodsType, victoryType: world.victoryType }) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
+    case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, firstEnemyRace(), world.mapLayout,
+      { isMirrored: world.isMirrored, startingGoodsType: world.startingGoodsType, victoryType: world.victoryType, ...teamsOf() }) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;
     case 'surrender': ui.isConfirmingSurrender = true; renderMenu(); break;
     case 'cancel-surrender': ui.isConfirmingSurrender = false; renderMenu(); break;

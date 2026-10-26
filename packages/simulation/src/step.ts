@@ -17,7 +17,7 @@ import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
   buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
-  recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex
+  recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex, isEnemy
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
 
@@ -1064,9 +1064,9 @@ function updateThief(world: World, s: Settler): void {
     return;
   }
   let target = buildingById(world, s.toId);
-  if (!target || target.owner === s.owner || !isStorageBuilding(target)) {
+  if (!target || !isEnemy(world, target.owner, s.owner) || !isStorageBuilding(target)) {
     const cx = s.workCentre % world.width, cy = Math.floor(s.workCentre / world.width);
-    target = world.buildings.filter((b) => b.owner !== s.owner && isStorageBuilding(b) && totalGoods(b.stock) > 0
+    target = world.buildings.filter((b) => isEnemy(world, b.owner, s.owner) && isStorageBuilding(b) && totalGoods(b.stock) > 0
       && distance(b.doorX, b.doorY, cx, cy) <= THIEF_SEARCH_RADIUS)
       .sort((a, b) => distance(a.doorX, a.doorY, s.x, s.y) - distance(b.doorX, b.doorY, s.x, s.y) || a.id - b.id)[0];
     if (!target || (tileOf(world, s) !== doorTile(world, target) && !walkTo(world, s, doorTile(world, target)))) {

@@ -232,6 +232,12 @@ Issue #12, phase 7, following the original's game setup.
 - **Map halves:** mirrored (the default: the right half copies the left, so both players start on the same land) or each its own. Unmirrored, each half is generated on its own, and each start still gets the same prepared surroundings: a grove, a rock cluster and a pond inside the territory, and an ore mountain on its border. Over 40 seeds of each map size, every unmirrored continent let the players walk to each other.
 - **Starting goods:** few, normal or many. Few halves the materials, food, tools and soldiers and gives three quarters of the civilians. Many doubles the materials, food, tools and soldiers and gives half as many civilians again. Every kind keeps at least one, so a short start still has each tool.
 - **Computer player:** with too few hammers to spare one, it still takes on one geologist while it knows no ore, since without ore the smiths it saves hammers for never come.
+- **Players and teams:** you and up to seven computer players: allies on your team, and enemies who either play as one team or each on their own. Only one human plays until online play (#2).
+  - A map holds up to 4 players when small, 6 when medium and 8 when large; on islands 2, 4 and 5, as each island must hold a castle's land and its ore mountain.
+  - With more than two players the castles stand on a ring around the middle, at least 32 tiles apart so no two castles' land overlaps, and the map is not mirrored. Each start gets the same prepared surroundings inside its own area.
+  - Allies never fight each other, cannot attack each other's buildings, and see what each other sees. The last team with a castle wins; in the economic mode, the first player to make every target wins for the whole team.
+  - On islands, the neutral middle island keeps a channel of sea to every player's island, and is left out where it would be too small. Before, on small two-player maps it could join the islands.
+  - Computer players head for the nearest enemy castle, whose start the open setup shows, and leave allies alone.
 
 ## Cross-device army controls
 

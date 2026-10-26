@@ -6,7 +6,7 @@ import {
   OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
   DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf,
   MAP_LAYOUT_LABELS, MAP_LAYOUT_TYPES, SHIP_COSTS, SHIP_TICKS, SHIP_TYPES, TRADE_SHIPS_PER_DOCK, TRADE_SHIP_PILES, TRANSPORT_CAPACITY, BOARDING_RANGE, isShipType,
-  passengersOf, shipsOfDock, isSpecialistType, STARTING_GOODS_LABELS, STARTING_GOODS_TYPES, VICTORY_LABELS, VICTORY_TYPES, economyProgress
+  passengersOf, shipsOfDock, isSpecialistType, STARTING_GOODS_LABELS, STARTING_GOODS_TYPES, VICTORY_LABELS, VICTORY_TYPES, economyProgress, isEnemy, isWinner
 } from '../../simulation/src/index.ts';
 import type {
   BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, StartingGoodsType, VictoryType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
@@ -314,7 +314,10 @@ export function renderMilitaryPanel(world: World, view: MilitaryViewId, owner: n
 
 /** The economic mode's race: each target's good, with your progress and the opponent's. */
 function renderEconomyRace(world: World, owner: number): string {
-  const other = world.players.find((p) => p.id !== owner)!;
+  // Against the enemy nearest to winning: the one with the most targets' worth made.
+  const enemies = world.players.filter((p) => isEnemy(world, owner, p.id) && !p.isEliminated);
+  const share = (id: number) => economyProgress(world, id).reduce((sum, t) => sum + Math.min(1, t.made / t.target), 0);
+  const other = [...enemies].sort((a, b) => share(b.id) - share(a.id) || a.id - b.id)[0] ?? world.players.find((p) => p.id !== owner)!;
   const theirs = new Map(economyProgress(world, other.id).map((t) => [t.good, t.made]));
   const bar = (made: number, target: number, cls: string) =>
     `<span class="economy-bar ${cls}" aria-hidden="true"><span style="width:${Math.min(100, (made / target) * 100)}%"></span></span>`;
@@ -326,7 +329,7 @@ function renderEconomyRace(world: World, owner: number): string {
   }).join('');
   return `<h2 class="section-title">Economy race</h2>
     <p class="muted economy-note">Made by your workshops since the start; the first to make every target wins.</p>
-    <div class="economy-head"><span></span><span>You</span><span>Computer</span></div>
+    <div class="economy-head"><span></span><span>You</span><span>${enemies.length > 1 ? `Leading enemy (${RACE_SETTINGS[other.raceType].label})` : 'Computer'}</span></div>
     <ul class="list economy-list">${rows}</ul>`;
 }
 
@@ -390,6 +393,11 @@ export interface MenuState {
   isMirrored: boolean;
   startingGoodsType: StartingGoodsType;
   victoryType: VictoryType;
+  /** Computer allies and enemies for the next match, whether the enemies play as one team, and how many players the map holds. */
+  allyCount: number;
+  enemyCount: number;
+  areEnemiesAllied: boolean;
+  maxPlayers: number;
   /** The people selected for the next match. */
   raceType: RaceType;
 }
@@ -412,6 +420,7 @@ function opponentText(botType: BotType, mapSize: MapSizeType, victoryType: Victo
 }
 
 export function renderGameMenu(state: MenuState): string {
+  const isOneOnOne = state.allyCount === 0 && state.enemyCount === 1;
   return `
     <button type="button" class="menu-item" data-action="save">Save game</button>
     <button type="button" class="menu-item" data-action="load" ${state.savedAt ? '' : 'disabled'}>Load saved game${state.savedAt ? `<span class="muted">${state.savedAt}</span>` : ''}</button>
@@ -442,6 +451,16 @@ export function renderGameMenu(state: MenuState): string {
             <span class="muted">${m === 'islands' ? 'Each people on its own island: attack by ship' : 'One land: walk to the enemy'}</span>
           </button>`).join('')}
       </div>
+      <span class="menu-hint">Players — up to ${state.maxPlayers} on this map</span>
+      <div class="made-row team-row"><span class="grow">Computer allies</span>${stepper('team-count', 'data-side="allies"', state.allyCount, 'Computer allies')}</div>
+      <div class="made-row team-row"><span class="grow">Computer enemies</span>${stepper('team-count', 'data-side="enemies"', state.enemyCount, 'Computer enemies')}</div>
+      ${state.enemyCount > 1 ? `<div class="map-size-row" role="radiogroup" aria-label="Enemy teams">
+        ${[false, true].map((t) => `
+          <button type="button" class="map-size-choice ${t === state.areEnemiesAllied ? 'is-on' : ''}" role="radio" aria-checked="${t === state.areEnemiesAllied}" data-action="enemy-teams" data-together="${t}">
+            <span class="opponent-name">${t ? 'One team' : 'Each alone'}</span>
+            <span class="muted">${t ? 'The enemies fight you together' : 'The enemies also fight each other'}</span>
+          </button>`).join('')}
+      </div>` : ''}
       <span class="menu-hint" id="menu-victory">Victory</span>
       <div class="map-size-row" role="radiogroup" aria-labelledby="menu-victory">
         ${VICTORY_TYPES.map((v) => `
@@ -450,10 +469,10 @@ export function renderGameMenu(state: MenuState): string {
             <span class="muted">${v === 'economy' ? 'First to make the goods targets; soldiers are weak away from home' : 'Take the enemy castle'}</span>
           </button>`).join('')}
       </div>
-      <span class="menu-hint" id="menu-halves">Map halves</span>
+      <span class="menu-hint" id="menu-halves">Map halves${isOneOnOne ? '' : ' — mirroring needs two players'}</span>
       <div class="map-size-row" role="radiogroup" aria-labelledby="menu-halves">
         ${[true, false].map((m) => `
-          <button type="button" class="map-size-choice ${m === state.isMirrored ? 'is-on' : ''}" role="radio" aria-checked="${m === state.isMirrored}" data-action="map-mirror" data-mirrored="${m}">
+          <button type="button" class="map-size-choice ${m === state.isMirrored && isOneOnOne ? 'is-on' : ''}" role="radio" aria-checked="${m === state.isMirrored}" data-action="map-mirror" data-mirrored="${m}" ${isOneOnOne ? '' : 'disabled'}>
             <span class="opponent-name">${m ? 'Mirrored' : 'Each its own'}</span>
             <span class="muted">${m ? 'Both sides the same land' : 'Different land, the same start around each castle'}</span>
           </button>`).join('')}
@@ -595,6 +614,11 @@ function structureBar(b: Building): string {
 
 export function renderSelection(world: World, b: Building, owner: number, isConfirmingDemolish: boolean, selectedSoldiers: number): string {
   const type = BUILDING_TYPES[b.typeId];
+  if (b.owner !== owner && !isEnemy(world, owner, b.owner)) {
+    return `
+      <div class="detail-head"><span class="detail-title">Allied ${buildingLabel(b.typeId, world.players[b.owner].raceType).toLowerCase()}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
+      <span class="muted">${RACE_SETTINGS[world.players[b.owner].raceType].label} computer ally${isMilitaryBuilding(b) && b.isComplete ? ` · ${b.garrison.length} ${b.garrison.length === 1 ? 'soldier' : 'soldiers'} inside` : ''}</span>`;
+  }
   if (b.owner !== owner) {
     const canAttack = isMilitaryBuilding(b) && b.isComplete;
     const cover = canAttack ? coveringBuilding(world, b) : null;
@@ -786,25 +810,37 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
 }
 
 function endReason(world: World, owner: number, isWin: boolean): string {
-  const hasCastles = world.players.every((p) => castleOf(world, p.id));
-  if (world.victoryType === 'economy' && hasCastles && !world.players.some((p) => p.isEliminated)) {
-    return isWin ? 'Your settlement made every goods target first.' : 'The computer\'s settlement made every goods target first.';
+  const winner = world.winner === null ? null : world.players[world.winner];
+  if (world.victoryType === 'economy' && winner && castleOf(world, winner.id) && economyProgress(world, winner.id).every((t) => t.made >= t.target)) {
+    if (winner.id === owner) return 'Your settlement made every goods target first.';
+    return isWin ? 'Your ally\'s settlement made every goods target first.' : 'An enemy settlement made every goods target first.';
   }
-  if (isWin) return world.players.some((p) => p.id !== owner && p.isEliminated && castleOf(world, p.id)) ? 'The computer surrendered.' : 'Your soldiers took the enemy castle.';
-  return world.players[owner].isEliminated && castleOf(world, owner) ? 'You surrendered.' : 'The enemy took your castle.';
+  const enemies = world.players.filter((p) => isEnemy(world, owner, p.id));
+  if (isWin) {
+    const gaveUp = enemies.every((p) => p.isEliminated && castleOf(world, p.id));
+    return gaveUp ? (enemies.length === 1 ? 'The computer surrendered.' : 'The enemies surrendered.')
+      : enemies.length === 1 ? 'Your soldiers took the enemy castle.' : 'Your team took every enemy castle.';
+  }
+  if (world.players[owner].isEliminated && castleOf(world, owner)) return 'You surrendered.';
+  return castleOf(world, owner) ? 'The enemies took your allies\' castles.' : 'The enemy took your castle.';
 }
 
 export function renderEndScreen(world: World, owner: number): string {
-  const isWin = world.winner === owner;
-  const you = world.players[owner].stats, them = world.players.find((p) => p.id !== owner)?.stats;
-  const rows: [string, number, number | undefined][] = [
-    ['Buildings built', you.buildingsBuilt, them?.buildingsBuilt],
-    ['Largest territory (tiles)', you.largestTerritory, them?.largestTerritory],
-    ['Soldiers recruited', you.soldiersRecruited, them?.soldiersRecruited],
-    ['Soldiers lost', you.soldiersLost, them?.soldiersLost],
-    ['Towers taken', you.towersTaken, them?.towersTaken],
-    ['Planks made', you.planksMade, them?.planksMade],
-    ['Bread baked', you.breadBaked, them?.breadBaked]
+  const isWin = isWinner(world, owner);
+  // You, your allies together, and the enemies together.
+  const allies = world.players.filter((p) => p.id !== owner && !isEnemy(world, owner, p.id));
+  const enemies = world.players.filter((p) => isEnemy(world, owner, p.id));
+  const columns = [
+    { label: 'You', players: [world.players[owner]] },
+    ...(allies.length ? [{ label: allies.length === 1 ? 'Ally' : 'Allies', players: allies }] : []),
+    { label: enemies.length === 1 ? 'Computer' : 'Enemies', players: enemies }
+  ];
+  const stat = (key: 'buildingsBuilt' | 'largestTerritory' | 'soldiersRecruited' | 'soldiersLost' | 'towersTaken' | 'planksMade' | 'breadBaked') =>
+    columns.map((c) => c.players.reduce((sum, p) => sum + p.stats[key], 0));
+  const rows: [string, number[]][] = [
+    ['Buildings built', stat('buildingsBuilt')], ['Largest territory (tiles)', stat('largestTerritory')],
+    ['Soldiers recruited', stat('soldiersRecruited')], ['Soldiers lost', stat('soldiersLost')], ['Towers taken', stat('towersTaken')],
+    ['Planks made', stat('planksMade')], ['Bread baked', stat('breadBaked')]
   ];
   return `
     <div class="end-card" role="dialog" aria-modal="true" aria-labelledby="end-title">
@@ -812,8 +848,8 @@ export function renderEndScreen(world: World, owner: number): string {
       <h1 id="end-title" class="end-title">${isWin ? 'Victory' : 'Defeat'}</h1>
       <p class="muted">${endReason(world, owner, isWin)}</p>
       <table class="end-table">
-        <thead><tr><th></th><th>You</th><th>Computer</th></tr></thead>
-        <tbody>${rows.map(([label, a, b]) => `<tr><td>${label}</td><td>${a.toLocaleString('en')}</td><td>${(b ?? 0).toLocaleString('en')}</td></tr>`).join('')}</tbody>
+        <thead><tr><th></th>${columns.map((c) => `<th>${c.label}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(([label, values]) => `<tr><td>${label}</td>${values.map((v) => `<td>${v.toLocaleString('en')}</td>`).join('')}</tr>`).join('')}</tbody>
       </table>
       <div class="actions">
         <button type="button" class="primary" data-action="play-again">Play again on this map</button>

@@ -10,7 +10,7 @@ import { reachableFrom } from './pathfinding.ts';
 import { damageFactor, damageTaken, isFrozen } from './magic.ts';
 import {
   buildingById, castleOf, inBounds, isMilitaryBuilding, nextRandom, playerOf, pushMessage, recomputeTerritory, removeBuilding,
-  settlerById, tileIndex
+  settlerById, tileIndex, isEnemy, settleWinner
 } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
 
@@ -46,8 +46,8 @@ export function strengthOf(world: World, s: Settler): number {
 }
 
 /** An enemy a soldier can fight: a soldier or war machine outside, or a thief close enough to be recognised. */
-function isFoe(s: Settler, other: Settler): boolean {
-  if (other.owner === s.owner || other.isInside || other.health <= 0) return false;
+function isFoe(world: World, s: Settler, other: Settler): boolean {
+  if (!isEnemy(world, s.owner, other.owner) || other.isInside || other.health <= 0) return false;
   // Ships at sea are out of a soldier's reach.
   if (isShipType(other.settlerType)) return false;
   if (isUnitType(other.settlerType)) return true;
@@ -63,7 +63,7 @@ function isAliveUnit(s: Settler): boolean {
 }
 
 function enemiesNear(world: World, owner: number, x: number, y: number, radius: number): Settler[] {
-  return world.settlers.filter((s) => s.owner !== owner && isAliveUnit(s) && !s.isInside
+  return world.settlers.filter((s) => isEnemy(world, s.owner, owner) && isAliveUnit(s) && !s.isInside
     && distance(s.x, s.y, x, y) <= radius);
 }
 
@@ -137,10 +137,10 @@ export function releaseEmptyBuildings(world: World): void {
 
 function nearestEnemy(world: World, s: Settler): Settler | null {
   const current = settlerById(world, s.enemyId);
-  if (current && isFoe(s, current) && distance(current.x, current.y, s.x, s.y) <= ENGAGE_RANGE + 2) return current;
+  if (current && isFoe(world, s, current) && distance(current.x, current.y, s.x, s.y) <= ENGAGE_RANGE + 2) return current;
   let best: Settler | null = null, bestDistance = ENGAGE_RANGE;
   for (const other of world.settlers) {
-    if (!isFoe(s, other)) continue;
+    if (!isFoe(world, s, other)) continue;
     const d = distance(other.x, other.y, s.x, s.y);
     if (d <= bestDistance) { bestDistance = d; best = other; }
   }
@@ -238,7 +238,7 @@ function updateToGarrison(world: World, s: Settler): void {
 
 function updateAttacking(world: World, s: Settler): void {
   const target = buildingById(world, s.attackId);
-  if (!target || target.owner === s.owner) { s.phase = 'idle'; s.attackId = null; s.path = []; return; }
+  if (!target || !isEnemy(world, s.owner, target.owner)) { s.phase = 'idle'; s.attackId = null; s.path = []; return; }
   const door = doorTile(world, target);
   if (tileOf(world, s) !== door) {
     if ((s.path.length === 0 || world.tick % (REPATH_TICKS * 5) === 0) && !walkTo(world, s, door)) { s.phase = 'idle'; s.attackId = null; return; }
@@ -334,7 +334,7 @@ function updateWarMachine(world: World, s: Settler, machine: WarMachineType): vo
   switch (s.phase) {
     case 'attacking': {
       const target = buildingById(world, s.attackId);
-      if (!target || target.owner === s.owner) { s.phase = 'idle'; s.attackId = null; s.path = []; return; }
+      if (!target || !isEnemy(world, s.owner, target.owner)) { s.phase = 'idle'; s.attackId = null; s.path = []; return; }
       if (s.ammo <= 0) { goReload(world, s); return; }
       if (distanceToBuilding(s, target) <= stats.range) {
         s.path = [];
@@ -441,6 +441,7 @@ export function checkVictory(world: World): void {
       world.winner = first.id;
       for (const p of world.players) {
         if (p.id === first.id) pushMessage(world, p.id, 'Victory', 'Your settlement made every goods target first.', false, null);
+        else if (!isEnemy(world, p.id, first.id)) pushMessage(world, p.id, 'Victory', 'An ally\'s settlement made every goods target first.', false, null);
         else pushMessage(world, p.id, 'Defeat', 'Another settlement made every goods target first.', true, null);
       }
       return;
@@ -452,6 +453,5 @@ export function checkVictory(world: World): void {
       pushMessage(world, p.id, 'Defeat', 'You have lost your castle.', true, null);
     }
   }
-  const alive = world.players.filter((p) => !p.isEliminated);
-  if (alive.length === 1) world.winner = alive[0].id;
+  settleWinner(world);
 }
