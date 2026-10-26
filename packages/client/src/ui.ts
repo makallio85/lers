@@ -213,7 +213,7 @@ export function renderSettlersPanel(world: World, view: SettlersViewId, owner: n
       </div>`;
     }).join('');
     return `${tabs}${rows}
-      <p class="empty">+ turns a free carrier into a specialist, taking the tool from storage; − turns one back. Select specialists, then right-click or use Move to send them.</p>
+      <p class="empty">+ turns a free carrier into a specialist (no tool needed); − turns one back. Select specialists, then right-click or use Move to send them.</p>
       <p class="empty">Geologists put up signs on mountains: black for coal, silver for iron, gold for gold, an empty ring for nothing. Pioneers put up posts that claim land no enemy tower holds.</p>`;
   }
   const counts = new Map<SettlerType, number>();

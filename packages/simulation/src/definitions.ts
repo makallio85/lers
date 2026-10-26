@@ -92,7 +92,8 @@ export type SettlerType =
 export const SPECIALIST_TYPES = ['geologist', 'pioneer', 'thief'] as const;
 export type SpecialistType = (typeof SPECIALIST_TYPES)[number];
 /** The tool a carrier takes from storage to become each specialist (none for a thief); it goes back when the specialist does. */
-export const SPECIALIST_TOOLS: Record<SpecialistType, ToolType | null> = { geologist: 'hammer', pioneer: 'shovel', thief: null };
+/** Specialists are converted from carriers without a tool, as in The Settlers III. */
+export const SPECIALIST_TOOLS: Record<SpecialistType, ToolType | null> = { geologist: null, pioneer: null, thief: null };
 /** A thief can take this many hits; soldiers who come close see through the disguise. */
 export const THIEF_HEALTH = 30;
 

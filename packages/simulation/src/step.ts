@@ -16,7 +16,7 @@ import { decideShip, launchShip } from './sea.ts';
 import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
-  WAIT_RADIUS, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
+  WAIT_RADIUS, spreadSpots, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
   recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex, isEnemy
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
@@ -34,6 +34,8 @@ const CLAIM_TICKS = 60;
 export const OUTPUT_LIMIT = 8;
 export const WARN_AFTER_TICKS = 150;
 export const RESIDENT_INTERVAL_TICKS = 60;
+/** How long a newcomer stands by its new house before going to wait for work, in ticks. */
+const NEWCOMER_LINGER_TICKS = 300;
 export const MAX_FIELDS_PER_FARM = 12;
 /** A mine digs from deposits this far around its footprint. */
 export const MINE_REACH = 2;
@@ -148,6 +150,12 @@ function releaseResidents(world: World): void {
     b.residentsLeft--;
     const s = newSettler(world, b.owner, 'carrier', b.doorX, b.doorY);
     s.isInside = false;
+    // A newcomer steps out to its own spot around the house and stands there a while, so the move-in shows,
+    // before it goes to wait for work like any idle settler.
+    const total = BUILDING_TYPES[b.typeId].residents;
+    const spots = spreadSpots(world, b, total);
+    const spot = spots[(total - b.residentsLeft - 1) % Math.max(1, spots.length)];
+    if (spot !== undefined && walkTo(world, s, spot)) s.timer = NEWCOMER_LINGER_TICKS;
   }
 }
 

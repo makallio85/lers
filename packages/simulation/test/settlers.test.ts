@@ -147,13 +147,13 @@ test('occupations limit diggers and builders, and free carriers become new ones 
   assert.ok(castle.stock.shovel + castle.stock.hammer < 10);
 });
 
-test('a geologist takes a hammer, marks the ore on a mountain, and hands the hammer back when dismissed', () => {
+test('a carrier becomes a geologist with no tool, marks the ore on a mountain, and turns back into a carrier when dismissed', () => {
   const world = createWorld({ seed: 11 });
   const castle = castleOf(world, 0)!;
   const m = mountainBeside(world, DEPOSIT_GOLD);
   const hammers = castle.stock.hammer;
   assert.equal(command(world, { type: 'setSpecialists', playerId: 0, specialistType: 'geologist', count: 1 }).isAccepted, true);
-  assert.equal(castle.stock.hammer, hammers - 1);
+  assert.equal(castle.stock.hammer, hammers, 'no tool taken');
   const geologist = world.settlers.find((s) => s.settlerType === 'geologist')!;
   assert.equal(world.prospect[0][tileIndex(world, m.x + 1, m.y + 1)], 0);
   // The bot's spot finder knows nothing about this gold yet.
@@ -161,11 +161,8 @@ test('a geologist takes a hammer, marks the ore on a mountain, and hands the ham
   assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [geologist.id], x: m.x + 1, y: m.y + 1 }).isAccepted, true);
   runUntil(world, () => world.prospect[0][tileIndex(world, m.x + 1, m.y + 1)] === 1, 2000);
   assert.equal(world.prospect[1]?.[0], undefined, 'a sandbox has one player');
-  // Dismissed, he hands his hammer back (spare builders may have returned theirs meanwhile, so count from here).
-  const before = castle.stock.hammer;
   assert.equal(command(world, { type: 'setSpecialists', playerId: 0, specialistType: 'geologist', count: 0 }).isAccepted, true);
   assert.equal(geologist.settlerType, 'carrier');
-  assert.equal(castle.stock.hammer, before + 1);
 });
 
 test('pioneers claim neutral land with posts, but never land an enemy tower holds', () => {
