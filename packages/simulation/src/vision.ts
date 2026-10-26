@@ -1,4 +1,4 @@
-import { BUILDING_TYPES, isSpecialistType, isUnitType } from './definitions.ts';
+import { BUILDING_TYPES, SPELL_STATS, isSpecialistType, isUnitType } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, SettlerType } from './definitions.ts';
 import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, siteCost, tileIndex } from './world.ts';
 import type { PlayerState, World } from './world.ts';
@@ -32,6 +32,7 @@ export function updateVision(world: World): void {
       if (s.owner !== player.id || s.isInside) continue;
       reveal(world, vision, s.x, s.y, isUnitType(s.settlerType) ? SOLDIER_SIGHT : SETTLER_SIGHT);
     }
+    for (const f of world.farSights) if (f.playerId === player.id) reveal(world, vision, f.x, f.y, SPELL_STATS.far_sight.radius);
   }
 }
 

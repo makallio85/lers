@@ -3,7 +3,7 @@ import { Application, Container, Graphics, Matrix, Sprite, Text, Texture } from 
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
   TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, tileIndex,
-  BUILDING_STRUCTURE, WAR_MACHINE_STATS
+  BUILDING_STRUCTURE, WAR_MACHINE_STATS, buildingLabel
 } from '../../simulation/src/index.ts';
 import type { Building, BuildingTypeId, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { SpriteBank, TREE_VARIANTS, lookOf } from './sprites.ts';
@@ -59,6 +59,8 @@ export interface ViewState {
   selectionBox: { x0: number; y0: number; x1: number; y1: number } | null;
   /** The work area of the selected gatherer, drawn as a dashed circle. */
   workArea: { x: number; y: number; radius: number } | null;
+  /** How far the selected priest reaches with the spell being aimed. */
+  spellRange?: { x: number; y: number; radius: number } | null;
 }
 
 function hash(i: number): number {
@@ -390,7 +392,7 @@ export class MapView {
       g.roundRect(base.x - 20, base.y + 6, 40, 6, 3).fill({ color: 0x0f1412, alpha: 0.75 });
       g.roundRect(base.x - 19, base.y + 7, 38 * p, 4, 2).fill(b.levelProgress < 1 ? 0xb07a45 : 0xe3a33b);
     }
-    const name = BUILDING_TYPES[b.typeId].label;
+    const name = buildingLabel(b.typeId, this.raceOf(b.owner));
     const showName = b.id === state.selectedId || b.id === state.hoveredId || !this.bank.isReady;
     v.label.visible = showName;
     if (showName) {
@@ -413,6 +415,11 @@ export class MapView {
       const gx = tx * TILE, gy = ty * TILE;
       marks.circle(gx, gy, TILE * 0.28).fill({ color: OWNER_COLORS[s.owner], alpha: s.owner === this.viewer ? 0.35 : 0.6 });
       if (selected.has(s.id)) marks.circle(gx, gy, TILE * 0.42).stroke({ width: 2, color: 0xffffff });
+      // Spells working on a soldier glow on the ground under it: Shield gold, Fury red, Freeze ice blue.
+      const tick = this.world.tick;
+      if (s.shieldUntil > tick) marks.circle(gx, gy, TILE * 0.55).fill({ color: 0xffd678, alpha: 0.28 });
+      if (s.furyUntil > tick) marks.circle(gx, gy, TILE * 0.5).stroke({ width: 2, color: 0xe85a3a, alpha: 0.8 });
+      if (s.frozenUntil > tick) marks.circle(gx, gy, TILE * 0.55).fill({ color: 0xa8d8ff, alpha: 0.4 });
       if (!this.drawSettlerSprite(s, tx, ty, now)) this.drawSettlerShape(s, tx, ty);
       if (isSoldierType(s.settlerType) || isWarMachineType(s.settlerType) || s.settlerType === 'thief') {
         const max = isSoldierType(s.settlerType) ? SOLDIER_STATS[s.settlerType].health : isWarMachineType(s.settlerType) ? WAR_MACHINE_STATS[s.settlerType].health : 30;
@@ -559,6 +566,16 @@ export class MapView {
         g.moveTo(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r).lineTo(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
       }
       g.stroke({ width: 2, color: 0xe3a33b });
+    }
+    if (state.spellRange) {
+      const { x, y, radius } = state.spellRange;
+      const cx = (x + 0.5) * TILE, cy = (y + 0.5) * TILE, r = radius * TILE;
+      g.circle(cx, cy, r).fill({ color: 0xc9b2ff, alpha: 0.07 });
+      for (let k = 0; k < 64; k += 2) {
+        const a0 = (k / 64) * Math.PI * 2, a1 = ((k + 1) / 64) * Math.PI * 2;
+        g.moveTo(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r).lineTo(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
+      }
+      g.stroke({ width: 2, color: 0xc9b2ff });
     }
     const box = this.screenOverlay.clear();
     if (state.selectionBox) {

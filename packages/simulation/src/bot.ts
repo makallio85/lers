@@ -1,4 +1,4 @@
-import { BUILDING_TYPES, GOOD_NAMES, TOOL_TYPES, WAR_MACHINE_STATS, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
+import { BUILDING_TYPES, GOOD_NAMES, PROMOTION_COSTS, SOLDIER_TYPES, TOOL_TYPES, WAR_MACHINE_STATS, buildingCost, isBuildableBy, isSoldierType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
 import type { BuildingTypeId, GoodType, MapSizeType, ToolType } from './definitions.ts';
 import type { Command } from './commands.ts';
 import type { ObservedBuilding, Observation, OwnBuilding } from './vision.ts';
@@ -81,8 +81,10 @@ const BUILD_PLAN: readonly BuildingTypeId[] = [
   'weaponsmith', 'barracks', 'toolsmith', 'storage', 'gold_mine', 'gold_smelter', 'healer',
   // Each people's war machine hall (only its own is built), and the Asians' gunpowder for the cannon.
   'catapult_hall', 'ballista_hall', 'cannon_hall', 'gunpowder_maker', 'gong_hall',
+  // Each people's drink, the small temple that turns it into manna for promotions, and later the large temple.
+  'winery', 'brewery', 'rice_farm', 'distillery', 'beekeeper', 'mead_maker', 'small_temple',
   'woodcutter', 'forester', 'coal_mine', 'farm', 'bakery', 'mill', 'fisher', 'iron_mine', 'coal_mine',
-  'weaponsmith', 'sawmill', 'farm', 'stonecutter'
+  'weaponsmith', 'sawmill', 'farm', 'stonecutter', 'large_temple'
 ];
 
 /** Buildings each tool must be saved for until they stand: without them the settlement cannot make more tools. */
@@ -92,7 +94,8 @@ const KEY_TOOL_USERS: Partial<Record<ToolType, readonly BuildingTypeId[]>> = {
 
 const NEEDS: Partial<Record<BuildingTypeId, SpotNeed>> = {
   woodcutter: 'trees', forester: 'trees', stonecutter: 'rocks', waterworks: 'water', fisher: 'water',
-  coal_mine: 'deposit_coal', iron_mine: 'deposit_iron', gold_mine: 'deposit_gold', farm: 'free_land', pig_farm: 'free_land'
+  coal_mine: 'deposit_coal', iron_mine: 'deposit_iron', gold_mine: 'deposit_gold', farm: 'free_land', pig_farm: 'free_land',
+  rice_farm: 'water', beekeeper: 'trees', winery: 'free_land'
 };
 
 /** Buildings that feed miners, in the order the bot adds them when mines go hungry. */
@@ -112,6 +115,11 @@ function isUseful(typeId: BuildingTypeId, count: (t: BuildingTypeId) => number):
     case 'barracks': return count('weaponsmith') > count('barracks');
     case 'catapult_hall': case 'ballista_hall': case 'cannon_hall': case 'gong_hall': return count('barracks') > 0 && count('smelter') > 0;
     case 'gunpowder_maker': return count('cannon_hall') > 0;
+    case 'winery': case 'brewery': case 'rice_farm': case 'beekeeper': return count('barracks') > 0;
+    case 'distillery': return count('rice_farm') > 0;
+    case 'mead_maker': return count('beekeeper') > 0;
+    case 'small_temple': return count('winery') + count('brewery') + count('distillery') + count('mead_maker') > 0;
+    case 'large_temple': return count('small_temple') > 0;
     default: return true;
   }
 }
@@ -256,7 +264,17 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     }
   }
 
-  // 4. Army. Intruders on own land are driven out at once, whatever the bot type.
+  // 4. Promotions: manna goes into ranks, swordsmen first, one step per decision.
+  for (const soldierType of SOLDIER_TYPES) {
+    const rank = obs.player.soldierRanks[soldierType];
+    if (rank < PROMOTION_COSTS.length && obs.player.manna >= PROMOTION_COSTS[rank]) {
+      commands.push({ type: 'promoteSoldiers', playerId: me, soldierType });
+      note(`promote ${soldierType} to rank ${rank + 1}`);
+      break;
+    }
+  }
+
+  // 5. Army. Intruders on own land are driven out at once, whatever the bot type.
   const machines = obs.ownSoldiers.filter((s) => isWarMachineType(s.settlerType));
   let free = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && (s.phase === 'idle' || s.phase === 'moving'));
   const intruders = obs.otherSoldiers.filter((s) => isOnOwnLand(obs, s.x, s.y));

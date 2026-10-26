@@ -6,6 +6,7 @@ import type { WarMachineType } from './definitions.ts';
 import { coveringBuilding, releaseFromBuilding } from './commands.ts';
 import { advance, distance, doorTile, isMachinePassable, tileOf, walkTo } from './movement.ts';
 import { reachableFrom } from './pathfinding.ts';
+import { damageFactor, damageTaken, isFrozen } from './magic.ts';
 import {
   buildingById, castleOf, inBounds, isMilitaryBuilding, nextRandom, playerOf, pushMessage, recomputeTerritory, removeBuilding,
   settlerById, tileIndex
@@ -92,7 +93,8 @@ function warnCastleUnderAttack(world: World, castle: Building): void {
 function hit(world: World, attacker: Settler, target: Settler): void {
   if (!isSoldierType(attacker.settlerType)) return;
   const stats = SOLDIER_STATS[attacker.settlerType];
-  const damage = stats.damage * strengthOf(world, attacker) * (0.85 + 0.3 * nextRandom(world));
+  // Rank and Fury make a blow harder; Shield halves what the target takes.
+  const damage = stats.damage * strengthOf(world, attacker) * damageFactor(world, attacker) * damageTaken(world, target) * (0.85 + 0.3 * nextRandom(world));
   target.health -= damage;
   attacker.cooldown = stats.cooldown;
   if (target.health <= 0) {
@@ -145,6 +147,8 @@ export function updateSoldier(world: World, s: Settler): void {
   if (s.health <= 0 || s.isInside) return;
   if (s.cooldown > 0) s.cooldown--;
   if (isWarMachineType(s.settlerType)) return updateWarMachine(world, s, s.settlerType);
+  // A Freeze spell holds soldiers where they stand.
+  if (isFrozen(world, s)) return;
   if (s.phase === 'toGarrison') return updateToGarrison(world, s);
 
   // Moving without fighting: walk on until they arrive.
