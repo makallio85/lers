@@ -2,7 +2,7 @@ import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Matrix, Sprite, Text, Texture } from 'pixi.js';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
-  TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, isShipType, tileIndex,
+  GOOD_TYPES, isStorageBuilding, TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, isShipType, tileIndex,
   BUILDING_STRUCTURE, WAR_MACHINE_STATS, buildingLabel
 } from '../../simulation/src/index.ts';
 import type { Building, BuildingTypeId, GoodType, Settler, World } from '../../simulation/src/index.ts';
@@ -80,7 +80,16 @@ export function iso(tx: number, ty: number): { x: number; y: number } {
 /** Where a building's group stands on the map; its children are placed in map space, so its own position stays 0. */
 const cullPoints = new WeakMap<object, { x: number; y: number }>();
 
-interface BuildingView { root: Container; body: Sprite; scaffold: Sprite; mask: Graphics; marks: Graphics; label: Text; key: string }
+interface BuildingView {
+  root: Container; body: Sprite; scaffold: Sprite; mask: Graphics; marks: Graphics; label: Text; key: string;
+  /** Goods piled in the yard and soldiers on the walls, in front of the building and sorted with the settlers. */
+  piles: Container; guards: Container;
+}
+
+/** Goods drawn per pile: a pile of eight, as storage holds them. */
+const PILE_SIZE = 8;
+/** Where the items of a pile sit, in screen pixels from its foot: two layers of four. */
+const PILE_OFFSETS = [[0, 0], [7, -3], [-7, -3], [0, -6], [0, -6], [7, -9], [-7, -9], [0, -12]];
 interface SettlerView { root: Container; body: Sprite; load: Sprite; dir: number; walked: number }
 
 export class MapView {
@@ -323,9 +332,10 @@ export class MapView {
           resolution: 3
         });
         label.anchor.set(0.5, 1);
-        v = { root: new Container(), body: new Sprite(), scaffold: new Sprite(), mask: new Graphics(), marks: new Graphics(), label, key: '' };
-        v.root.addChild(v.scaffold, v.body, v.mask, v.marks, v.label);
-        this.upright.addChild(v.root);
+        v = { root: new Container(), body: new Sprite(), scaffold: new Sprite(), mask: new Graphics(), marks: new Graphics(), label, key: '',
+          piles: new Container(), guards: new Container() };
+        v.root.addChild(v.scaffold, v.body, v.mask, v.guards, v.marks, v.label);
+        this.upright.addChild(v.root, v.piles);
         this.buildingViews.set(b.id, v);
       }
       const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
@@ -347,12 +357,82 @@ export class MapView {
       } else if (v.body.mask) { v.body.mask = null; v.mask.clear(); v.mask.visible = false; }
       v.body.alpha = isRising ? 0.95 : 1;
       this.drawBuildingMarks(b, v, cx, cy, !!art, state);
+      this.drawPiles(b, v);
+      this.drawGuards(b, v, !!art);
     }
     for (const [id, v] of this.buildingViews) {
       if (alive.has(id)) continue;
+      v.piles.destroy({ children: true });
       v.root.destroy({ children: true });
       this.buildingViews.delete(id);
     }
+  }
+
+  /**
+   * The goods a building holds, piled in its yard as many as it has: what it waits to work on at the front left,
+   * what it made at the front right, a storage area's piles across its yard. A construction site shows its delivered
+   * materials. The castle keeps its goods inside.
+   */
+  private drawPiles(b: Building, v: BuildingView): void {
+    const piles: { good: GoodType; count: number }[] = [];
+    const add = (amounts: Partial<Record<GoodType, number>>) => {
+      for (const g of GOOD_TYPES) {
+        let n = amounts[g] ?? 0;
+        while (n > 0 && piles.length < 12) { piles.push({ good: g, count: Math.min(PILE_SIZE, n) }); n -= PILE_SIZE; }
+      }
+    };
+    const inputs = b.isComplete ? b.input : b.delivered;
+    if (b.typeId !== 'castle') add(inputs);
+    const inputPiles = piles.length;
+    if (b.typeId !== 'castle' && b.isComplete) add(b.stock);
+    let k = 0;
+    const want = piles.reduce((n, p) => n + p.count, 0);
+    while (v.piles.children.length < want) v.piles.addChild(new Sprite());
+    // Slots along the front edge of the yard: inputs from the left, made goods from the right; storage fills rows.
+    const isStore = b.isComplete && isStorageBuilding(b);
+    const slot = (index: number, isOutput: boolean) => {
+      if (isStore) return { x: b.x + 0.5 + (index % b.size), y: b.y + b.size - 0.55 - Math.floor(index / b.size) * 0.8 };
+      const along = isOutput ? b.x + b.size - 0.45 - (index - inputPiles) * 0.55 : b.x + 0.45 + index * 0.55;
+      return { x: along, y: b.y + b.size - 0.45 };
+    };
+    piles.forEach((p, index) => {
+      const art = this.bank.good(p.good);
+      const at = slot(index, index >= inputPiles);
+      const foot = iso(at.x, at.y);
+      for (let n = 0; n < p.count; n++) {
+        const sprite = v.piles.children[k++] as Sprite;
+        if (!art) { sprite.visible = false; continue; }
+        this.place(sprite, art, 0, 0);
+        sprite.scale.set(this.bank.scale * 0.75);
+        sprite.position.set(foot.x + PILE_OFFSETS[n][0], foot.y + PILE_OFFSETS[n][1]);
+        sprite.visible = true;
+      }
+    });
+    for (let j = k; j < v.piles.children.length; j++) v.piles.children[j].visible = false;
+    // In front of the building, sorted with the settlers walking past.
+    v.piles.zIndex = b.x + b.y + b.size + 0.1;
+  }
+
+  /** Soldiers inside a tower or castle stand on its walls, as many as are inside, up to what the top holds. */
+  private drawGuards(b: Building, v: BuildingView, hasArt: boolean): void {
+    const inside = b.isComplete && hasArt && isMilitaryBuilding(b)
+      ? b.garrison.map((id) => this.world.settlers.find((s) => s.id === id)).filter((s): s is Settler => !!s) : [];
+    const shown = inside.slice(0, b.typeId === 'castle' ? 6 : b.size >= 3 ? 4 : 2);
+    while (v.guards.children.length < shown.length) v.guards.addChild(new Sprite());
+    const top = v.body.y - v.body.anchor.y * v.body.height;
+    const race = this.raceOf(b.owner);
+    shown.forEach((s, k) => {
+      const sprite = v.guards.children[k] as Sprite;
+      const art = this.bank.settler(race, lookOf(s.settlerType), 'walk', 0, 0);
+      if (!art) { sprite.visible = false; return; }
+      this.place(sprite, art, 0, 0);
+      sprite.scale.set(this.bank.scale * 0.8);
+      // Spread across the top: a tower's platform, the castle's walls.
+      const spread = b.typeId === 'castle' ? 26 : 9;
+      sprite.position.set(v.body.x + (k - (shown.length - 1) / 2) * spread, top + (b.typeId === 'castle' ? v.body.height * 0.42 : v.body.height * 0.2));
+      sprite.visible = true;
+    });
+    for (let j = shown.length; j < v.guards.children.length; j++) v.guards.children[j].visible = false;
   }
 
   /** Owner flag at the door, garrison shields, pause sign, construction bar and name. */
@@ -404,15 +484,69 @@ export class MapView {
     }
   }
 
+  /**
+   * Where each visible settler is drawn: its position, pushed apart from others closer than their size so figures
+   * stand next to each other, never on top. War machines and ships take more room. A push never moves a figure into a
+   * building. Only drawing changes; the simulation keeps the real positions.
+   */
+  private spacedPositions(alpha: number): Map<number, { x: number; y: number }> {
+    const w = this.world;
+    const items: { id: number; x: number; y: number; r: number }[] = [];
+    for (const s of w.settlers) {
+      if (s.isInside) continue;
+      if (s.owner !== this.viewer && !canSee(w, this.viewer, s.x, s.y)) continue;
+      const r = isShipType(s.settlerType) ? 0.9 : isWarMachineType(s.settlerType) ? 0.45 : 0.22;
+      items.push({ id: s.id, x: s.prevX + (s.x - s.prevX) * alpha, y: s.prevY + (s.y - s.prevY) * alpha, r });
+    }
+    const out = new Map(items.map((it) => [it.id, { x: it.x, y: it.y }]));
+    const cells = new Map<number, number[]>();
+    items.forEach((it, k) => {
+      const key = Math.floor(it.x) * 4096 + Math.floor(it.y);
+      (cells.get(key) ?? cells.set(key, []).get(key)!).push(k);
+    });
+    for (let pass = 0; pass < 2; pass++) {
+      items.forEach((a, k) => {
+        const p = out.get(a.id)!;
+        for (let gx = Math.floor(a.x) - 1; gx <= Math.floor(a.x) + 1; gx++) {
+          for (let gy = Math.floor(a.y) - 1; gy <= Math.floor(a.y) + 1; gy++) {
+            for (const j of cells.get(gx * 4096 + gy) ?? []) {
+              if (j <= k) continue;
+              const b = items[j], q = out.get(b.id)!;
+              let dx = q.x - p.x, dy = q.y - p.y;
+              const min = a.r + b.r, d = Math.hypot(dx, dy);
+              if (d >= min) continue;
+              // Exactly on top of each other: part them sideways, the same way every frame.
+              if (d < 1e-4) { const ang = ((a.id * 7 + b.id * 13) % 16) * (Math.PI / 8); dx = Math.cos(ang); dy = Math.sin(ang); }
+              const len = Math.hypot(dx, dy), push = (min - d) / 2;
+              const ux = dx / len, uy = dy / len;
+              this.nudge(p, -ux * push, -uy * push); this.nudge(q, ux * push, uy * push);
+            }
+          }
+        }
+      });
+    }
+    return out;
+  }
+
+  /** Moves a drawn position, unless that would put it inside a building's footprint. */
+  private nudge(p: { x: number; y: number }, dx: number, dy: number): void {
+    const x = p.x + dx, y = p.y + dy, w = this.world;
+    const tx = Math.round(x), ty = Math.round(y);
+    if (tx < 0 || ty < 0 || tx >= w.width || ty >= w.height || w.footprint[tileIndex(w, tx, ty)] !== 0) return;
+    p.x = x; p.y = y;
+  }
+
   private drawSettlers(alpha: number, selected: ReadonlySet<number>, now: number): void {
     const marks = this.marks.clear();
     const bars = this.bars.clear();
     const alive = new Set<number>();
+    const shown = this.spacedPositions(alpha);
     for (const s of this.world.settlers) {
       if (s.isInside) continue;
       if (s.owner !== this.viewer && !canSee(this.world, this.viewer, s.x, s.y)) continue;
       alive.add(s.id);
-      const x = s.prevX + (s.x - s.prevX) * alpha, y = s.prevY + (s.y - s.prevY) * alpha;
+      const at = shown.get(s.id)!;
+      const x = at.x, y = at.y;
       const tx = x + 0.5, ty = y + 0.5;
       // Owner colour as a soft disc on the ground under every settler, a white ring when selected.
       const gx = tx * TILE, gy = ty * TILE;
@@ -487,7 +621,8 @@ export class MapView {
     v.load.visible = !!good;
     if (good) {
       this.place(v.load, good, 0, 0);
-      v.load.scale.set(this.bank.scale * 0.8);
+      // Large enough to tell what is carried at normal zoom.
+      v.load.scale.set(this.bank.scale * (s.settlerType === 'donkey' ? 1.3 : 1.5));
       const fx = Math.sin(v.dir * Math.PI / 4), fy = Math.cos(v.dir * Math.PI / 4);
       const front = iso(fx * 0.12, fy * 0.12);
       // A donkey's load sits on its back; a carrier's in its hands; others carry it above the head.

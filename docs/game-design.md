@@ -180,6 +180,16 @@ Issue #12, phase 6, following the manual.
   - Trade ships and caravans unload at the player's storage near the route's end, or, without one, into the construction site there that still needs the good. That is how a colony's first storage area gets its planks and stone; what the site does not need goes back.
 - **Computer player:** on islands it builds a shipyard once it has barracks, orders a transport ship, and ferries an attack's worth of soldiers toward the enemy side, scouting by sea until it sees a shore there. Landed soldiers attack from where they stand; soldiers at home defend and wait for the ship. It does not build trade ships or colonies yet.
 
+## Showing the settlement
+
+The map shows what the simulation holds, so a player can read the settlement without opening cards.
+
+- **Standing settlers keep a tile each.** A soldier, war machine, specialist or priest standing still on a tile another one holds, or in a doorway, steps to the nearest free tile, so groups stand next to each other. The one with the lower id keeps its place, the same for every player.
+- **Walkers are drawn apart.** Settlers closer than their size are drawn pushed apart, never into a building; war machines and ships take more room. Only the drawing moves, not the simulation.
+- **Goods lie where they are.** A building's goods are piled in its yard, one item per good up to piles of eight: what it waits to work on at the front left, what it made at the front right. Storage areas show their piles across the yard, and construction sites show their delivered materials. The castle keeps its goods inside.
+- **Carried goods** are drawn large enough to tell what each carrier and donkey carries.
+- **Garrisons stand on the walls:** the soldiers inside a tower or castle, by type, up to two on a small tower, four on a large one and six on the castle.
+
 ## Pace
 
 At 1× the game runs at the pace of The Settlers III at normal speed, which has no speed setting of its own. These values were timed by watching the original run (screenshots and a stopwatch, nothing decompiled), on 2026-10-25:
