@@ -1,9 +1,9 @@
 import type { BotType } from './bot.ts';
 import {
-  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
+  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, buildingCost, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, DEPOSIT_SULFUR, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
   consumersOf, distributedGoods, emptyGoods, isSoldierType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, SettlerType } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SettlerType } from './definitions.ts';
 import { createRandom } from './random.ts';
 
 export const TICKS_PER_SECOND = 10;
@@ -138,6 +138,8 @@ export interface PlayerState {
   isBot: boolean;
   /** How this player's built-in bot plays; unused for human players. */
   botType: BotType;
+  /** The player's people: their building costs and the buildings only they have. */
+  raceType: RaceType;
   isEliminated: boolean;
   /** All goods, carried first to last. */
   transportPriority: GoodType[];
@@ -247,6 +249,11 @@ export function nextRandom(world: World): number {
   const value = random.next();
   world.randomState = random.state;
   return value;
+}
+
+/** What this building costs its owner, whose race sets the price. */
+export function siteCost(world: World, b: Building): Partial<GoodAmounts> {
+  return buildingCost(b.typeId, playerOf(world, b.owner)?.raceType ?? 'romans');
 }
 
 export function isStorageBuilding(b: Building): boolean {
@@ -360,7 +367,7 @@ export function recomputeTerritory(world: World): void {
 export const DEFAULT_MIN_CARRIER_PERCENT = 30;
 export const DEFAULT_MAX_CREW_PERCENT = 25;
 
-export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'aggressive'): PlayerState {
+export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'aggressive', raceType: RaceType = 'romans'): PlayerState {
   const isStored = {} as Record<GoodType, boolean>;
   for (const good of GOOD_TYPES) isStored[good] = true;
   const productionShares: Partial<Record<GoodType, number>> = {};
@@ -372,9 +379,10 @@ export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'ag
     for (const consumer of consumersOf(good)) distribution[good]![consumer] = 5;
   }
   return {
-    id, isBot, botType, isEliminated: false,
+    id, isBot, botType, raceType, isEliminated: false,
     transportPriority: ['plank', 'stone', 'log', ...TOOL_TYPES, ...WEAPON_TYPES, 'coal', 'iron_ore', 'iron', 'gold_ore', 'gold',
-      'water', 'grain', 'flour', 'bread', 'fish', 'pig', 'meat'],
+      'water', 'grain', 'flour', 'bread', 'fish', 'pig', 'meat', 'rice', 'honey', 'sulfur', 'gems', 'gunpowder',
+      'wine', 'beer', 'rice_wine', 'mead'],
     isStored, productionOrders: {}, productionShares, productionCredit: {}, distribution, distributionCount: {},
     isRecruitingAutomatic: true, recruitsLeft: 0, minCarrierPercent: DEFAULT_MIN_CARRIER_PERCENT, maxCrewPercent: DEFAULT_MAX_CREW_PERCENT,
     stats: { buildingsBuilt: 0, soldiersRecruited: 0, soldiersLost: 0, towersTaken: 0, planksMade: 0, breadBaked: 0, largestTerritory: 0 }
@@ -388,17 +396,22 @@ export interface CreateWorldOptions {
   /** 1: sandbox. 2: a match against a computer player on a mirrored map. */
   playerCount?: 1 | 2;
   botType?: BotType;
+  /** The people of each player, in player order; Romans when not given. */
+  raceTypes?: readonly RaceType[];
 }
 
 export const STARTING_STOCK: Partial<GoodAmounts> = {
   log: 8, plank: 40, stone: 40, axe: 5, saw: 3, pick: 5, scythe: 4, rod: 2, hammer: 3, shovel: 2, bread: 4, fish: 4
 };
+/** Share of planks in each people's buildings (the rest is stone), from the manual: Romans 44:56, Egyptians 31:69, Asians 75:25, Amazons 59:41. Romans start even. */
+const RACE_PLANK_SHARE: Record<RaceType, number> = { romans: 0.5, egyptians: 0.31, asians: 0.75, amazons: 0.59 };
+
 export const STARTING_SETTLERS: Partial<Record<SettlerType, number>> = {
   carrier: 20, digger: 3, builder: 4, swordsman: 3, spearman: 1, bowman: 2
 };
 
 /** Creates a seeded map: a sandbox for one player, or a mirrored two-player match. */
-export function createWorld({ seed = 1, width, height, playerCount = 1, botType = 'aggressive' }: CreateWorldOptions = {}): World {
+export function createWorld({ seed = 1, width, height, playerCount = 1, botType = 'aggressive', raceTypes = [] }: CreateWorldOptions = {}): World {
   const w = width ?? (playerCount === 2 ? 144 : 96);
   const h = height ?? 96;
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new RangeError('seed must be a uint32');
@@ -406,7 +419,7 @@ export function createWorld({ seed = 1, width, height, playerCount = 1, botType 
     throw new RangeError('map size must be between 48 and 512 tiles');
   }
   const n = w * h;
-  const players = Array.from({ length: playerCount }, (_, k) => defaultPlayer(k, k > 0, botType));
+  const players = Array.from({ length: playerCount }, (_, k) => defaultPlayer(k, k > 0, botType, raceTypes[k] ?? 'romans'));
   const world: World = {
     seed, tick: 0, width: w, height: h,
     terrain: new Uint8Array(n), tree: new Int16Array(n).fill(NO_TREE), field: new Int16Array(n).fill(NO_FIELD),
@@ -466,7 +479,11 @@ function generateTerrain(world: World): void {
     if (world.terrain[i] === TERRAIN_MOUNTAIN) {
       if (r < 0.25) world.rock[i] = ROCK_STONE;
       // Gold is the rarest ore, found where the ore is richest.
-      else if (ore[i] > 0.4) setDeposit(world, i, ore[i] > 0.78 ? DEPOSIT_GOLD : ore[i] > 0.62 ? DEPOSIT_IRON : DEPOSIT_COAL);
+      else if (ore[i] > 0.4) {
+        // Some richer veins hold gems or sulfur instead, for the peoples who mine them.
+        const vein = random.next();
+        setDeposit(world, i, ore[i] > 0.78 ? (vein < 0.4 ? DEPOSIT_GEMS : DEPOSIT_GOLD) : ore[i] > 0.62 ? (vein < 0.3 ? DEPOSIT_SULFUR : DEPOSIT_IRON) : DEPOSIT_COAL);
+      }
     }
     else if (world.terrain[i] === TERRAIN_GRASS && forest[i] > 0.58 && r < 0.6) world.tree[i] = TREE_MATURE;
     else if (world.terrain[i] === TERRAIN_GRASS && r < 0.012) world.rock[i] = ROCK_STONE;
@@ -534,7 +551,10 @@ function prepareStart(world: World, x: number, y: number): void {
   forEachNear(mountain, 5, (i, d) => {
     world.terrain[i] = TERRAIN_MOUNTAIN; world.tree[i] = NO_TREE; world.rock[i] = 0;
     const isFarSide = Math.hypot((i % world.width) + 0.5 - centreX, Math.floor(i / world.width) + 0.5 - centreY) > radius + 2;
-    setDeposit(world, i, d < 2.2 ? DEPOSIT_IRON : d > 3.8 && isFarSide ? DEPOSIT_GOLD : DEPOSIT_COAL);
+    // A few tiles of gems and sulfur at the near edge, so every people finds what it mines.
+    const tx = i % world.width;
+    const edge = d > 3.8 ? (isFarSide ? DEPOSIT_GOLD : tx % 2 === 0 ? DEPOSIT_SULFUR : DEPOSIT_GEMS) : null;
+    setDeposit(world, i, d < 2.2 ? DEPOSIT_IRON : edge ?? DEPOSIT_COAL);
   });
   forEachNear(pond, 2.4, (i) => { world.terrain[i] = TERRAIN_WATER; world.tree[i] = NO_TREE; world.rock[i] = 0; setDeposit(world, i, DEPOSIT_NONE); });
   forEachNear(grove, 4, (i) => { if (world.terrain[i] === TERRAIN_GRASS && random.next() < 0.7) { world.tree[i] = TREE_MATURE; world.rock[i] = 0; } });
@@ -566,6 +586,11 @@ function placeCastle(world: World, owner: number, x: number, y: number): void {
   castle.levelProgress = 1;
   castle.buildProgress = 1;
   for (const good of GOOD_TYPES) castle.stock[good] = STARTING_STOCK[good] ?? 0;
+  // Planks and stone follow the people's building needs, as in the manual's balance per race; the total stays the same.
+  const race = playerOf(world, owner)?.raceType ?? 'romans';
+  const total = (STARTING_STOCK.plank ?? 0) + (STARTING_STOCK.stone ?? 0);
+  castle.stock.plank = Math.round(total * RACE_PLANK_SHARE[race]);
+  castle.stock.stone = total - castle.stock.plank;
   for (const [type, count] of Object.entries(STARTING_SETTLERS) as [SettlerType, number][]) {
     for (let i = 0; i < count; i++) {
       const s = newSettler(world, owner, type, castle.doorX, castle.doorY);

@@ -1,12 +1,17 @@
-import { BUILDING_TYPES, GOOD_TYPES, SETTLER_LABELS, TOOL_TYPES, WEAPON_TYPES, consumersOf } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType } from './definitions.ts';
+import { BUILDING_TYPES, GOOD_TYPES, RACE_TYPES, SETTLER_LABELS, TOOL_TYPES, WEAPON_TYPES, consumersOf } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, RaceType } from './definitions.ts';
 import { FIELD_RIPE, TREE_MATURE, recomputeTerritory, tileIndex } from './world.ts';
 import { BOT_TYPES } from './bot.ts';
 import type { BotType } from './bot.ts';
 import type { Building, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
+
+function raceType(value: unknown): RaceType {
+  if (typeof value !== 'string' || !(RACE_TYPES as readonly string[]).includes(value)) fail('a people is unknown');
+  return value as RaceType;
+}
 
 function botType(value: unknown): BotType {
   if (typeof value !== 'string' || !(BOT_TYPES as readonly string[]).includes(value)) fail('a bot type is unknown');
@@ -149,7 +154,7 @@ export function loadGame(data: unknown): World {
     const stats = {} as PlayerStats;
     for (const key of STAT_KEYS) stats[key] = int(raw.stats[key], 0, Number.MAX_SAFE_INTEGER, `statistic ${key}`);
     return {
-      id: int(raw.id, k, k, 'player id'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), isEliminated: bool(raw.isEliminated, 'player state'),
+      id: int(raw.id, k, k, 'player id'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), raceType: raceType(raw.raceType), isEliminated: bool(raw.isEliminated, 'player state'),
       transportPriority: order.map((g) => good(g, 'priority entry')), isStored,
       productionOrders: goodRecord(raw.productionOrders, MADE_GOODS, (v, w) => int(v, 0, 99, w), 'production orders'),
       productionShares: goodRecord(raw.productionShares, MADE_GOODS, (v, w) => int(v, 0, 10, w), 'production shares'),
@@ -234,7 +239,7 @@ export function loadGame(data: unknown): World {
     tree: Int16Array.from(intArray(data.tree, n, -1, TREE_MATURE, 'trees')),
     field: Int16Array.from(intArray(data.field, n, -1, FIELD_RIPE, 'fields')),
     rock: Uint8Array.from(intArray(data.rock, n, 0, 255, 'rocks')),
-    deposit: Uint8Array.from(intArray(data.deposit, n, 0, 3, 'deposits')),
+    deposit: Uint8Array.from(intArray(data.deposit, n, 0, 5, 'deposits')),
     depositAmount: Uint8Array.from(intArray(data.depositAmount, n, 0, 255, 'deposit amounts')),
     claim: Int32Array.from(intArray(data.claim, n, 0, nextId, 'claims')),
     vision: data.vision.map((v: unknown) => Uint8Array.from(intArray(v, n, 0, 2, 'fog of war'))),

@@ -1,6 +1,6 @@
 import { BUILDING_TYPES, isSoldierType, isSpecialistType } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, SettlerType } from './definitions.ts';
-import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, tileIndex } from './world.ts';
+import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, siteCost, tileIndex } from './world.ts';
 import type { PlayerState, World } from './world.ts';
 
 const BUILDING_SIGHT = 7;
@@ -121,8 +121,8 @@ export function observe(world: World, playerId: number): Observation {
         ...seen, stock: { ...b.stock }, input: { ...b.input }, blockedReason: b.blockedReason, workerId: b.workerId,
         garrisonWanted: b.garrisonWanted, residentsLeft: b.residentsLeft,
         materialsOwed: b.isComplete ? { plank: 0, stone: 0 } : {
-          plank: Math.max(0, (BUILDING_TYPES[b.typeId].cost.plank ?? 0) - b.delivered.plank - b.built.plank),
-          stone: Math.max(0, (BUILDING_TYPES[b.typeId].cost.stone ?? 0) - b.delivered.stone - b.built.stone)
+          plank: Math.max(0, (siteCost(world, b).plank ?? 0) - b.delivered.plank - b.built.plank),
+          stone: Math.max(0, (siteCost(world, b).stone ?? 0) - b.delivered.stone - b.built.stone)
         }
       });
     } else if (canSee(world, playerId, b.doorX, b.doorY) || canSee(world, playerId, b.x + b.size / 2, b.y + b.size / 2)) {

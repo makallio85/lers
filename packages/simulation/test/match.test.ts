@@ -158,7 +158,7 @@ test('surrender ends the match; finished matches refuse commands', () => {
 });
 
 test('two built-in bots play a whole match to a winner on a small map', () => {
-  const world = createMatch(4, 'aggressive', 'small');
+  const world = createMatch(7, 'aggressive', 'small', 'romans', 'romans');
   assert.equal(world.width, 96);
   world.players[0].isBot = true;
   for (let t = 0; t < 50 * 600 && world.winner === null; t++) stepMatch(world);

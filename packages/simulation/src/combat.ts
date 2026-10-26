@@ -19,11 +19,17 @@ export const THIEF_SPOT_RANGE = 3;
 /** A castle warns its owner at most this often while under attack. */
 const CASTLE_WARNING_TICKS = 600;
 
-/** Gold bars in the player's storage, which set its soldiers' strength outside its own land. */
+/**
+ * The treasure that sets a player's soldiers' strength outside its own land, counted in gold bars: gold in
+ * storage, and for the Egyptians, as in the original, gold at half value and gems at double.
+ */
 export function storedGold(world: World, owner: number): number {
-  let gold = 0;
-  for (const b of world.buildings) if (b.owner === owner && b.isComplete && BUILDING_TYPES[b.typeId].storageCapacity > 0) gold += b.stock.gold;
-  return gold;
+  let gold = 0, gems = 0;
+  for (const b of world.buildings) {
+    if (b.owner !== owner || !b.isComplete || BUILDING_TYPES[b.typeId].storageCapacity === 0) continue;
+    gold += b.stock.gold; gems += b.stock.gems;
+  }
+  return world.players[owner]?.raceType === 'egyptians' ? gold / 2 + gems * 2 : gold;
 }
 
 /** How hard a soldier hits: always fully on its own land, outside it by the gold its owner has. */

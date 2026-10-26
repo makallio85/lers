@@ -1,4 +1,4 @@
-import { BUILDING_TYPES, GOOD_NAMES, TOOL_TYPES, isSoldierType, mapSizeTypeOf } from './definitions.ts';
+import { BUILDING_TYPES, GOOD_NAMES, TOOL_TYPES, buildingCost, isBuildableBy, isSoldierType, mapSizeTypeOf } from './definitions.ts';
 import type { BuildingTypeId, GoodType, MapSizeType, ToolType } from './definitions.ts';
 import type { Command } from './commands.ts';
 import type { ObservedBuilding, Observation, OwnBuilding } from './vision.ts';
@@ -81,6 +81,11 @@ const BUILD_PLAN: readonly BuildingTypeId[] = [
   'weaponsmith', 'sawmill', 'farm', 'stonecutter'
 ];
 
+/** Buildings each tool must be saved for until they stand: without them the settlement cannot make more tools. */
+const KEY_TOOL_USERS: Partial<Record<ToolType, readonly BuildingTypeId[]>> = {
+  pick: ['coal_mine', 'iron_mine'], axe: ['slaughterhouse'], hammer: ['toolsmith', 'weaponsmith'], saw: ['sawmill'], scythe: ['farm'], rod: ['fisher']
+};
+
 const NEEDS: Partial<Record<BuildingTypeId, SpotNeed>> = {
   woodcutter: 'trees', forester: 'trees', stonecutter: 'rocks', waterworks: 'water', fisher: 'water',
   coal_mine: 'deposit_coal', iron_mine: 'deposit_iron', gold_mine: 'deposit_gold', farm: 'free_land', pig_farm: 'free_land'
@@ -120,9 +125,16 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const count = (t: BuildingTypeId) => obs.ownBuildings.filter((b) => b.typeId === t).length;
   const storedGood = (good: GoodType) => obs.ownBuildings.reduce((sum, b) => sum + (BUILDING_TYPES[b.typeId].storageCapacity > 0 ? b.stock[good] : 0), 0);
   const stored = (good: ToolType) => obs.ownBuildings.reduce((sum, b) => sum + (BUILDING_TYPES[b.typeId].storageCapacity > 0 ? b.stock[good] : 0), 0);
+  // Keep back one of each tool for every key building that still has to come, so extra gatherers do not
+  // take the picks the mines need (and with them the iron that would make new tools).
+  // Key buildings themselves need just one tool in storage.
+  const reserveOf = (tool: ToolType, forType: BuildingTypeId) => (KEY_TOOL_USERS[tool] ?? []).includes(forType) ? 0
+    : (KEY_TOOL_USERS[tool] ?? []).filter((k) => count(k) === 0 && isBuildableBy(k, obs.player.raceType)).length;
   const hasToolFor = (t: BuildingTypeId) => {
     const tool = BUILDING_TYPES[t].tool;
-    return !tool || stored(tool) > 0 || count('toolsmith') > 0 && obs.ownBuildings.some((b) => b.typeId === 'toolsmith' && b.isComplete);
+    if (!tool) return true;
+    const hasToolsmith = obs.ownBuildings.some((b) => b.typeId === 'toolsmith' && b.isComplete);
+    return stored(tool) > reserveOf(tool, t) || hasToolsmith;
   };
 
   for (const b of obs.ownBuildings) {
@@ -138,7 +150,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   // Materials not yet promised to a site; a new site must be covered by them, or it would wait forever.
   const spare = (good: 'plank' | 'stone') => storedGood(good) - sites.reduce((sum, b) => sum + b.materialsOwed[good], 0);
   const place = (typeId: BuildingTypeId, need: SpotNeed): boolean => {
-    const cost = BUILDING_TYPES[typeId].cost;
+    const cost = buildingCost(typeId, obs.player.raceType);
     if ((cost.plank ?? 0) > spare('plank') || (cost.stone ?? 0) > spare('stone')) return false;
     const spot = spots.findSpot(typeId, need, towardX);
     if (!spot) return false;
@@ -182,7 +194,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     const mines = obs.ownBuildings.filter((b) => BUILDING_TYPES[b.typeId].mine).length;
     if (!isDone && hungryMines > 0 && !isFoodComing && foodBuildings < mines * 3 + 4) {
       for (const typeId of FOOD_CHAIN) {
-        if (!isUseful(typeId, count) || !hasToolFor(typeId)) continue;
+        if (!isBuildableBy(typeId, obs.player.raceType) || !isUseful(typeId, count) || !hasToolFor(typeId)) continue;
         if (place(typeId, NEEDS[typeId] ?? 'castle')) { isDone = true; note(`feed ${hungryMines} hungry mines`); break; }
       }
     }
@@ -190,7 +202,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       const planned = new Map<BuildingTypeId, number>();
       for (const typeId of BUILD_PLAN) {
         planned.set(typeId, (planned.get(typeId) ?? 0) + 1);
-        if (count(typeId) >= planned.get(typeId)! || !isUseful(typeId, count) || !hasToolFor(typeId)) continue;
+        if (!isBuildableBy(typeId, obs.player.raceType) || count(typeId) >= planned.get(typeId)! || !isUseful(typeId, count) || !hasToolFor(typeId)) continue;
         if (place(typeId, NEEDS[typeId] ?? 'castle')) break;
       }
     }

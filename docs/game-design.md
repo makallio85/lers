@@ -78,6 +78,26 @@ These follow The Settlers III as described in its manual (issue #12, phase 2).
 - **Thief:** a free carrier becomes a thief without a tool. Sent near an enemy store, it takes one good and carries it home at half speed. It prefers gold, then weapons, iron and tools. To the enemy it looks like a carrier until an enemy soldier comes within 3 tiles. Soldiers then attack it like a soldier, and it survives about two hits.
 - **Ranks and promotion** cost manna in the original, so they come with temples in phase 4.
 
+## Peoples
+
+The four peoples of the original game (issue #12, phase 3; the owner chose to follow the original four). Rules and numbers come from the manual. Names of buildings are ordinary words, and all art, sounds and texts are our own.
+
+- **Costs:** every shared building costs planks and stone per people, from the manual's table. The overall plank-to-stone shares are Romans 44:56, Egyptians 31:69, Asians 75:25 and Amazons 59:41. Starting planks and stone follow those shares, 80 in total: Romans 40/40, Egyptians 25/55, Asians 60/20, Amazons 47/33.
+- **Buildings only some peoples have:**
+
+| People | Buildings |
+|---|---|
+| Romans | Winery (makes wine), charcoal maker (5 planks → 1 coal, as the manual says) |
+| Egyptians | Brewery (grain + water → beer), gem mine (fish preferred) |
+| Asians | Rice farm (beside water; the original needs swamp, which our maps do not have yet), distillery (rice + water → rice wine), sulfur mine (rice preferred), gunpowder maker (coal + sulfur → gunpowder) |
+| Amazons | Beekeeper (makes honey), mead maker (honey + water → mead), alchemist (sulfur + gems → gold), gem mine, sulfur mine (honey preferred) |
+
+- **Sulfur miners** eat rice, honey or bread, never meat or fish.
+- **Egyptians' strength:** gold counts half and gems double toward strength outside their own land.
+- **Choosing a people:** the player picks one when starting a match. The computer plays another one, chosen from the map seed.
+- **What the drinks are for:** wine, beer, rice wine and mead feed the temples in phase 4. Gunpowder feeds the cannon in the war machine step.
+- **Balance:** this is not tuned yet. In 8 bot-vs-bot matches per pair on small maps, Romans beat Egyptians 5:3 and Asians 6:2, and lost to Amazons 1:7. Playtests should guide the tuning.
+
 ## Pace
 
 At 1× the game runs at the pace of The Settlers III at normal speed, which has no speed setting of its own. These values were timed by watching the original run (screenshots and a stopwatch, nothing decompiled), on 2026-10-25:

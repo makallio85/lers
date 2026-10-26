@@ -1,13 +1,13 @@
 import {
   BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_REACH,
-  consumersOf, isSoldierType, isSpecialistType
+  RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType
 } from './definitions.ts';
 import type { BuildingTypeId, GoodType, SpecialistType, ToolType } from './definitions.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
 import { hasExplored, hasExploredBuilding } from './vision.ts';
 import {
   TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, buildingById, castleOf, claimsTerritory, inBounds, isMilitaryBuilding, isWalkable,
-  newBuilding, playerOf, pushMessage, recomputeTerritory, removeBuilding, tileIndex
+  newBuilding, playerOf, pushMessage, recomputeTerritory, removeBuilding, siteCost, tileIndex
 } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
 
@@ -94,6 +94,8 @@ function hasWaterNearby(world: World, x: number, y: number, size: number): boole
 export function groundProblem(world: World, playerId: number, buildingType: BuildingTypeId, x: number, y: number): string | null {
   const type = BUILDING_TYPES[buildingType];
   if (!type.isAvailable) return `${type.label} is not available yet`;
+  const race = playerOf(world, playerId)?.raceType ?? 'romans';
+  if (!isBuildableBy(buildingType, race)) return `Only the ${type.races!.map((r) => RACE_SETTINGS[r].label).join(' and ')} build this`;
   const size = type.size;
   const doorX = x + Math.floor(size / 2), doorY = y + size;
   if (!inBounds(world, x, y) || !inBounds(world, x + size - 1, doorY)) return 'Too close to the map edge';
@@ -421,7 +423,7 @@ function demolish(world: World, b: Building): void {
   const castle = castleOf(world, b.owner)!;
   const type = BUILDING_TYPES[b.typeId];
   for (const good of GOOD_TYPES) {
-    const materials = b.isComplete ? (type.cost[good] ?? 0) : b.delivered[good] + b.built[good];
+    const materials = b.isComplete ? (siteCost(world, b)[good] ?? 0) : b.delivered[good] + b.built[good];
     castle.stock[good] += Math.floor(materials * DEMOLISH_REFUND) + b.stock[good] + b.input[good];
   }
   const garrison = new Set(b.garrison);
