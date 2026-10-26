@@ -87,8 +87,10 @@ const cullPoints = new WeakMap<object, { x: number; y: number }>();
 
 interface BuildingView {
   root: Container; body: Sprite; scaffold: Sprite; mask: Graphics; marks: Graphics; label: Text; key: string;
-  /** Goods piled in the yard and soldiers on the walls, in front of the building and sorted with the settlers. */
-  piles: Container; guards: Container;
+  /** Goods piled in the yard, each sorted with the settlers by where it lies, so one walking over it stays in front. */
+  piles: Sprite[];
+  /** Soldiers on the walls. */
+  guards: Container;
   /** A mill's sails, turning while the miller works. */
   sails: Sprite;
   /** When the building left the world and began to collapse, and where its sprite stood then. */
@@ -167,6 +169,8 @@ export class MapView {
   private readonly marks = new Graphics();
   /** Outlines on the ground (the selected building's footprint): drawn under the buildings, so a building hides the part behind it. */
   private readonly groundOutlines = new Graphics();
+  /** Sites being levelled: bare earth on the ground, under the diggers working on it. */
+  private readonly siteGround = new Graphics();
   private readonly fog = new Sprite();
   private readonly overlay = new Graphics();
   /** Upright things (buildings, trees, settlers) sorted front to back. */
@@ -198,7 +202,7 @@ export class MapView {
     const m = new Matrix(ISO_W / 2 / TILE, ISO_H / 2 / TILE, -ISO_W / 2 / TILE, ISO_H / 2 / TILE, 0, 0);
     this.groundBase.setFromMatrix(m);
     this.groundTop.setFromMatrix(m);
-    this.groundBase.addChild(this.terrain, this.territory, this.flats, this.marks, this.groundOutlines);
+    this.groundBase.addChild(this.terrain, this.territory, this.flats, this.siteGround, this.marks, this.groundOutlines);
     this.groundTop.addChild(this.fog, this.overlay);
     this.upright.sortableChildren = true;
     this.ghostSprite.alpha = 0.6;
@@ -386,6 +390,7 @@ export class MapView {
   private drawBuildings(state: ViewState): void {
     const { world } = this;
     const alive = new Set<number>();
+    this.siteGround.clear();
     for (const b of world.buildings) {
       if (!this.isBuildingVisible(b)) continue;
       alive.add(b.id);
@@ -397,17 +402,15 @@ export class MapView {
         });
         label.anchor.set(0.5, 1);
         v = { root: new Container(), body: new Sprite(), scaffold: new Sprite(), mask: new Graphics(), marks: new Graphics(), label, key: '',
-          piles: new Container(), guards: new Container(), sails: new Sprite() };
+          piles: [], guards: new Container(), sails: new Sprite() };
         v.root.addChild(v.scaffold, v.body, v.sails, v.mask, v.guards, v.marks, v.label);
-        this.upright.addChild(v.root, v.piles);
+        this.upright.addChild(v.root);
         this.buildingViews.set(b.id, v);
       }
       const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
       v.root.zIndex = cx + cy;
       v.foot = { x: cx, y: cy };
       cullPoints.set(v.root, iso(cx, cy));
-      // The piles lie around the building, in map space: they are culled with it.
-      cullPoints.set(v.piles, iso(cx, cy));
       // While it rises the building has no shadow yet; it gets its full shadow once it is finished.
       const art = b.isComplete ? this.bank.building(this.raceOf(b.owner), b.typeId) : this.bank.buildingWithoutShadow(this.raceOf(b.owner), b.typeId);
       const scaffoldArt = this.bank.scaffold(b.size);
@@ -440,7 +443,8 @@ export class MapView {
         v.collapsedAt ??= now;
         const t = (now - v.collapsedAt) / COLLAPSE_MS;
         if (t < 1) {
-          v.piles.visible = false; v.guards.visible = false; v.label.visible = false; v.scaffold.visible = false; v.sails.visible = false;
+          for (const p of v.piles) p.visible = false;
+          v.guards.visible = false; v.label.visible = false; v.scaffold.visible = false; v.sails.visible = false;
           v.collapseY ??= v.body.y;
           const h = v.body.height;
           // Sinks fast at first, then settles; fades in the second half.
@@ -460,7 +464,7 @@ export class MapView {
           continue;
         }
       }
-      v.piles.destroy({ children: true });
+      for (const p of v.piles) p.destroy();
       v.root.destroy({ children: true });
       this.buildingViews.delete(id);
     }
@@ -496,7 +500,7 @@ export class MapView {
     } else if (b.isComplete) add(b.stock);
     let k = 0;
     const want = piles.reduce((n, p) => n + p.count, 0);
-    while (v.piles.children.length < want) v.piles.addChild(new Sprite());
+    while (v.piles.length < want) { const sprite = new Sprite(); v.piles.push(sprite); this.upright.addChild(sprite); }
     // Slots along the front edge of the yard: inputs from the left, made goods from the right; storage fills rows;
     // the castle's stockpile lies around it on the ground, nearest its door first.
     const heaps = isCastle ? this.castleHeaps(b) : [];
@@ -521,7 +525,9 @@ export class MapView {
       const at = slot(index, index >= inputPiles);
       const foot = iso(at.x, at.y);
       for (let n = 0; n < p.count; n++) {
-        const sprite = v.piles.children[k++] as Sprite;
+        const sprite = v.piles[k++];
+        // A settler standing on the pile's spot is drawn in front of it, one on the tile behind it is not.
+        sprite.zIndex = at.x + at.y - 0.4;
         if (!art) { sprite.visible = false; continue; }
         this.place(sprite, art, 0, 0);
         sprite.scale.set(this.bank.scale * 0.75);
@@ -529,9 +535,7 @@ export class MapView {
         sprite.visible = true;
       }
     });
-    for (let j = k; j < v.piles.children.length; j++) v.piles.children[j].visible = false;
-    // In front of the building, sorted with the settlers walking past.
-    v.piles.zIndex = b.x + b.y + b.size + 0.1;
+    for (let j = k; j < v.piles.length; j++) v.piles[j].visible = false;
   }
 
   private readonly heaps = new Map<number, { x: number; y: number }[][]>();
@@ -613,9 +617,8 @@ export class MapView {
     const base = iso(cx, cy);
     const top = hasArt ? v.body.y - v.body.anchor.y * v.body.height : base.y - 30;
     if (!b.isComplete && b.levelProgress < 1) {
-      // The site being levelled: bare earth that darkens as the diggers finish.
-      const corners = [iso(b.x, b.y), iso(b.x + b.size, b.y), iso(b.x + b.size, b.y + b.size), iso(b.x, b.y + b.size)];
-      g.poly(corners.flatMap((p) => [p.x, p.y])).fill({ color: 0x6a4a2a, alpha: 0.25 + 0.45 * b.levelProgress });
+      // The site being levelled: bare earth that darkens as the diggers finish, on the ground under them.
+      this.siteGround.rect(b.x * TILE, b.y * TILE, b.size * TILE, b.size * TILE).fill({ color: 0x6a4a2a, alpha: 0.25 + 0.45 * b.levelProgress });
     } else if (!hasArt) {
       // Without art: the old flat box, in iso.
       const corners = [iso(b.x, b.y), iso(b.x + b.size, b.y), iso(b.x + b.size, b.y + b.size), iso(b.x, b.y + b.size)];
