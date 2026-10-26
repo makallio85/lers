@@ -194,7 +194,7 @@ The map shows what the simulation holds, so a player can read the settlement wit
   - A workshop's goods lie in its yard: what it waits to work on at the front left, what it made at the front right.
   - A storage area's piles fill its yard.
   - A construction site's delivered materials wait in the open along its right front edge, until a builder uses them.
-  - The castle's stock is the starting stockpile, piled on the ground around its two front sides, as in The Settlers III.
+  - The castle's stock is the starting stockpile, on the ground in front of it in four heaps: wood beside the door, stone and what mines bring, food and drink, and tools and weapons along the right-hand wall. A full heap spills into the next.
 - **Work areas** of the woodcutter, stonecutter, forester and farmer may reach past the border: the worker uses the part on the player's own land, so some of it must be.
 - **Geologists' signs** stand on the mountain where they looked: a post with a flag in the ore's colour (coal black, iron steel, gold yellow, gems blue, sulfur green-yellow), or a bare cross-piece where there is no ore.
 - **Demolishing your own tower keeps its land:** the land it held stays yours, like land pioneers claimed, until an enemy tower takes it. A tower captured or destroyed by the enemy loses its land as before.
