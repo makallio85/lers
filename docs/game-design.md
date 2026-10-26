@@ -148,6 +148,18 @@ Issue #12, phase 4. The roles follow the manual; the names, numbers and effects 
   - Each rank adds 25 % health and damage.
 - **Computer player:** after the barracks it builds its people's drink maker and a small temple, and later a large temple. It promotes whenever it has the manna. In two 60–81 minute bot matches on medium maps, every people reached sergeant or captain. Its priests follow the army. In a fight near a priest, manna goes to spells first: Persuade on three or more enemies, Freeze on two, Fury or Shield on its own soldiers. Once every soldier type is a captain, spare manna goes to Blight on enemy mines in sight, Harvest at home, or Far sight toward the enemy. In three long bot matches priests cast only now and then, because they seldom reach a fight in time.
 
+## Trade
+
+Issue #12, phase 5, following the manual.
+
+- **Carriers stay on their own land.** Civilians walk only on their own territory, and goods only move between buildings on the same connected stretch of it. Soldiers, specialists, priests, thieves and donkeys may leave it. A colony cut off by neutral or enemy land is supplied by caravans.
+- **Donkey ranch:** a breeder raises a donkey from one grain and one water every minute, while the ranch has fewer than four waiting.
+- **Marketplace:** one land route per marketplace. The route's end can be anywhere on the map, with up to three waypoints on explored land before it.
+  - For each good the player sets an amount to send, in steps of a donkey's load (8), or "All".
+  - Carriers bring the goods to the marketplace in one of the original's three modes: only surplus (each storage keeps 8 of each good), ahead of construction sites, or suspended.
+  - Up to four donkeys work for a marketplace. Each carries 8 of one good along the route, across any land, unloads at the player's storage within 12 tiles of the route's end, and comes back. Without a storage there, it brings the load back and warns.
+- **Computer player:** it does not trade yet. Its settlements grow in one piece.
+
 ## Pace
 
 At 1× the game runs at the pace of The Settlers III at normal speed, which has no speed setting of its own. These values were timed by watching the original run (screenshots and a stopwatch, nothing decompiled), on 2026-10-25:

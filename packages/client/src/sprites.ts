@@ -15,7 +15,7 @@ interface Manifest {
 export type SettlerLook =
   | 'carrier' | 'builder' | 'digger' | 'woodcutter' | 'stonecutter' | 'farmer' | 'fisher' | 'worker'
   | 'geologist' | 'pioneer' | 'thief' | 'swordsman' | 'spearman' | 'bowman'
-  | 'catapult' | 'ballista' | 'cannon' | 'war_gong' | 'priest';
+  | 'catapult' | 'ballista' | 'cannon' | 'war_gong' | 'priest' | 'donkey';
 export type SettlerAnim = 'walk' | 'carry' | 'work' | 'attack';
 
 /** Several settler types share a look; workers who stay indoors all share one. */
@@ -23,8 +23,11 @@ const SETTLER_LOOKS: Partial<Record<SettlerType, SettlerLook>> = {
   carrier: 'carrier', builder: 'builder', digger: 'digger', woodcutter: 'woodcutter', stonecutter: 'stonecutter', miner: 'stonecutter',
   forester: 'farmer', farmer: 'farmer', wine_grower: 'farmer', rice_farmer: 'farmer', beekeeper: 'farmer', fisher: 'fisher',
   geologist: 'geologist', pioneer: 'pioneer', thief: 'thief', swordsman: 'swordsman', spearman: 'spearman', bowman: 'bowman',
-  catapult: 'catapult', ballista: 'ballista', cannon: 'cannon', war_gong: 'war_gong', priest: 'priest'
+  catapult: 'catapult', ballista: 'ballista', cannon: 'cannon', war_gong: 'war_gong', priest: 'priest', donkey: 'donkey'
 };
+
+/** Looks drawn once for every people, such as the donkey. */
+const SHARED_LOOKS: readonly SettlerLook[] = ['donkey'];
 export function lookOf(type: SettlerType): SettlerLook { return SETTLER_LOOKS[type] ?? 'worker'; }
 
 export const TREE_VARIANTS = ['tree_oak', 'tree_default', 'tree_pineRoundB', 'tree_fat'] as const;
@@ -63,7 +66,9 @@ export class SpriteBank {
         for (const e of Object.values(manifest.goods)) files.add(e.file);
       }
       for (const [key, e] of Object.entries(manifest.buildings)) if (wanted.some((r) => key.startsWith(r + '/'))) files.add(e.file);
-      for (const [key, e] of Object.entries(manifest.settlers)) if (wanted.some((r) => key.startsWith(r + '/'))) files.add(e.file);
+      for (const [key, e] of Object.entries(manifest.settlers)) {
+        if (wanted.some((r) => key.startsWith(r + '/')) || (!this.sharedLoaded && SHARED_LOOKS.some((l) => key.endsWith('/' + l)))) files.add(e.file);
+      }
       const list = [...files];
       const loaded = await Assets.load(list.map((f) => this.base + f)) as Record<string, Texture>;
       for (const f of list) this.textures.set(f, loaded[this.base + f]);
@@ -90,7 +95,7 @@ export class SpriteBank {
 
   /** The frame of a settler's animation facing direction `dir` (0 = south, 2 = east, 4 = north, 6 = west). */
   settler(race: RaceType, look: SettlerLook, anim: SettlerAnim, dir: number, frame: number): Sprite | null {
-    const sheet = this.manifest?.settlers[`${race}/${look}`];
+    const sheet = this.sheetOf(race, look);
     if (!sheet) return null;
     const a = sheet.anims[anim] ?? sheet.anims.walk;
     const base = this.textures.get(sheet.file);
@@ -107,6 +112,13 @@ export class SpriteBank {
   }
 
   hasAnim(race: RaceType, look: SettlerLook, anim: SettlerAnim): boolean {
-    return !!this.manifest?.settlers[`${race}/${look}`]?.anims[anim];
+    return !!this.sheetOf(race, look)?.anims[anim];
+  }
+
+  /** The people's own sheet for a look, or the shared one for looks drawn once for everyone. */
+  private sheetOf(race: RaceType, look: SettlerLook): SheetEntry | undefined {
+    const own = this.manifest?.settlers[`${race}/${look}`];
+    if (own || !SHARED_LOOKS.includes(look) || !this.manifest) return own;
+    return Object.entries(this.manifest.settlers).find(([key]) => key.endsWith('/' + look))?.[1];
   }
 }

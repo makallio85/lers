@@ -1,6 +1,6 @@
 import {
   BUILDING_TYPES, FAVOURITE_FOOD_MEALS, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OFFERING_TICKS, OTHER_FOOD_MEALS, PRIEST_TICKS, RACE_DRINKS,
-  buildingLabel,
+  buildingLabel, TRADE_SURPLUS_RESERVE,
   SETTLER_LABELS, SOLDIER_STATS, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, goodCount, isSoldierType, isUnitType,
   favouriteFoodOf, isSpecialistType, totalGoods
 } from './definitions.ts';
@@ -10,6 +10,8 @@ import type { Command, CommandResult } from './commands.ts';
 import { releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
 import { WALK_SPEED, advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
 import { updateVision } from './vision.ts';
+import { landRegion } from './regions.ts';
+import { decideBreeding, finishBreeding, marketplaceWants, updateDonkey } from './trade.ts';
 import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
@@ -133,10 +135,13 @@ function becomeIdle(s: Settler): void {
   s.fromId = null; s.toId = null; s.good = null; s.homeId = null; s.path = [];
 }
 
+/** The nearest idle settler of a type that can walk there: on the same stretch of its owner's land. */
 function nearestIdle(world: World, type: SettlerType, owner: number, x: number, y: number): Settler | null {
+  const region = landRegion(world, x, y);
   let best: Settler | null = null, bestDistance = Infinity;
   for (const s of world.settlers) {
     if (!isIdle(s, type) || s.owner !== owner) continue;
+    if (region !== 0 && landRegion(world, s.x, s.y) !== region) continue;
     const d = distance(s.x, s.y, x, y);
     if (d < bestDistance) { bestDistance = d; best = s; }
   }
@@ -147,22 +152,35 @@ function nearestIdle(world: World, type: SettlerType, owner: number, x: number, 
  * The nearest storage with room for a good. With `respectFlags`, goods the player does not store get none;
  * without it (goods that must go somewhere), the castle is the fallback.
  */
-function storageFor(world: World, owner: number, good: GoodType, x: number, y: number, respectFlags: boolean): Building | null {
+function storageFor(world: World, owner: number, good: GoodType, x: number, y: number, respectFlags: boolean, isAnyLand = false): Building | null {
   const player = playerOf(world, owner);
   if (respectFlags && player && !player.isStored[good]) return null;
+  // Only storage on the same stretch of land: carriers do not cross foreign land.
+  const region = landRegion(world, x, y);
+  const isReachable = (b: Building) => isAnyLand || region === 0 || landRegion(world, b.doorX, b.doorY) === region;
   let best: Building | null = null, bestDistance = Infinity;
   for (const b of world.buildings) {
-    if (b.owner !== owner || !isStorageBuilding(b)) continue;
+    if (b.owner !== owner || !isStorageBuilding(b) || !isReachable(b)) continue;
     if (storedTotal(b) >= BUILDING_TYPES[b.typeId].storageCapacity) continue;
     const d = distance(b.doorX, b.doorY, x, y);
     if (d < bestDistance) { bestDistance = d; best = b; }
   }
-  return best ?? castleOf(world, owner) ?? null;
+  const castle = castleOf(world, owner);
+  return best ?? (castle && isReachable(castle) ? castle : null);
 }
 
 // ---------------------------------------------------------------- logistics
 
-interface Request { building: Building; good: GoodType; isConstruction: boolean; share: number }
+interface Request {
+  building: Building;
+  good: GoodType;
+  isConstruction: boolean;
+  share: number;
+  /** A marketplace collecting ahead of construction sites. */
+  isUrgent?: boolean;
+  /** A marketplace collecting only what storage has to spare. */
+  isSurplusOnly?: boolean;
+}
 
 function distributionShare(player: PlayerState | undefined, good: GoodType, typeId: BuildingTypeId): number {
   const shares = player?.distribution[good];
@@ -192,6 +210,15 @@ function runLogistics(world: World): void {
       }
       continue;
     }
+    if (b.typeId === 'marketplace') {
+      const wants = marketplaceWants(b);
+      for (const good of GOOD_TYPES) {
+        for (let k = 0; k < (wants[good] ?? 0); k++) {
+          requests.push({ building: b, good, isConstruction: false, share: 1, isUrgent: b.tradeMode === 'construction', isSurplusOnly: b.tradeMode === 'surplus' });
+        }
+      }
+      continue;
+    }
     const limits = BUILDING_TYPES[b.typeId].inputLimits;
     const player = playerOf(world, b.owner);
     for (const good of GOOD_TYPES) {
@@ -208,14 +235,15 @@ function runLogistics(world: World): void {
     const counts = playerOf(world, r.building.owner)?.distributionCount[r.good];
     return ((counts?.[r.building.typeId] ?? 0) + 1) / r.share;
   };
-  requests.sort((a, b) => Number(b.isConstruction) - Number(a.isConstruction)
+  requests.sort((a, b) => Number(b.isUrgent === true) - Number(a.isUrgent === true) || Number(b.isConstruction) - Number(a.isConstruction)
     || (a.isConstruction ? Number(b.building.isPriority) - Number(a.building.isPriority) || a.building.id - b.building.id : 0)
     || order(a) - order(b) || shareScore(a) - shareScore(b) || a.building.id - b.building.id);
 
   const send = (from: Building, to: Building, good: GoodType): boolean => {
+    const region = landRegion(world, from.doorX, from.doorY);
     let best = -1, bestDistance = Infinity;
     for (let k = 0; k < carriers.length; k++) {
-      if (carriers[k].owner !== from.owner) continue;
+      if (carriers[k].owner !== from.owner || landRegion(world, carriers[k].x, carriers[k].y) !== region) continue;
       const d = distance(carriers[k].x, carriers[k].y, from.doorX, from.doorY);
       if (d < bestDistance) { bestDistance = d; best = k; }
     }
@@ -232,10 +260,14 @@ function runLogistics(world: World): void {
   for (const request of requests) {
     if (carriers.length === 0) return;
     const to = request.building;
+    const toRegion = landRegion(world, to.doorX, to.doorY);
     let from: Building | null = null, fromDistance = Infinity;
     for (const b of world.buildings) {
       if (b === to || !b.isComplete || b.owner !== to.owner || isMilitaryBuilding(b) && !isStorageBuilding(b)) continue;
-      if (b.stock[request.good] - b.reserved[request.good] <= 0) continue;
+      if (landRegion(world, b.doorX, b.doorY) !== toRegion) continue;
+      // "Only surplus" leaves each storage a reserve for the settlement.
+      const spare = request.isSurplusOnly ? (isStorageBuilding(b) ? TRADE_SURPLUS_RESERVE : 0) : 0;
+      if (b.stock[request.good] - b.reserved[request.good] <= spare) continue;
       const d = distance(b.doorX, b.doorY, to.doorX, to.doorY);
       if (d < fromDistance) { fromDistance = d; from = b; }
     }
@@ -409,6 +441,7 @@ function recruitSoldiers(world: World): void {
 // ---------------------------------------------------------------- settler behaviour
 
 function updateSettler(world: World, s: Settler): void {
+  if (s.settlerType === 'donkey') return updateDonkey(world, s);
   if (s.settlerType === 'priest') {
     // Priests rest after casting; otherwise they only walk where they are sent.
     if (s.timer > 0) s.timer--;
@@ -649,6 +682,12 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
   const buildingType = BUILDING_TYPES[home.typeId];
   if (buildingType.warMachine) return decideWarMachine(world, s, home, buildingType.warMachine);
   if (home.typeId === 'small_temple') return decideOffering(world, s, home);
+  if (home.typeId === 'donkey_ranch') {
+    const problem = decideBreeding(world, s, home);
+    setBlocked(world, home, problem);
+    if (problem) s.timer = 20;
+    return;
+  }
   // Workers with nothing to make, such as the healer, simply stay at their post.
   if (!isGatherType(type) && !buildingType.recipe) { s.timer = 20; return; }
   const recipe = buildingType.recipe;
@@ -803,6 +842,11 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
 }
 
 function finishWork(world: World, s: Settler, home: Building, type: SettlerType): void {
+  if (home.typeId === 'donkey_ranch') {
+    finishBreeding(world, home);
+    s.phase = 'inside'; s.timer = 5;
+    return;
+  }
   if (home.typeId === 'small_temple') {
     const player = playerOf(world, home.owner);
     if (player) player.manna++;
@@ -973,7 +1017,8 @@ function updateThief(world: World, s: Settler): void {
   if (s.carrying) {
     // Heading home with the loot.
     if (s.path.length === 0) {
-      const home = storageFor(world, s.owner, s.carrying, s.x, s.y, false);
+      // A thief walks home across any land.
+      const home = storageFor(world, s.owner, s.carrying, s.x, s.y, false, true);
       if (!home || (tileOf(world, s) !== doorTile(world, home) && !walkTo(world, s, doorTile(world, home)))) { s.phase = 'idle'; return; }
       s.toId = home.id;
     }

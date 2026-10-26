@@ -161,8 +161,9 @@ test('two built-in bots play a whole match to a winner on a small map', () => {
   const world = createMatch(7, 'aggressive', 'small', 'romans', 'romans');
   assert.equal(world.width, 96);
   world.players[0].isBot = true;
-  for (let t = 0; t < 50 * 600 && world.winner === null; t++) stepMatch(world);
-  assert.notEqual(world.winner, null, 'the match should end within 50 minutes');
+  // At the original's pace, with carriers kept on their own land, aggressive small-map matches take 35–70 minutes.
+  for (let t = 0; t < 75 * 600 && world.winner === null; t++) stepMatch(world);
+  assert.notEqual(world.winner, null, 'the match should end within 75 minutes');
   for (const p of world.players) assert.ok(p.stats.soldiersRecruited > 0);
 });
 

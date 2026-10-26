@@ -263,3 +263,4 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .rank-row { display: flex; align-items: center; gap: 8px; }
 .rank-row .block { display: block; font-size: 12px; }
 .order-mode.spell[aria-pressed="true"] span { color: inherit; opacity: 0.8; }
+.trade-amount { min-width: 2.5em; text-align: center; }

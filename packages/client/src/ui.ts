@@ -3,7 +3,8 @@ import {
   GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
   costTotal, distributedGoods, goodCount, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
   BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES,
-  OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel
+  OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
+  DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf
 } from '../../simulation/src/index.ts';
 import type {
   BotType, Building, BuildingGroupType, MapSizeType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
@@ -477,6 +478,44 @@ function buildingStatus(world: World, b: Building): { text: string; isWarning: b
   return { text: 'Working', isWarning: false };
 }
 
+/** The marketplace card: its route, the amounts to send, the mode and its donkeys. */
+function renderMarketplace(world: World, b: Building, owner: number, isConfirmingDemolish: boolean): string {
+  const route = b.tradeRoute;
+  const donkeys = donkeysOf(world, b);
+  const stocked = new Set<GoodType>();
+  // Goods worth a caravan: at least one donkey load in storage, or already ordered.
+  const inStorage: Partial<Record<GoodType, number>> = {};
+  for (const s of world.buildings) if (s.owner === owner && isStorageBuilding(s)) for (const g of GOOD_TYPES) inStorage[g] = (inStorage[g] ?? 0) + s.stock[g];
+  for (const g of GOOD_TYPES) if ((inStorage[g] ?? 0) >= DONKEY_LOAD) stocked.add(g);
+  for (const g of GOOD_TYPES) if ((route?.goods[g] ?? 0) !== 0) stocked.add(g);
+  const goods = GOOD_TYPES.filter((g) => stocked.has(g)).map((g) => {
+    const amount = route?.goods[g] ?? 0;
+    const shown = amount === TRADE_UNLIMITED ? 'All' : String(amount);
+    return `<div class="made-row"><span class="grow">${GOOD_LABELS[g]}</span><span class="stepper">
+      <button type="button" class="icon-button" data-action="trade-good" data-good="${g}" data-step="-1" aria-label="${GOOD_LABELS[g]}: less" ${!route || amount === 0 ? 'disabled' : ''}>−</button>
+      <b class="num trade-amount">${shown}</b>
+      <button type="button" class="icon-button" data-action="trade-good" data-good="${g}" data-step="1" aria-label="${GOOD_LABELS[g]}: more" ${!route || amount === TRADE_UNLIMITED ? 'disabled' : ''}>+</button></span></div>`;
+  }).join('');
+  const modes = TRADE_MODE_TYPES.map((m) => `<button type="button" data-action="trade-mode" data-mode="${m}" aria-pressed="${b.tradeMode === m}">${TRADE_MODE_LABELS[m]}</button>`).join('');
+  const status = !route ? 'No route yet: set where the caravans go'
+    : b.tradeMode === 'suspended' ? 'Suspended'
+    : donkeys.length === 0 ? 'Waiting for donkeys from a donkey ranch'
+    : `${donkeys.filter((d) => d.phase === 'toTarget').length} caravans on the way`;
+  return `
+    <div class="detail-head"><span class="detail-title">${buildingLabel(b.typeId, world.players[b.owner].raceType)}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
+    <span class="${!route || donkeys.length === 0 ? 'status-warning' : ''}">${status}</span>
+    <dl class="facts">
+      <dt>Route</dt><dd>${route ? `to ${route.x}, ${route.y}${route.waypoints.length ? ` · ${route.waypoints.length} waypoints` : ''}` : 'None'}</dd>
+      <dt>Donkeys</dt><dd>${donkeys.length} of ${DONKEYS_PER_MARKETPLACE}</dd>
+    </dl>
+    <div class="segmented" role="group" aria-label="Trade mode">${modes}</div>
+    <span class="muted">${b.tradeMode === 'surplus' ? `Storage keeps ${TRADE_SURPLUS_RESERVE} of each good for the settlement.` : b.tradeMode === 'construction' ? 'Carriers serve the marketplace before construction sites.' : 'No goods are collected and the donkeys wait.'}</span>
+    ${route ? `<h3 class="section-title">Goods to send (${DONKEY_LOAD} per donkey)</h3>${goods || '<p class="empty">No goods in storage yet.</p>'}` : ''}
+    ${isConfirmingDemolish
+      ? `<div class="actions"><button type="button" class="danger" data-action="confirm-demolish">Demolish now</button><button type="button" class="secondary" data-action="cancel-demolish">Keep it</button></div>`
+      : `<div class="actions"><button type="button" class="primary" data-action="set-route">${route ? 'Change route' : 'Set route'}</button><button type="button" class="secondary" data-action="demolish">Demolish</button></div>`}`;
+}
+
 /** A hall's war machines in the field. */
 export function machinesOf(world: World, b: Building): Settler[] {
   return world.settlers.filter((s) => s.homeId === b.id && isWarMachineType(s.settlerType) && s.health > 0 && !s.isInside);
@@ -530,6 +569,8 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
     }
     if (type.mine) lines.push(`<dt>Meals left</dt><dd>${b.meals}</dd>`);
   }
+  if (b.typeId === 'marketplace' && b.isComplete) return renderMarketplace(world, b, owner, isConfirmingDemolish);
+  if (b.typeId === 'donkey_ranch' && b.isComplete) lines.push(`<dt>Donkeys here</dt><dd>${donkeysOf(world, b).length} of ${DONKEYS_PER_MARKETPLACE}</dd>`);
   const garrison = b.isComplete && isMilitaryBuilding(b)
     ? `<div class="made-row"><span>Soldiers wanted</span>${stepper('garrison', `data-id="${b.id}"`, b.garrisonWanted, 'Soldiers wanted')}<span class="muted">of ${type.garrisonCapacity}</span></div>` : '';
   const canPause = (b.isComplete && type.worker !== null) || !b.isComplete;

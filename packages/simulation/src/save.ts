@@ -1,12 +1,15 @@
-import { BUILDING_TYPES, GOOD_TYPES, RACE_TYPES, RANK_LABELS, SETTLER_LABELS, SOLDIER_TYPES, TOOL_TYPES, WEAPON_TYPES, consumersOf } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SoldierType } from './definitions.ts';
+import {
+  BUILDING_TYPES, GOOD_TYPES, MAX_TRADE_WAYPOINTS, RACE_TYPES, RANK_LABELS, SETTLER_LABELS, SOLDIER_TYPES, TOOL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED,
+  WEAPON_TYPES, consumersOf
+} from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SoldierType, TradeModeType } from './definitions.ts';
 import { FIELD_RIPE, TREE_MATURE, recomputeTerritory, tileIndex } from './world.ts';
 import { BOT_TYPES } from './bot.ts';
 import type { BotType } from './bot.ts';
-import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, World } from './world.ts';
+import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, TradeRoute, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 function raceType(value: unknown): RaceType {
   if (typeof value !== 'string' || !(RACE_TYPES as readonly string[]).includes(value)) fail('a people is unknown');
@@ -55,6 +58,25 @@ function fail(what: string): never {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function tradeRoute(value: unknown, width: number, height: number): TradeRoute | null {
+  if (value === null) return null;
+  if (!isRecord(value) || !Array.isArray(value.waypoints) || value.waypoints.length > MAX_TRADE_WAYPOINTS || !isRecord(value.goods)) fail('a trade route is invalid');
+  const goods: Partial<Record<GoodType, number>> = {};
+  for (const [g, amount] of Object.entries(value.goods)) {
+    if (!(GOOD_TYPES as readonly string[]).includes(g)) fail('a trade route has an unknown good');
+    goods[g as GoodType] = int(amount, TRADE_UNLIMITED, 100_000, 'trade amount');
+  }
+  return {
+    x: int(value.x, 0, width - 1, 'trade route end'), y: int(value.y, 0, height - 1, 'trade route end'),
+    waypoints: value.waypoints.map((w: unknown) => int(w, 0, width * height - 1, 'trade waypoint')), goods
+  };
+}
+
+function tradeMode(value: unknown): TradeModeType {
+  if (typeof value !== 'string' || !(TRADE_MODE_TYPES as readonly string[]).includes(value)) fail('a trade mode is unknown');
+  return value as TradeModeType;
 }
 
 function ranks(value: unknown): Record<SoldierType, number> {
@@ -203,7 +225,8 @@ export function loadGame(data: unknown): World {
       blockedReason: raw.blockedReason === null ? null : text(raw.blockedReason, 'blocked reason'),
       blockedSince: nullableInt(raw.blockedSince, 'blocked time'), hasWarned: bool(raw.hasWarned, 'warning state'),
       damage: num(raw.damage, 0, 100_000, 'building damage'),
-      timer: int(raw.timer, 0, 1_000_000, 'building timer'), blightUntil: int(raw.blightUntil, 0, Number.MAX_SAFE_INTEGER, 'blight')
+      timer: int(raw.timer, 0, 1_000_000, 'building timer'), blightUntil: int(raw.blightUntil, 0, Number.MAX_SAFE_INTEGER, 'blight'),
+      tradeRoute: tradeRoute(raw.tradeRoute, width, height), tradeMode: tradeMode(raw.tradeMode)
     };
   });
 
@@ -231,7 +254,8 @@ export function loadGame(data: unknown): World {
       isIgnoringEnemies: bool(raw.isIgnoringEnemies, 'move without fighting'), ammo: int(raw.ammo, 0, 100, 'ammunition'),
       rank: int(raw.rank, 0, RANK_LABELS.length - 1, 'rank'),
       shieldUntil: int(raw.shieldUntil, 0, Number.MAX_SAFE_INTEGER, 'shield'), furyUntil: int(raw.furyUntil, 0, Number.MAX_SAFE_INTEGER, 'fury'),
-      frozenUntil: int(raw.frozenUntil, 0, Number.MAX_SAFE_INTEGER, 'freeze')
+      frozenUntil: int(raw.frozenUntil, 0, Number.MAX_SAFE_INTEGER, 'freeze'),
+      cargo: int(raw.cargo, 0, 100, 'cargo')
     };
   });
 

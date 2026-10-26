@@ -10,3 +10,5 @@ export * from './bot.ts';
 export * from './match.ts';
 export * from './movement.ts';
 export * from './magic.ts';
+export * from './regions.ts';
+export * from './trade.ts';
