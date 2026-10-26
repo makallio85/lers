@@ -192,6 +192,8 @@ The map shows what the simulation holds, so a player can read the settlement wit
 - **Smoke** rises from workshops with a fire while their worker is at work.
 - **Fallen soldiers** fall where they stood, lie a moment and fade.
 - **Demolished buildings collapse:** a building that is demolished, burnt down or brought down sinks into the ground in a cloud of dust. One that only goes out of sight just disappears.
+- **Carriers bend** to pick up and put down their loads.
+- **Sound:** chops, hammer blows, picks on stone, spades in earth, swords and bows, falls, collapsing buildings and war machine shots play for what is on screen, quieter toward its edges and panned to their side. The interface clicks, warns, and chimes when a building is finished or the match ends. Sound starts after the first tap or click, as browsers require, and can be turned off in the menu. The sounds are Kenney's CC0 packs, converted by `art/sounds.sh`.
 - **Garrisons stand on the walls:** the soldiers inside a tower or castle, by type, up to two on a small tower, four on a large one and six on the castle.
 
 ## Pace

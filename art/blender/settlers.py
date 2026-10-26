@@ -18,7 +18,7 @@ SOURCE = {'walk': 'walk', 'work': 'interact-right', 'attack': 'attack-melee-righ
 LOOK_SOURCES = {
     'builder': {'work': 'attack-melee-right'}, 'woodcutter': {'work': 'attack-melee-right'},
     'stonecutter': {'work': 'attack-melee-right'}, 'geologist': {'work': 'attack-melee-right'},
-    'digger': {'work': 'pick-up'}, 'pioneer': {'work': 'pick-up'}, 'farmer': {'work': 'pick-up'},
+    'carrier': {'work': 'pick-up'}, 'digger': {'work': 'pick-up'}, 'pioneer': {'work': 'pick-up'}, 'farmer': {'work': 'pick-up'},
     'bowman': {'attack': 'holding-both-shoot'},
 }
 # Tools drawn half again as large as life, so they read at normal zoom.
@@ -26,7 +26,7 @@ TOOL_SCALE = 1.5
 
 # look -> (model, tool, animations). Several settler types share a look (see the client's sprite table).
 LOOKS = {
-    'carrier': ('character-male-a', None, ('walk', 'carry')),
+    'carrier': ('character-male-a', None, ('walk', 'carry', 'work')),
     'builder': ('character-male-b', 'tool-hammer', ('walk', 'work')),
     'digger': ('character-male-c', 'tool-shovel', ('walk', 'work')),
     'woodcutter': ('character-male-d', 'tool-axe', ('walk', 'work')),
