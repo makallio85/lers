@@ -247,7 +247,7 @@ class Builder:
         s = self.s; s.put(TOWN + 'cart.glb', x, y, 0, 20, 0.7)
         for i in range(4): s.sphere(x + (i % 2) * 0.12 - 0.06, y + (i // 2) * 0.1, 0.42, 0.08, m, 0.8)
     def windmill(self, cx, cy, top):
-        s = self.s; s.put(TOWN + 'windmill.glb', cx, cy - 0.62, top - 0.6, 90, 0.95)
+        s = self.s; self.sails = [o for o in s.put(TOWN + 'windmill.glb', cx, cy - 0.62, top - 0.6, 90, 0.95) if o.type == 'MESH']
     def banner(self, x, y, h=1.4, m=None):
         s = self.s; s.box(x, y, 0, 0.05, 0.05, h, self.DARKWOOD); s.box(x + 0.16, y, h - 0.5, 0.3, 0.02, 0.45, m or self.LACQUER)
 
@@ -570,8 +570,31 @@ def render_one(race, typeId):
     recipe(b, typeId)
     b.s.camera(CANVAS[n], int(CANVAS[n] * 1.25), target_z=0.9)
     out = os.path.join(RENDERS, 'buildings', race, typeId + '.png')
+    sails = getattr(b, 'sails', [])
+    for o in sails: o.hide_render = True
     b.s.render(out, 32)
     write_meta(out[:-4] + '.json', {'anchor': b.s.anchor(), 'size': n})
+    if sails: render_sails(b, race, typeId, n, sails)
+
+
+SAIL_FRAMES = 8
+
+
+def render_sails(b, race, typeId, n, sails):
+    """The mill's sails on their own, in 8 steps of a quarter turn (four blades repeat every 90 degrees), drawn over
+    the mill by the game. The mill itself stays in the scene as an invisible holdout, so the sails hide behind it
+    where they should, and casts no second shadow."""
+    sail_set = set(sails)
+    for o in bpy.data.objects:
+        if o.type != 'MESH' or o in sail_set or o.is_shadow_catcher: continue
+        o.is_holdout = True; o.visible_shadow = False
+    for o in sails: o.hide_render = False; o.rotation_mode = 'XYZ'
+    base = [o.rotation_euler.x for o in sails]
+    for k in range(SAIL_FRAMES):
+        for o, x in zip(sails, base): o.rotation_euler.x = x + (math.pi / 2) * k / SAIL_FRAMES
+        out = os.path.join(RENDERS, 'buildings', race, f'{typeId}_sails_{k}.png')
+        b.s.render(out, 24)
+        write_meta(out[:-4] + '.json', {'anchor': b.s.anchor(), 'size': n})
 
 
 def main():
