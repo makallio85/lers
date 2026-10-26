@@ -211,7 +211,7 @@ function runLogistics(world: World): void {
       }
       continue;
     }
-    if (b.typeId === 'marketplace') {
+    if (b.typeId === 'marketplace' || b.typeId === 'landing_dock') {
       const wants = marketplaceWants(b);
       for (const good of GOOD_TYPES) {
         for (let k = 0; k < (wants[good] ?? 0); k++) {

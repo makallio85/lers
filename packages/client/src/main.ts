@@ -16,8 +16,8 @@ import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } fr
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v9';
-const AUTOSAVE_KEY = 'lers.autosave.v9';
+const SAVE_KEY = 'lers.save.v10';
+const AUTOSAVE_KEY = 'lers.autosave.v10';
 const AUTOSAVE_MS = 5 * 60 * 1000;
 const DRAG_THRESHOLD = 6;
 

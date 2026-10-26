@@ -114,3 +114,25 @@ test('ships and passengers survive a save', () => {
   const copy = loadGame(JSON.parse(JSON.stringify(saveGame(world))));
   assert.equal(copy.settlers.find((x) => x.id === s.id)!.shipId, ship.id);
 });
+
+test('trade ships carry a landing dock\'s goods across the sea to a colony on the neutral island', () => {
+  const world = createMatch(3, 'calm', 'medium', 'romans', 'egyptians', 'islands');
+  const castle = castleOf(world, 0)!;
+  // A colony on the neutral island: an occupied tower and a storage area on cleared land.
+  const cx = Math.floor(world.width / 2) - 9, cy = Math.floor(world.height / 2) - 2;
+  for (let y = cy - 1; y <= cy + 7; y++) for (let x = cx - 1; x <= cx + 5; x++) { const i = tileIndex(world, x, y); world.terrain[i] = 0; world.tree[i] = -1; world.rock[i] = 0; }
+  const tower = finished(world, 'guard_tower_small', 0, cx, cy);
+  const guard = newSettler(world, 0, 'swordsman', tower.doorX, tower.doorY);
+  tower.garrison = [guard.id]; tower.isOccupied = true; guard.homeId = tower.id; guard.phase = 'inside';
+  const store = finished(world, 'storage', 0, cx + 2, cy + 3);
+  const spot = spotFor(world, 'landing_dock');
+  const dock = finished(world, 'landing_dock', 0, spot.x, spot.y);
+  const { water } = coast(world);
+  const ship = newSettler(world, 0, 'trade_ship', water.x, water.y); ship.isInside = false; ship.phase = 'idle';
+  castle.stock.plank = 80;
+  step(world);
+  assert.equal(command(world, { type: 'setTradeRoute', playerId: 0, buildingId: dock.id, x: store.doorX, y: store.doorY, waypoints: [] }).isAccepted, true);
+  assert.equal(command(world, { type: 'setTradeGood', playerId: 0, buildingId: dock.id, good: 'plank', amount: 24 }).isAccepted, true);
+  runUntil(world, () => store.stock.plank >= 24, 12_000);
+  assert.equal(ship.homeId, dock.id);
+});

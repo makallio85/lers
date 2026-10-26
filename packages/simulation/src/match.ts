@@ -3,6 +3,7 @@ import type { BuildingTypeId, MapLayoutType, MapSizeType, RaceType } from './def
 import { BOT_DECISION_TICKS, decideBot } from './bot.ts';
 import type { BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
+import { landRegion } from './regions.ts';
 import { isMachinePassable } from './movement.ts';
 import { reachableFrom } from './pathfinding.ts';
 import type { Command, CommandResult } from './commands.ts';
@@ -60,6 +61,7 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
   const vision = world.vision[playerId];
   const prospect = world.prospect[playerId];
   const castle = castleOf(world, playerId);
+  const homeRegion = castle ? landRegion(world, castle.doorX, castle.doorY) : 0;
   const around = (x: number, y: number, r: number, fn: (i: number) => void) => {
     for (let ty = y - r; ty <= y + r; ty++) {
       for (let tx = x - r; tx <= x + r; tx++) {
@@ -153,6 +155,8 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
           if (world.territory[tileIndex(world, x, y)] !== owned) continue;
           if (groundProblem(world, playerId, typeId, x, y) !== null) continue;
           const doorX = x + Math.floor(size / 2), doorY = y + size;
+          // The computer builds only on the castle's own stretch of land, where its carriers reach.
+          if (landRegion(world, doorX, doorY) !== homeRegion) continue;
           const toCastle = Math.hypot(doorX - castle.doorX, doorY - castle.doorY);
           let score = 0;
           switch (need) {

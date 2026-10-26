@@ -263,7 +263,8 @@ export const FAVOURITE_FOOD_MEALS = 5;
 export const OTHER_FOOD_MEALS = 1;
 
 /** Where a building may stand beyond flat land in your territory. */
-export type PlacementType = 'land' | 'near_water' | 'mountain';
+/** Where a building may stand: any land, near water, on a shore of the open sea (not a lake), or on mountains. */
+export type PlacementType = 'land' | 'near_water' | 'shore' | 'mountain';
 
 export interface BuildingType {
   id: BuildingTypeId;
@@ -449,9 +450,9 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   storage: building('storage', 'Storage area', 'misc', 3, 2, 2, 'None', 'Goods marked for storage', 'Holds 48 goods', { storageCapacity: 48 }),
   healer: building('healer', 'Healer', 'misc', 2, 3, 3, 'Healer', 'Nothing', 'Heals soldiers nearby', { worker: 'healer' }),
   shipyard: building('shipyard', 'Shipyard', 'misc', 3, 3, 5, 'Shipbuilder + hammer', 'Planks, iron', 'Ships',
-    { worker: 'shipbuilder', tool: 'hammer', placementType: 'near_water', inputLimits: { plank: 8, iron: 2 } }),
+    { worker: 'shipbuilder', tool: 'hammer', placementType: 'shore', inputLimits: { plank: 8, iron: 2 } }),
   landing_dock: building('landing_dock', 'Landing dock', 'misc', 2, 2, 4, 'None', 'Goods for its sea route', 'Trade ships to a far storage',
-    { placementType: 'near_water' }),
+    { placementType: 'shore' }),
   marketplace: building('marketplace', 'Marketplace', 'misc', 3, 1, 5, 'Donkeys', 'Goods for its route', 'Caravans to a far storage')
 };
 
