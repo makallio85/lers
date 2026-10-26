@@ -8,6 +8,7 @@ import {
 import type { BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import { SoundBoard } from './sound.ts';
+import { MusicPlayer } from './music.ts';
 import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
 import {
@@ -137,6 +138,7 @@ const ui = {
 const queue: Command[] = [];
 const view = await MapView.create(els.map, world);
 const sounds = new SoundBoard();
+const music = new MusicPlayer();
 view.onSound = (id, x, y) => sounds.playAt(id, x, y, els.map.clientWidth, els.map.clientHeight, view.scale);
 /** What the player has already heard about: messages, finished buildings and the match result. */
 const heard = { messageId: Number.MAX_SAFE_INTEGER, built: new Set<number>(), isOver: false };
@@ -247,7 +249,7 @@ function renderMenu(): void {
     els.menu.innerHTML = renderGameMenu({
       savedAt: savedLabel(SAVE_KEY), autosavedAt: savedLabel(AUTOSAVE_KEY), notice: ui.menuNotice,
       isMatch: isMatch() && world.winner === null, isConfirmingSurrender: ui.isConfirmingSurrender,
-      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace, isSoundOn: sounds.isOn,
+      botType: botType(), mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace, isSoundOn: sounds.isOn, isMusicOn: music.isOn,
       allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied, maxPlayers: maxPlayersOf(lastMapSize, lastMapLayout)
     });
   }
@@ -981,6 +983,8 @@ document.addEventListener('click', (e) => {
       renderMenu(); break;
     case 'sound':
       sounds.setOn(!sounds.isOn); renderMenu(); break;
+    case 'music':
+      music.setOn(!music.isOn); renderMenu(); break;
     case 'victory':
       if ((VICTORY_TYPES as readonly string[]).includes(target.dataset.victory ?? '')) { lastVictory = target.dataset.victory as VictoryType; remember(VICTORY_KEY, lastVictory); }
       renderMenu(); break;
@@ -1147,5 +1151,5 @@ requestAnimationFrame(frame);
 
 // Exposed for automated screenshots and debugging in the browser console.
 Object.defineProperty(window, 'lers', {
-  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders, sounds })
+  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders, sounds, music })
 });

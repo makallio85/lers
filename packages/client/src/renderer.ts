@@ -715,6 +715,12 @@ export class MapView {
     // A war machine shows its firing movement for a moment after each shot.
     if (!isWalking && isWarMachineType(s.settlerType) && s.phase === 'attacking' && s.cooldown > WAR_MACHINE_STATS[s.settlerType].cooldown - 12) anim = 'attack';
     let frame = anim === 'walk' || anim === 'carry' ? (isWalking ? Math.floor(now / 85) : 0) : Math.floor(now / 110);
+    if (anim === 'attack' && isSoldierType(s.settlerType)) {
+      // A soldier's strike follows its weapon's rhythm: the blow lands, or the arrow leaves, on the fourth of six
+      // frames at the moment the hit is dealt (when the cooldown restarts), then it draws back for the next one.
+      const max = SOLDIER_STATS[s.settlerType].cooldown;
+      frame = Math.floor(((max - s.cooldown) / max) * 6 + 3) % 6 - s.id;
+    }
     if (anim === 'attack' && isWarMachineType(s.settlerType)) {
       // Machines play their shot once, from the moment it was fired (ticks since the shot, two per frame).
       frame = Math.min(5, Math.floor((WAR_MACHINE_STATS[s.settlerType].cooldown - s.cooldown) / 2)) - s.id;

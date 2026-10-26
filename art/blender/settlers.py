@@ -20,6 +20,8 @@ LOOK_SOURCES = {
     'stonecutter': {'work': 'attack-melee-right'}, 'geologist': {'work': 'attack-melee-right'},
     'carrier': {'work': 'pick-up'}, 'digger': {'work': 'pick-up'}, 'pioneer': {'work': 'pick-up'}, 'farmer': {'work': 'pick-up'},
     'bowman': {'attack': 'holding-both-shoot'},
+    # The fisher casts: a swing of the rod.
+    'fisher': {'work': 'attack-melee-right'},
 }
 # Tools drawn half again as large as life, so they read at normal zoom.
 TOOL_SCALE = 1.5
