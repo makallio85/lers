@@ -369,7 +369,7 @@ export function renderStatsPanel(world: World, owner: number): string {
     `<li><span>${BUILDING_TYPES[id].label}</span><span class="num">${c.done}${c.building ? ` + ${c.building} building` : ''}</span></li>`).join('');
   const land = world.territory.reduce((sum, v) => sum + (v === owner + 1 ? 1 : 0), 0);
   const race = world.victoryType === 'economy' && world.players.length > 1 ? renderEconomyRace(world, owner) : '';
-  return `${race}<h2 class="section-title">Buildings</h2><ul class="list">${rows}</ul>
+  return `${race}<button type="button" class="primary" data-action="open-stats">Open statistics and graphs</button><h2 class="section-title">Buildings</h2><ul class="list">${rows}</ul>
     <h2 class="section-title">Land</h2><ul class="list"><li><span>Territory</span><span class="num">${land} tiles</span></li></ul>`;
 }
 

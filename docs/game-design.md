@@ -249,6 +249,7 @@ Issue #12, phase 7, following the manual: the match is won by reaching goods tar
 
 - **Soldiers outside their land** hit at a quarter of their strength, whatever gold their owner holds. At home they are as strong as ever, so defending still matters.
 - **The Stats tab** shows the race: each target with your progress and the computer's.
+- **Statistics window** (Stats tab › Open statistics and graphs): line charts from a sample taken every minute of game time. *Goods made* shows the running total per good, by group (materials, food, mining, drinks, tools, weapons), with a table of totals and the last ten minutes; goods gatherers bring home (logs, stone, fish) count as made. *Kingdoms* compares every player's land, settlers, soldiers and buildings. Hovering a chart shows the values at that minute.
 - **Computer player:** it does not attack, only defends. In bot-vs-bot runs, races on small and medium maps ended at about 85 minutes, with bread the slowest target before it was lowered.
 
 ## Long-session continuity
