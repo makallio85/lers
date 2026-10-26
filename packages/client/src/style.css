@@ -277,3 +277,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .rank-row .block { display: block; font-size: 12px; }
 .order-mode.spell[aria-pressed="true"] span { color: inherit; opacity: 0.8; }
 .trade-amount { min-width: 2.5em; text-align: center; }
+
+.traffic-dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; border: 2px solid; vertical-align: 0; }
+.traffic-dot.is-in { border-color: #7fd36a; }
+.traffic-dot.is-out { border-color: #e8a33b; }
