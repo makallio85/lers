@@ -1,4 +1,5 @@
-import { WAR_MACHINE_SPEED_SHARE, isSpecialistType, isUnitType, isWarMachineType } from './definitions.ts';
+import { SHIP_SPEED_SHARE, WAR_MACHINE_SPEED_SHARE, isShipType, isSpecialistType, isUnitType, isWarMachineType } from './definitions.ts';
+import { isSeaPassable } from './sea.ts';
 import type { SettlerType } from './definitions.ts';
 import { findPath } from './pathfinding.ts';
 import { TERRAIN_MOUNTAIN, isWalkable, tileIndex } from './world.ts';
@@ -18,7 +19,7 @@ export function doorTile(world: World, b: Building): number {
 /** Searches at most `maxVisited` tiles: short local trips pass a small limit so unreachable targets fail fast. */
 export function walkTo(world: World, s: Settler, goal: number, maxVisited = 12_000): boolean {
   const start = tileOf(world, s);
-  const passable = isWarMachineType(s.settlerType) ? isMachinePassable
+  const passable = isShipType(s.settlerType) ? isSeaPassable : isWarMachineType(s.settlerType) ? isMachinePassable
     // Civilians keep to their own land; one standing outside it (its land was lost) may walk back in.
     : isCivilianType(s.settlerType) && world.territory[start] === s.owner + 1 ? (w: World, i: number) => w.territory[i] === s.owner + 1 && isWalkable(w, i)
     : isWalkable;
@@ -41,7 +42,7 @@ export function isMachinePassable(world: World, index: number): boolean {
 
 /** Moves along the path; true once the settler has arrived. War machines go slower. */
 export function advance(world: World, s: Settler, speed = WALK_SPEED): boolean {
-  let budget = isWarMachineType(s.settlerType) ? speed * WAR_MACHINE_SPEED_SHARE : speed;
+  let budget = isWarMachineType(s.settlerType) ? speed * WAR_MACHINE_SPEED_SHARE : isShipType(s.settlerType) ? speed * SHIP_SPEED_SHARE : speed;
   while (budget > 0 && s.path.length > 0) {
     const next = s.path[0];
     const tx = next % world.width, ty = Math.floor(next / world.width);

@@ -1,7 +1,8 @@
 import {
   BUILDING_STRUCTURE, BUILDING_TYPES, GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SETTLER_LABELS, SOLDIER_STATS, WAR_MACHINE_STATS,
-  emptyGoods, isSoldierType, isUnitType, isWarMachineType
+  emptyGoods, isShipType, isSoldierType, isUnitType, isWarMachineType
 } from './definitions.ts';
+import { updateShip } from './sea.ts';
 import type { WarMachineType } from './definitions.ts';
 import { coveringBuilding, releaseFromBuilding } from './commands.ts';
 import { advance, distance, doorTile, isMachinePassable, tileOf, walkTo } from './movement.ts';
@@ -45,6 +46,8 @@ export function strengthOf(world: World, s: Settler): number {
 /** An enemy a soldier can fight: a soldier or war machine outside, or a thief close enough to be recognised. */
 function isFoe(s: Settler, other: Settler): boolean {
   if (other.owner === s.owner || other.isInside || other.health <= 0) return false;
+  // Ships at sea are out of a soldier's reach.
+  if (isShipType(other.settlerType)) return false;
   if (isUnitType(other.settlerType)) return true;
   return other.settlerType === 'thief' && distance(other.x, other.y, s.x, s.y) <= THIEF_SPOT_RANGE;
 }
@@ -54,7 +57,7 @@ function isAliveSoldier(s: Settler): boolean {
 }
 
 function isAliveUnit(s: Settler): boolean {
-  return isUnitType(s.settlerType) && s.health > 0;
+  return isUnitType(s.settlerType) && !isShipType(s.settlerType) && s.health > 0;
 }
 
 function enemiesNear(world: World, owner: number, x: number, y: number, radius: number): Settler[] {
@@ -147,6 +150,7 @@ export function updateSoldier(world: World, s: Settler): void {
   if (s.health <= 0 || s.isInside) return;
   if (s.cooldown > 0) s.cooldown--;
   if (isWarMachineType(s.settlerType)) return updateWarMachine(world, s, s.settlerType);
+  if (isShipType(s.settlerType)) return updateShip(world, s);
   // A Freeze spell holds soldiers where they stand.
   if (isFrozen(world, s)) return;
   if (s.phase === 'toGarrison') return updateToGarrison(world, s);

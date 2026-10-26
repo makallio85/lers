@@ -1,15 +1,15 @@
 import {
-  BUILDING_TYPES, GOOD_TYPES, MAX_TRADE_WAYPOINTS, RACE_TYPES, RANK_LABELS, SETTLER_LABELS, SOLDIER_TYPES, TOOL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED,
+  BUILDING_TYPES, GOOD_TYPES, MAX_TRADE_WAYPOINTS, RACE_TYPES, SHIP_TYPES, RANK_LABELS, SETTLER_LABELS, SOLDIER_TYPES, TOOL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED,
   WEAPON_TYPES, consumersOf
 } from './definitions.ts';
-import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, SoldierType, TradeModeType } from './definitions.ts';
+import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, ShipType, SoldierType, TradeModeType } from './definitions.ts';
 import { FIELD_RIPE, TREE_MATURE, recomputeTerritory, tileIndex } from './world.ts';
 import { BOT_TYPES } from './bot.ts';
 import type { BotType } from './bot.ts';
 import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, TradeRoute, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 function raceType(value: unknown): RaceType {
   if (typeof value !== 'string' || !(RACE_TYPES as readonly string[]).includes(value)) fail('a people is unknown');
@@ -48,7 +48,7 @@ export function saveGame(world: World): Record<string, unknown> {
     settlers: structuredClone(world.settlers),
     messages: structuredClone(world.messages),
     farSights: structuredClone(world.farSights),
-    nextId: world.nextId, randomState: world.randomState, winner: world.winner
+    nextId: world.nextId, randomState: world.randomState, winner: world.winner, mapLayout: world.mapLayout
   };
 }
 
@@ -72,6 +72,18 @@ function tradeRoute(value: unknown, width: number, height: number): TradeRoute |
     x: int(value.x, 0, width - 1, 'trade route end'), y: int(value.y, 0, height - 1, 'trade route end'),
     waypoints: value.waypoints.map((w: unknown) => int(w, 0, width * height - 1, 'trade waypoint')), goods
   };
+}
+
+function shipType(value: unknown): ShipType {
+  if (typeof value !== 'string' || !(SHIP_TYPES as readonly string[]).includes(value)) fail('a ship type is unknown');
+  return value as ShipType;
+}
+
+function shipOrders(value: unknown): Partial<Record<ShipType, number>> {
+  if (!isRecord(value)) fail('ship orders are missing');
+  const out: Partial<Record<ShipType, number>> = {};
+  for (const [k, v] of Object.entries(value)) out[shipType(k)] = int(v, 0, 99, 'ship order');
+  return out;
 }
 
 function tradeMode(value: unknown): TradeModeType {
@@ -226,7 +238,9 @@ export function loadGame(data: unknown): World {
       blockedSince: nullableInt(raw.blockedSince, 'blocked time'), hasWarned: bool(raw.hasWarned, 'warning state'),
       damage: num(raw.damage, 0, 100_000, 'building damage'),
       timer: int(raw.timer, 0, 1_000_000, 'building timer'), blightUntil: int(raw.blightUntil, 0, Number.MAX_SAFE_INTEGER, 'blight'),
-      tradeRoute: tradeRoute(raw.tradeRoute, width, height), tradeMode: tradeMode(raw.tradeMode)
+      tradeRoute: tradeRoute(raw.tradeRoute, width, height), tradeMode: tradeMode(raw.tradeMode),
+      shipOrders: shipOrders(raw.shipOrders),
+      shipInProgress: raw.shipInProgress === null ? null : shipType(raw.shipInProgress)
     };
   });
 
@@ -255,7 +269,7 @@ export function loadGame(data: unknown): World {
       rank: int(raw.rank, 0, RANK_LABELS.length - 1, 'rank'),
       shieldUntil: int(raw.shieldUntil, 0, Number.MAX_SAFE_INTEGER, 'shield'), furyUntil: int(raw.furyUntil, 0, Number.MAX_SAFE_INTEGER, 'fury'),
       frozenUntil: int(raw.frozenUntil, 0, Number.MAX_SAFE_INTEGER, 'freeze'),
-      cargo: int(raw.cargo, 0, 100, 'cargo')
+      cargo: int(raw.cargo, 0, 100, 'cargo'), shipId: nullableInt(raw.shipId, 'ship')
     };
   });
 
@@ -293,7 +307,8 @@ export function loadGame(data: unknown): World {
     footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
     players, buildings, settlers, messages, farSights, nextId,
     randomState: int(data.randomState, 0, 0xffffffff, 'random state'), mapVersion: 0, territoryVersion: 0,
-    winner: data.winner === null ? null : int(data.winner, 0, ownerMax, 'winner')
+    winner: data.winner === null ? null : int(data.winner, 0, ownerMax, 'winner'),
+    mapLayout: data.mapLayout === 'islands' ? 'islands' : data.mapLayout === 'continent' ? 'continent' : fail('the map layout is unknown')
   };
   // Building tiles and territory are derived from the buildings rather than trusted from the file.
   for (const b of buildings) {

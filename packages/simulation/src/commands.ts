@@ -2,8 +2,9 @@ import {
   BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_REACH,
   RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType, isUnitType, isWarMachineType
 } from './definitions.ts';
-import type { BuildingTypeId, GoodType, SoldierType, SpecialistType, SpellType, ToolType, TradeModeType } from './definitions.ts';
-import { MAX_TRADE_WAYPOINTS, SOLDIER_TYPES, SPELL_STATS, SPELL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED } from './definitions.ts';
+import type { BuildingTypeId, GoodType, ShipType, SoldierType, SpecialistType, SpellType, ToolType, TradeModeType } from './definitions.ts';
+import { MAX_TRADE_WAYPOINTS, SHIP_TYPES, SOLDIER_TYPES, SPELL_STATS, SPELL_TYPES, TRADE_MODE_TYPES, TRADE_UNLIMITED, isShipType } from './definitions.ts';
+import { board, boardingProblem, isSeaPassable, unload } from './sea.ts';
 import { castSpell, promote, promotionProblem, spellProblem } from './magic.ts';
 import { isMachinePassable } from './movement.ts';
 import { findPath, reachableFrom } from './pathfinding.ts';
@@ -45,6 +46,9 @@ export type Command =
   | { type: 'setTradeRoute'; playerId: number; buildingId: number; x: number; y: number; waypoints: { x: number; y: number }[] }
   | { type: 'setTradeGood'; playerId: number; buildingId: number; good: GoodType; amount: number }
   | { type: 'setTradeMode'; playerId: number; buildingId: number; mode: TradeModeType }
+  | { type: 'setShipOrder'; playerId: number; buildingId: number; shipType: ShipType; count: number }
+  | { type: 'boardShip'; playerId: number; shipId: number; unitIds: number[] }
+  | { type: 'unloadShip'; playerId: number; shipId: number }
   | { type: 'surrender'; playerId: number };
 
 export type CommandResult = { isAccepted: true; buildingId?: number } | { isAccepted: false; reason: string };
@@ -181,18 +185,18 @@ function ownFieldSoldiers(world: World, playerId: number, ids: unknown): Settler
 /** A unit's route: war machines keep to open ground. */
 function unitPath(world: World, s: Settler, goal: number): number[] | null {
   const start = tileIndex(world, Math.round(s.x), Math.round(s.y));
-  return findPath(world, start, goal, 40_000, isWarMachineType(s.settlerType) ? isMachinePassable : isWalkable);
+  return findPath(world, start, goal, 40_000, isShipType(s.settlerType) ? isSeaPassable : isWarMachineType(s.settlerType) ? isMachinePassable : isWalkable);
 }
 
 /** Walkable tiles around a point, nearest first, so a group spreads out instead of stacking on one tile. */
-function formationTiles(world: World, x: number, y: number, count: number): number[] {
+function formationTiles(world: World, x: number, y: number, count: number, isPassable: (world: World, i: number) => boolean = isWalkable): number[] {
   const tiles: number[] = [];
   for (let r = 0; tiles.length < count && r < 8; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || !inBounds(world, x + dx, y + dy)) continue;
         const i = tileIndex(world, x + dx, y + dy);
-        if (isWalkable(world, i)) tiles.push(i);
+        if (isPassable(world, i)) tiles.push(i);
       }
     }
   }
@@ -286,8 +290,11 @@ export function applyCommand(world: World, command: Command): CommandResult {
       if (!hasExplored(world, command.playerId, command.x, command.y)) return refuse('You have not explored that land');
       if (command.isAppending !== undefined && typeof command.isAppending !== 'boolean') return refuse('Malformed command');
       if (command.isIgnoringEnemies !== undefined && typeof command.isIgnoringEnemies !== 'boolean') return refuse('Malformed command');
-      const tiles = formationTiles(world, command.x, command.y, soldiers.length);
-      if (tiles.length === 0) return refuse('Soldiers cannot stand there');
+      // Ships gather on the water, everyone else on land.
+      const isFleet = soldiers.every((s) => isShipType(s.settlerType));
+      if (!isFleet && soldiers.some((s) => isShipType(s.settlerType))) return refuse('Order ships and soldiers separately');
+      const tiles = formationTiles(world, command.x, command.y, soldiers.length, isFleet ? isSeaPassable : isWalkable);
+      if (tiles.length === 0) return refuse(isFleet ? 'Ships need open water there' : 'Soldiers cannot stand there');
       soldiers.forEach((s, k) => {
         const tile = tiles[k % tiles.length];
         s.isHolding = false; s.isPatrolling = false;
@@ -339,6 +346,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
         return refuse('Choose an enemy building you can see');
       }
       if (!isMilitaryBuilding(target) || !target.isComplete) return refuse('Only towers and castles can be attacked');
+      if (soldiers.some((s) => isShipType(s.settlerType))) return refuse('Ships cannot attack: land the soldiers first');
       for (const s of soldiers) {
         s.phase = 'attacking'; s.attackId = target.id; s.path = []; s.enemyId = null;
         // A war machine keeps its hall, where it reloads.
@@ -401,6 +409,33 @@ export function applyCommand(world: World, command: Command): CommandResult {
       if (!isKnownGood(command.good) || !isIntIn(command.amount, TRADE_UNLIMITED, 10_000)) return refuse('Malformed command');
       b.tradeRoute.goods[command.good] = command.amount;
       return accept();
+    }
+    case 'setShipOrder': {
+      const b = ownBuilding(world, command.playerId, command.buildingId);
+      if (!b || b.typeId !== 'shipyard') return refuse('Choose one of your shipyards');
+      if (!(SHIP_TYPES as readonly string[]).includes(command.shipType) || !isIntIn(command.count, 0, 20)) return refuse('Malformed command');
+      b.shipOrders[command.shipType] = command.count;
+      return accept();
+    }
+    case 'boardShip': {
+      const ship = Number.isInteger(command.shipId) ? world.settlers.find((s) => s.id === command.shipId) : undefined;
+      if (!ship || ship.owner !== command.playerId || !isShipType(ship.settlerType)) return refuse('Choose one of your ships');
+      if (!Array.isArray(command.unitIds) || command.unitIds.length === 0) return refuse('Choose who boards');
+      const units = command.unitIds.map((id) => world.settlers.find((s) => s.id === id));
+      if (units.some((u) => !u || u.owner !== command.playerId || u.isInside || u.health <= 0 && isUnitType(u.settlerType)
+        || !(isSoldierType(u.settlerType) || isSpecialistType(u.settlerType) || u.settlerType === 'priest'))) {
+        return refuse('Only your soldiers, specialists and priests outside buildings can board');
+      }
+      const problem = boardingProblem(world, ship, units as Settler[]);
+      if (problem) return refuse(problem);
+      board(world, ship, units as Settler[]);
+      return accept();
+    }
+    case 'unloadShip': {
+      const ship = Number.isInteger(command.shipId) ? world.settlers.find((s) => s.id === command.shipId) : undefined;
+      if (!ship || ship.owner !== command.playerId || !isShipType(ship.settlerType)) return refuse('Choose one of your ships');
+      const problem = unload(world, ship);
+      return problem ? refuse(problem) : accept();
     }
     case 'setTradeMode': {
       const b = ownBuilding(world, command.playerId, command.buildingId);
