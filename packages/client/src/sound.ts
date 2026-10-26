@@ -21,6 +21,18 @@ const LOUDNESS: Record<SoundId, number> = {
 const MIN_GAP_MS = 70;
 const MAX_PLAYING = 12;
 const SOUND_KEY = 'lers.sound';
+const SOUND_LEVEL_KEY = 'lers.soundLevel';
+
+/** A loudness kept in this browser, 0 to 100; full when none is kept. */
+export function keptLevel(key: string): number {
+  let kept: string | null = null;
+  try { kept = localStorage.getItem(key); } catch { /* storage blocked */ }
+  const n = Number(kept);
+  return kept !== null && Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 100;
+}
+export function keepLevel(key: string, level: number): void {
+  try { localStorage.setItem(key, String(level)); } catch { /* storage blocked */ }
+}
 
 export class SoundBoard {
   private context: AudioContext | null = null;
@@ -30,6 +42,8 @@ export class SoundBoard {
   /** Sounds started so far, by name; for tests and tuning. */
   readonly played = new Map<SoundId, number>();
   isOn: boolean;
+  /** Loudness of all effects, 0 to 100. */
+  level = keptLevel(SOUND_LEVEL_KEY);
 
   constructor() {
     let kept: string | null = null;
@@ -46,10 +60,15 @@ export class SoundBoard {
     if (isOn) this.unlock();
   }
 
+  setLevel(level: number): void {
+    this.level = Math.max(0, Math.min(100, Math.round(level)));
+    keepLevel(SOUND_LEVEL_KEY, this.level);
+  }
+
   /** Plays a sound; `pan` from -1 (left) to 1 (right), `volume` from 0 to 1 on top of the sound's own loudness. */
   play(id: SoundId, volume = 1, pan = 0): void {
     const ctx = this.context;
-    if (!this.isOn || !ctx || ctx.state !== 'running' || volume <= 0.02 || this.playing >= MAX_PLAYING) return;
+    if (!this.isOn || !ctx || ctx.state !== 'running' || volume * this.level / 100 <= 0.02 || this.playing >= MAX_PLAYING) return;
     const now = performance.now();
     if (now - (this.lastPlayed.get(id) ?? -Infinity) < MIN_GAP_MS) return;
     const buffer = this.buffers.get(`${id}_${Math.floor(Math.random() * VARIANTS[id])}`) ?? this.buffers.get(`${id}_0`);
@@ -60,7 +79,7 @@ export class SoundBoard {
     // A little variety in pitch, so repeated strokes do not sound mechanical.
     source.playbackRate.value = 0.94 + Math.random() * 0.12;
     const gain = ctx.createGain();
-    gain.gain.value = LOUDNESS[id] * Math.min(1, volume);
+    gain.gain.value = LOUDNESS[id] * Math.min(1, volume) * (this.level / 100);
     const panner = ctx.createStereoPanner();
     panner.pan.value = Math.max(-1, Math.min(1, pan));
     source.connect(gain).connect(panner).connect(ctx.destination);

@@ -1,7 +1,7 @@
 import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, MAP_SIZE_SETTINGS, RACE_TYPES } from './definitions.ts';
 import type { BuildingTypeId, MapLayoutType, MapSizeType, RaceType, StartingGoodsType, VictoryType } from './definitions.ts';
-import { BOT_DECISION_TICKS, decideBot } from './bot.ts';
-import type { BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
+import { BOT_DECISION_TICKS, BOT_DIFFICULTY_SETTINGS, decideBot } from './bot.ts';
+import type { BotDifficultyType, BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
 import { landRegion } from './regions.ts';
 import { isMachinePassable } from './movement.ts';
@@ -30,6 +30,8 @@ export interface MatchSetup {
   enemyCount?: number;
   /** Whether the enemies play as one team; otherwise each is on its own. */
   areEnemiesAllied?: boolean;
+  /** How well the computer players play (normal by default). */
+  difficultyType?: BotDifficultyType;
 }
 
 /** A match: you (player 0) against one built-in computer player, on a mirrored map unless the setup says otherwise. */
@@ -50,7 +52,8 @@ export function createMatch(
   const teams = races.map((_, k) => (k <= allyCount ? 0 : setup.areEnemiesAllied ? 1 : k - allyCount));
   return createWorld({
     seed, playerCount: races.length, teamIds: teams, botType, width, height, raceTypes: races, mapLayout,
-    isMirrored: setup.isMirrored ?? true, startingGoodsType: setup.startingGoodsType ?? 'default', victoryType: setup.victoryType ?? 'conquest'
+    isMirrored: setup.isMirrored ?? true, startingGoodsType: setup.startingGoodsType ?? 'default', victoryType: setup.victoryType ?? 'conquest',
+    difficultyType: setup.difficultyType ?? 'normal'
   });
 }
 
@@ -78,6 +81,8 @@ export function stepMatch(world: World, commands: readonly Command[] = [], botLo
       // Each bot thinks on its own tick, so two bots never add up in one frame.
       const offset = Math.floor((player.id * BOT_DECISION_TICKS) / world.players.length);
       if ((world.tick + BOT_DECISION_TICKS - offset) % BOT_DECISION_TICKS !== 0) continue;
+      // An easier bot skips some of its turns.
+      if (Math.floor((world.tick + BOT_DECISION_TICKS - offset) / BOT_DECISION_TICKS) % BOT_DIFFICULTY_SETTINGS[player.difficultyType].decisionEvery !== 0) continue;
       const log = botLog && ((text: string) => { botLog.push({ tick: world.tick, playerId: player.id, text }); });
       botCommands.push(...decideBot(observe(world, player.id), spotFinder(world, player.id), log));
     }

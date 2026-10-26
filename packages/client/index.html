@@ -45,6 +45,17 @@
   </div>
   <div class="end-screen" id="end-screen" hidden></div>
   <div class="stats-screen" id="stats-screen" hidden></div>
+  <!-- Shown at once while the game loads, then the title, match setup and settings screens use it. -->
+  <div class="front is-title" id="front">
+    <div class="front-card title-card">
+      <h1 class="front-brand">LERS</h1>
+      <p class="front-tag">Build a settlement, raise an army, take the enemy castle.</p>
+      <div class="loading" role="progressbar" aria-label="Loading">
+        <div class="loading-track"><span class="loading-bar" id="loading-bar"></span></div>
+        <span class="muted">Loading the land…</span>
+      </div>
+    </div>
+  </div>
   <div class="rotate" id="rotate">
     <p>Turn your phone sideways to play.</p>
   </div>

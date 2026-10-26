@@ -216,7 +216,8 @@ export class MapView {
     app.stage.addChild(this.camera, this.screenOverlay);
   }
 
-  static async create(host: HTMLElement, world: World): Promise<MapView> {
+  /** Makes the map view; `onProgress` hears how much of the art has loaded, from 0 to 1. */
+  static async create(host: HTMLElement, world: World, onProgress?: (share: number) => void): Promise<MapView> {
     const app = new Application();
     await app.init({
       resizeTo: host, background: '#0f1412', antialias: true, preference: 'webgl',
@@ -226,7 +227,7 @@ export class MapView {
     // The map area changes size when the phone drawer opens or closes, not only on window resize.
     new ResizeObserver(() => app.resize()).observe(host);
     const view = new MapView(app, world);
-    await view.bank.load(world.players.map((p) => p.raceType));
+    await view.bank.load(world.players.map((p) => p.raceType), onProgress);
     view.setWorld(world);
     return view;
   }
