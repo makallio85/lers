@@ -12,7 +12,7 @@ import { MusicPlayer } from './music.ts';
 import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
 import {
-  GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
+  GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, buildingCounts, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
   renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs, machinesOf
 } from './ui.ts';
 import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } from './ui.ts';
@@ -258,7 +258,7 @@ function renderPanel(): void {
   els.side.classList.toggle('is-collapsed', !ui.isDrawerOpen);
   // Range inputs keep their position while being dragged; re-rendering under the pointer would reset them.
   if (document.activeElement instanceof HTMLInputElement && els.panel.contains(document.activeElement)) return;
-  setHtml(els.panel, ui.tab === 'build' ? renderBuildPanel(ui.groupType, ui.selectedType, ui.placing, world.players[PLAYER].raceType)
+  setHtml(els.panel, ui.tab === 'build' ? renderBuildPanel(ui.groupType, ui.selectedType, ui.placing, world.players[PLAYER].raceType, buildingCounts(world, PLAYER))
     : ui.tab === 'goods' ? renderGoodsPanel(world, ui.goodsView, PLAYER)
     : ui.tab === 'settlers' ? renderSettlersPanel(world, ui.settlersView, PLAYER)
     : ui.tab === 'military' ? renderMilitaryPanel(world, ui.militaryView, PLAYER, ui.groups)
@@ -350,7 +350,7 @@ function refreshLive(): void {
   setHtml(els.stock, renderStock(world, PLAYER));
   els.clock.textContent = formatClock(world.tick);
   setHtml(els.messages, renderMessages(world, PLAYER, ui.dismissed));
-  if (ui.tab !== 'build') renderPanel();
+  renderPanel();
   renderSelectionCard();
   renderHint();
   renderOrders();

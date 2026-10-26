@@ -79,16 +79,37 @@ export function renderTabs(active: TabId): string {
   return TABS.map((t) => `<button type="button" class="tab" data-action="tab" data-tab="${t.id}" aria-pressed="${t.id === active}">${icon(t.id)}${t.label}</button>`).join('');
 }
 
-export function renderBuildPanel(groupType: BuildingGroupType, selected: BuildingTypeId, placing: BuildingTypeId | null, race: RaceType): string {
+/** Where the building pictures live; the same files the map draws. */
+const ART_BASE = (globalThis as { LERS_ART_BASE?: string }).LERS_ART_BASE ?? './art/';
+
+/** How many buildings of each type a player has standing and how many are still being built. */
+export function buildingCounts(world: World, owner: number): Partial<Record<BuildingTypeId, { built: number; building: number }>> {
+  const out: Partial<Record<BuildingTypeId, { built: number; building: number }>> = {};
+  for (const b of world.buildings) {
+    if (b.owner !== owner) continue;
+    const c = out[b.typeId] ??= { built: 0, building: 0 };
+    if (b.isComplete) c.built++; else c.building++;
+  }
+  return out;
+}
+
+function countText(c: { built: number; building: number } | undefined): string {
+  if (!c || c.built + c.building === 0) return '<span class="count is-none">None yet</span>';
+  const parts = [c.built ? `<span><b>${c.built}</b> built</span>` : '', c.building ? `<span><b>${c.building}</b> going up</span>` : ''];
+  return `<span class="count">${parts.filter(Boolean).join('')}</span>`;
+}
+
+export function renderBuildPanel(groupType: BuildingGroupType, selected: BuildingTypeId, placing: BuildingTypeId | null, race: RaceType,
+  counts: Partial<Record<BuildingTypeId, { built: number; building: number }>> = {}): string {
   const groups = BUILDING_GROUP_TYPES.map((g) =>
     `<button type="button" role="tab" class="pill" data-action="group" data-group="${g.id}" aria-selected="${g.id === groupType}" title="Key ${g.key.toUpperCase()}">${g.label}</button>`).join('');
   // Only the buildings this people can build; its own ones are marked.
   const types = Object.values(BUILDING_TYPES).filter((t) => t.groupType === groupType && isBuildableBy(t.id, race));
   const cards = types.map((t) => `
-    <button type="button" class="building-card ${t.races ? 'is-own' : ''}" data-action="select-type" data-type="${t.id}" aria-pressed="${t.id === selected}" ${t.isAvailable ? '' : 'disabled'}>
+    <button type="button" class="building-card ${t.races ? 'is-own' : ''}" data-action="select-type" data-type="${t.id}" aria-pressed="${t.id === selected}" ${t.isAvailable ? '' : 'disabled'}${t.races ? ` title="${t.races.map((r) => RACE_SETTINGS[r].label).join(' and ')} only"` : ''}>
+      <img class="icon" src="${ART_BASE}buildings/${race}/${t.id}.webp" alt="" loading="lazy" decoding="async">
       <span class="name">${buildingLabel(t.id, race)}</span>
-      <span class="cost">${t.isAvailable ? costText(buildingCost(t.id, race)) : 'Coming later'}</span>
-      ${t.races ? `<span class="own-tag">${t.races.map((r) => RACE_SETTINGS[r].label).join(' and ')} only</span>` : ''}
+      ${t.isAvailable ? countText(counts[t.id]) : '<span class="count is-none">Coming later</span>'}
     </button>`).join('');
   const t = BUILDING_TYPES[isBuildableBy(selected, race) ? selected : types[0]?.id ?? selected];
   const isPlacing = placing === selected;
@@ -97,11 +118,14 @@ export function renderBuildPanel(groupType: BuildingGroupType, selected: Buildin
     <div class="buildings">${cards}</div>
     <div class="detail">
       <div class="detail-head"><span class="detail-title">${buildingLabel(t.id, race)}</span><span class="muted">${t.size}×${t.size} tiles</span></div>
+      <p class="detail-cost">${costText(buildingCost(t.id, race), ', ')}</p>
       <dl class="facts">
         <dt>Worker</dt><dd>${t.workerLabel}</dd>
         <dt>Uses</dt><dd>${t.usesLabel}</dd>
         <dt>Makes</dt><dd>${t.makesLabel}</dd>
         <dt>Cost</dt><dd>${costText(buildingCost(t.id, race), ', ')}</dd>
+        <dt>You have</dt><dd>${[counts[t.id]?.built ? `${counts[t.id]!.built} built` : '', counts[t.id]?.building ? `${counts[t.id]!.building} going up` : ''].filter(Boolean).join(', ') || 'None yet'}</dd>
+        ${t.races ? `<dt>People</dt><dd>${t.races.map((r) => RACE_SETTINGS[r].label).join(' and ')} only</dd>` : ''}
       </dl>
       <button type="button" class="primary" data-action="${isPlacing ? 'cancel-placing' : 'start-placing'}" ${t.isAvailable ? '' : 'disabled'}>
         ${isPlacing ? 'Cancel placing' : t.isAvailable ? 'Place on map' : 'Not available yet'}

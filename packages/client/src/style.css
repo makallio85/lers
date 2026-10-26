@@ -45,17 +45,21 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .groups { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill { min-height: 36px; padding: 0 12px; border-radius: 18px; border: 1px solid var(--line-strong); background: transparent; font-size: 13px; font-weight: 500; }
 .pill[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
-.buildings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.building-card { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 60px; padding: 10px; border-radius: 6px; border: 2px solid transparent; background: var(--card); text-align: left; }
+.buildings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.building-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px 8px; border-radius: 6px; border: 2px solid transparent; background: var(--card); text-align: center; }
+.building-card .icon { width: 100%; height: 52px; object-fit: contain; pointer-events: none; }
+.building-card .count { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); line-height: 1.25; }
+.building-card .count b { color: var(--text); font-weight: 700; }
 .building-card[aria-pressed="true"] { border-color: var(--accent); background: var(--card-on); }
-.building-card .name { font-weight: 600; font-size: 14px; }
-.building-card .cost { font-size: 12px; color: var(--muted); }
+.building-card .name { font-weight: 600; font-size: 12.5px; line-height: 1.2; }
 .building-card:disabled { opacity: 0.55; }
 .detail { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line-strong); }
 .detail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .detail-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 20px; }
 .facts { display: grid; grid-template-columns: 76px 1fr; row-gap: 4px; font-size: 13px; margin: 0; }
 .facts dt { color: var(--muted); }
+.buildings + .detail { position: sticky; bottom: 0; box-shadow: 0 -8px 16px var(--panel-raised), 0 0 0 12px var(--panel-raised); }
+.detail-cost { display: none; margin: 0; font-size: 12px; color: var(--muted); }
 .facts dd { margin: 0; }
 .primary { min-height: 44px; border: 0; border-radius: 6px; background: var(--accent); color: var(--accent-text); font-weight: 600; font-size: 15px; padding: 0 16px; }
 .primary:disabled { background: var(--line-strong); color: var(--muted); }
@@ -216,11 +220,12 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .pill { min-height: 44px; border-radius: 22px; }
   .groups { flex-wrap: nowrap; overflow-x: auto; flex-shrink: 0; }
   .pill { flex-shrink: 0; }
-  .building-card { min-height: 52px; padding: 6px 8px; }
-  .building-card .name { font-size: 13px; }
-  .building-card .cost { font-size: 11px; }
+  .building-card { padding: 4px 2px 6px; }
+  .building-card .name { font-size: 11.5px; }
   .detail { padding: 8px; gap: 6px; }
   .detail .facts { display: none; }
+  .detail-cost { display: block; }
+  .building-card .icon { height: 40px; }
   .detail-title { font-size: 16px; }
   .topbar { margin: 8px; inset: 0 0 auto 0; height: 36px; border-radius: 8px; border: 0; background: rgba(27, 36, 32, 0.92); font-size: 12px; gap: 10px; padding: 0 10px; }
   .stock { gap: 12px; }
