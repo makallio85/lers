@@ -818,7 +818,7 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 window.addEventListener('blur', () => keys.clear());
 
-function setSpeed(speed: number): void { ui.speed = speed; renderSpeedButtons(); }
+function setSpeed(speed: number): void { ui.speed = speed; music.setPaused(speed === 0); renderSpeedButtons(); }
 
 function selectFirstOfGroup(): void {
   const first = Object.values(BUILDING_TYPES).find((t) => t.groupType === ui.groupType && t.isAvailable)
