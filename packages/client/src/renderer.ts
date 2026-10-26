@@ -85,6 +85,8 @@ interface BuildingView {
   root: Container; body: Sprite; scaffold: Sprite; mask: Graphics; marks: Graphics; label: Text; key: string;
   /** Goods piled in the yard and soldiers on the walls, in front of the building and sorted with the settlers. */
   piles: Container; guards: Container;
+  /** A mill's sails, turning while the miller works. */
+  sails: Sprite;
   /** When the building left the world and began to collapse, and where its sprite stood then. */
   collapsedAt?: number; collapseY?: number;
   /** The building's middle, in tiles, for the sound of its collapse. */
@@ -364,8 +366,8 @@ export class MapView {
         });
         label.anchor.set(0.5, 1);
         v = { root: new Container(), body: new Sprite(), scaffold: new Sprite(), mask: new Graphics(), marks: new Graphics(), label, key: '',
-          piles: new Container(), guards: new Container() };
-        v.root.addChild(v.scaffold, v.body, v.mask, v.guards, v.marks, v.label);
+          piles: new Container(), guards: new Container(), sails: new Sprite() };
+        v.root.addChild(v.scaffold, v.body, v.sails, v.mask, v.guards, v.marks, v.label);
         this.upright.addChild(v.root, v.piles);
         this.buildingViews.set(b.id, v);
       }
@@ -388,6 +390,7 @@ export class MapView {
         v.body.mask = v.mask; v.mask.visible = true;
       } else if (v.body.mask) { v.body.mask = null; v.mask.clear(); v.mask.visible = false; }
       v.body.alpha = isRising ? 0.95 : 1;
+      this.drawSails(b, v, cx, cy);
       this.drawBuildingMarks(b, v, cx, cy, !!art, state);
       this.drawPiles(b, v);
       this.drawGuards(b, v, !!art);
@@ -403,7 +406,7 @@ export class MapView {
         v.collapsedAt ??= now;
         const t = (now - v.collapsedAt) / COLLAPSE_MS;
         if (t < 1) {
-          v.piles.visible = false; v.guards.visible = false; v.label.visible = false; v.scaffold.visible = false;
+          v.piles.visible = false; v.guards.visible = false; v.label.visible = false; v.scaffold.visible = false; v.sails.visible = false;
           v.collapseY ??= v.body.y;
           const h = v.body.height;
           // Sinks fast at first, then settles; fades in the second half.
@@ -472,6 +475,17 @@ export class MapView {
     for (let j = k; j < v.piles.children.length; j++) v.piles.children[j].visible = false;
     // In front of the building, sorted with the settlers walking past.
     v.piles.zIndex = b.x + b.y + b.size + 0.1;
+  }
+
+  /** A finished mill's sails: turning a quarter in 8 steps while the miller grinds, at rest otherwise. */
+  private drawSails(b: Building, v: BuildingView, cx: number, cy: number): void {
+    if (b.typeId !== 'mill' || !b.isComplete) { v.sails.visible = false; return; }
+    const worker = b.workerId === null ? undefined : this.world.settlers.find((s) => s.id === b.workerId);
+    const isTurning = !!worker && worker.phase === 'working' && !b.isPaused;
+    const frame = isTurning ? Math.floor(performance.now() / 90) % 8 : b.id % 8;
+    const art = this.bank.buildingPart(this.raceOf(b.owner), `mill_sails_${frame}`);
+    v.sails.visible = !!art && v.body.visible;
+    if (art) this.place(v.sails, art, cx, cy);
   }
 
   /** Soldiers inside a tower or castle stand on its walls, as many as are inside, up to what the top holds. */

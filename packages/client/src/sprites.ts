@@ -90,6 +90,8 @@ export class SpriteBank {
   }
 
   building(race: RaceType, typeId: BuildingTypeId): Sprite | null { return this.sprite(this.manifest?.buildings[`${race}/${typeId}`]); }
+  /** A moving part drawn over a building, rendered from the same camera, such as a mill's sails (`mill_sails_3`). */
+  buildingPart(race: RaceType, name: string): Sprite | null { return this.sprite(this.manifest?.buildings[`${race}/${name}`]); }
   scaffold(size: number): Sprite | null { return this.sprite(this.manifest?.buildings[`scaffold/${size}`]); }
   nature(name: string): Sprite | null { return this.sprite(this.manifest?.nature[name]); }
   good(good: GoodType): Sprite | null { return this.sprite(this.manifest?.goods[good]); }

@@ -25,7 +25,7 @@ const PHASES: readonly SettlerPhase[] = [
   'idle', 'toPickup', 'toDrop', 'toStore', 'toSite', 'leveling', 'building',
   'toTool', 'toWork', 'inside', 'toTarget', 'working', 'returning',
   'toRecruit', 'toGarrison', 'defending', 'moving', 'attacking',
-  'prospecting', 'claiming', 'stealing'
+  'prospecting', 'claiming', 'stealing', 'leaving'
 ];
 const MADE_GOODS: readonly string[] = [...TOOL_TYPES, ...WEAPON_TYPES];
 const STAT_KEYS: readonly Exclude<keyof PlayerStats, 'goodsMade'>[] = [

@@ -537,7 +537,8 @@ function setSpecialistCount(world: World, playerId: number, type: SpecialistType
   while (have < count) {
     const store = world.buildings.find((b) => b.owner === playerId && b.isComplete && BUILDING_TYPES[b.typeId].storageCapacity > 0
       && (tool === null || b.stock[tool] - b.reserved[tool] > 0));
-    const carrier = world.settlers.find((s) => s.owner === playerId && s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying);
+    // Carriers still coming out of the castle at the start count too: they come out as specialists.
+    const carrier = world.settlers.find((s) => s.owner === playerId && s.settlerType === 'carrier' && (s.phase === 'idle' || s.phase === 'leaving') && !s.carrying);
     if (!store || !carrier) break;
     if (tool) store.stock[tool]--;
     carrier.settlerType = type; carrier.phase = 'idle'; carrier.path = []; carrier.workCentre = -1;

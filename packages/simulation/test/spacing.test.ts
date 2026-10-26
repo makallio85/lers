@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { castleOf, createMatch, newBuilding, newSettler, step, tileIndex } from '../src/index.ts';
+import { WAIT_RADIUS, castleOf, createMatch, newBuilding, newSettler, step, tileIndex } from '../src/index.ts';
 
 test('settlers standing still keep a tile each, next to each other, and keep doors free', () => {
   const world = createMatch(5, 'calm', 'small', 'romans', 'romans');
@@ -27,7 +27,7 @@ test('settlers stay in the world: idle ones wait outside near storage, and step 
   assert.ok(idle.length >= 10, 'the starting carriers wait for work');
   for (const s of idle) {
     assert.equal(s.isInside, false, 'outside, not in the castle');
-    assert.ok(Math.hypot(s.x - castle.doorX, s.y - castle.doorY) <= 6, 'near the castle');
+    assert.ok(Math.hypot(s.x - (castle.x + 1.5), s.y - (castle.y + 1.5)) <= WAIT_RADIUS + 0.5, 'around the castle');
   }
   const tiles = idle.map((s) => tileIndex(world, Math.round(s.x), Math.round(s.y)));
   assert.equal(new Set(tiles).size, tiles.length, 'a tile each');

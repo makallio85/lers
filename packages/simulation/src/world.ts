@@ -105,7 +105,9 @@ export type SettlerPhase =
   | 'idle' | 'toPickup' | 'toDrop' | 'toStore' | 'toSite' | 'leveling' | 'building'
   | 'toTool' | 'toWork' | 'inside' | 'toTarget' | 'working' | 'returning'
   | 'toRecruit' | 'toGarrison' | 'defending' | 'moving' | 'attacking'
-  | 'prospecting' | 'claiming' | 'stealing';
+  | 'prospecting' | 'claiming' | 'stealing'
+  /** Waiting inside a building to come out, one after another, and walk to its spot (`targetTile`). */
+  | 'leaving';
 
 export interface Settler {
   id: number;
@@ -793,6 +795,7 @@ function placeCastle(world: World, owner: number, x: number, y: number): void {
   const total = scaled((STARTING_STOCK.plank ?? 0) + (STARTING_STOCK.stone ?? 0), factors.goods);
   castle.stock.plank = Math.round(total * RACE_PLANK_SHARE[race]);
   castle.stock.stone = total - castle.stock.plank;
+  const leaving: Settler[] = [];
   for (const [type, base] of Object.entries(STARTING_SETTLERS) as [SettlerType, number][]) {
     const count = scaled(base, isSoldierType(type) ? factors.soldiers : factors.settlers);
     for (let i = 0; i < count; i++) {
@@ -800,11 +803,50 @@ function placeCastle(world: World, owner: number, x: number, y: number): void {
       if (isSoldierType(type) && castle.garrison.length < castle.garrisonWanted) {
         castle.garrison.push(s.id);
         s.phase = 'inside'; s.homeId = castle.id;
-      } else {
-        // Everyone else waits outside the castle: the rest of the soldiers free to be sent to towers or into battle,
-        // the civilians ready for work. They spread out to a tile each in their first moments.
-        s.isInside = false;
-      }
+      } else leaving.push(s);
     }
   }
+  // Everyone else comes out of the castle one after another and spreads evenly over its land: the soldiers free to
+  // be sent to towers or into battle, the civilians ready for work. Mixed, so neither crowds one side.
+  leaving.sort((a, b) => (a.id * 7919) % 101 - (b.id * 7919) % 101 || a.id - b.id);
+  const spots = spreadSpots(world, castle, leaving.length);
+  leaving.forEach((s, k) => {
+    s.phase = 'leaving'; s.timer = 5 + k * LEAVE_GAP_TICKS; s.targetTile = spots[k % spots.length] ?? -1;
+  });
 }
+
+/** Ticks between two settlers coming out of a building, so they leave one by one. */
+export const LEAVE_GAP_TICKS = 5;
+
+/**
+ * Spots spread evenly over a building's surroundings, nearest first: a sunflower spiral from just outside the
+ * building to `WAIT_RADIUS` tiles from its middle, each spot a free walkable tile out of every doorway.
+ */
+export function spreadSpots(world: World, b: Building, count: number): number[] {
+  const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
+  const inner = b.size / 2 + 1.5, outer = WAIT_RADIUS - 0.5;
+  const taken = new Set<number>();
+  const spots: number[] = [];
+  for (let k = 0; k < count; k++) {
+    const r = inner + (outer - inner) * Math.sqrt((k + 0.5) / Math.max(1, count));
+    const a = k * 2.399963;
+    const tx = Math.round(cx - 0.5 + Math.cos(a) * r), ty = Math.round(cy - 0.5 + Math.sin(a) * r);
+    // The nearest free tile to the spiral's point.
+    let best = -1, bestDistance = Infinity;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = tx + dx, y = ty + dy;
+        if (!inBounds(world, x, y)) continue;
+        const i = tileIndex(world, x, y);
+        if (taken.has(i) || world.door[i] !== 0 || !isWalkable(world, i)) continue;
+        const d = Math.hypot(dx, dy);
+        if (d < bestDistance) { bestDistance = d; best = i; }
+      }
+    }
+    if (best >= 0) { taken.add(best); spots.push(best); }
+  }
+  return spots;
+}
+
+/** How far from a storage area's middle idle settlers wait, in tiles. */
+export const WAIT_RADIUS = 9;

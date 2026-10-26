@@ -16,7 +16,7 @@ import { decideShip, launchShip } from './sea.ts';
 import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
-  buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
+  WAIT_RADIUS, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
   recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex, isEnemy
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
@@ -86,6 +86,7 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   if (world.tick % HEAL_TICKS === 0) healSoldiers(world);
   fillGarrisons(world);
   sendDefenders(world);
+  for (const s of world.settlers) if (s.phase === 'leaving') updateLeaving(world, s);
   for (const s of world.settlers) if (!isUnitType(s.settlerType)) updateSettler(world, s);
   // Soldiers and war machines act in alternating order each tick, so no player always strikes first.
   const soldiers = world.settlers.filter((s) => isUnitType(s.settlerType));
@@ -456,6 +457,8 @@ function updateSettler(world: World, s: Settler): void {
     return;
   }
   switch (s.phase) {
+    // Still waiting for its turn to come out (updateLeaving).
+    case 'leaving': return;
     case 'idle': return updateIdle(world, s);
     case 'toStore': return updateToStore(world, s);
     case 'toPickup': return updatePickup(world, s);
@@ -470,8 +473,6 @@ function updateSettler(world: World, s: Settler): void {
   }
 }
 
-/** How far from a storage area's door idle settlers wait, in tiles. */
-const WAIT_RADIUS = 4;
 
 /**
  * Idle settlers stay in the world: they wait outside, near the nearest storage area on their land, each on a tile of
@@ -490,16 +491,30 @@ function updateIdle(world: World, s: Settler): void {
   if (s.timer > 0) { s.timer--; return; }
   if (s.path.length > 0) { advance(world, s); return; }
   const home = storageFor(world, s.owner, 'log', s.x, s.y, false);
-  if (!home || distance(s.x, s.y, home.doorX, home.doorY) <= WAIT_RADIUS) return;
+  if (!home || distance(s.x, s.y, home.x + home.size / 2 - 0.5, home.y + home.size / 2 - 0.5) <= WAIT_RADIUS) return;
   // Cut off from storage: wait a while before trying again.
   if (!walkTo(world, s, waitingTile(world, s, home))) s.timer = 50;
 }
 
-/** A free spot of the settler's own land near a storage area's door, out of its doorway, to wait on. */
+/**
+ * A settler waiting in a building to come out: when its turn comes it steps out of the door and walks to its spot,
+ * a soldier under orders, a civilian as an idle settler on its way to wait there.
+ */
+function updateLeaving(world: World, s: Settler): void {
+  if (s.timer > 0) { s.timer--; return; }
+  const home = buildingById(world, s.homeId) ?? world.buildings.find((b) => b.owner === s.owner && b.typeId === 'castle');
+  if (home) { s.x = home.doorX; s.y = home.doorY; s.prevX = s.x; s.prevY = s.y; }
+  s.isInside = false; s.homeId = null;
+  const spot = s.targetTile; s.targetTile = -1;
+  const isUnit = isUnitType(s.settlerType) || isSpecialistType(s.settlerType) || s.settlerType === 'priest';
+  s.phase = spot >= 0 && walkTo(world, s, spot) && isUnit ? 'moving' : 'idle';
+}
+
+/** A free spot of the settler's own land near a storage area, out of its doorway, to wait on. */
 function waitingTile(world: World, s: Settler, store: Building): number {
   let best = doorTile(world, store), bestDistance = Infinity;
-  for (let dy = -WAIT_RADIUS + 1; dy <= WAIT_RADIUS - 1; dy++) {
-    for (let dx = -WAIT_RADIUS + 1; dx <= WAIT_RADIUS - 1; dx++) {
+  for (let dy = -4; dy <= 4; dy++) {
+    for (let dx = -4; dx <= 4; dx++) {
       const x = store.doorX + dx, y = store.doorY + dy;
       if (!inBounds(world, x, y)) continue;
       const i = tileIndex(world, x, y);

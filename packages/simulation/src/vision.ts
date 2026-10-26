@@ -161,7 +161,8 @@ export function observe(world: World, playerId: number): Observation {
   for (const s of world.settlers) {
     if (s.owner === playerId) {
       settlerCounts[s.settlerType] = (settlerCounts[s.settlerType] ?? 0) + 1;
-      if (s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying) freeCarriers++;
+      // Carriers still coming out of a building at the start count as free: they are on their way to wait for work.
+      if (s.settlerType === 'carrier' && (s.phase === 'idle' || s.phase === 'leaving') && !s.carrying) freeCarriers++;
       if (isSpecialistType(s.settlerType) || s.settlerType === 'priest') {
         ownSpecialists.push({ id: s.id, owner: s.owner, settlerType: s.settlerType, x: s.x, y: s.y, health: s.health, phase: s.phase,
           ...(s.settlerType === 'priest' ? { isReady: s.timer === 0 && !s.isInside } : {}) });
