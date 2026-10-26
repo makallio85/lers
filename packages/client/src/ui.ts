@@ -18,17 +18,34 @@ export type MilitaryViewId = 'recruiting' | 'soldiers' | 'garrisons' | 'ranks';
 export type SettlersViewId = 'counts' | 'occupations' | 'specialists';
 export type OrderMode = 'select' | 'move' | 'attack' | 'waypoint' | 'patrol' | 'free' | 'spell' | null;
 
-const ICONS: Record<TabId | 'warning' | 'info', string> = {
+const ICONS = {
   build: '<path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M10 21v-6h4v6"/>',
   goods: '<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/>',
   settlers: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21c0-4 3-7 7-7s7 3 7 7"/>',
   military: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
   stats: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
   warning: '<path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7h.01"/>'
-};
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><path d="M12 7h.01"/>',
+  // Sub-tabs of the menus.
+  resources: '<path d="M12 3l6 8h-3.5l4.5 6H5l4.5-6H6z"/><path d="M12 17v4"/>',
+  food: '<path d="M12 21V7"/><path d="M12 7c-3 0-4-1.5-4-4 3 0 4 1.5 4 4zM12 7c3 0 4-1.5 4-4-3 0-4 1.5-4 4z"/><path d="M12 13c-3 0-4-1.5-4-4 3 0 4 1.5 4 4zM12 13c3 0 4-1.5 4-4-3 0-4 1.5-4 4z"/>',
+  swords: '<path d="M4 4l11 11"/><path d="M20 4L9 15"/><path d="M13 17l4-4M7 13l4 4"/><path d="M16 16l4 4M8 16l-4 4"/>',
+  misc: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  inventory: '<rect x="3" y="13" width="8" height="7" rx="1"/><rect x="13" y="13" width="8" height="7" rx="1"/><rect x="8" y="4" width="8" height="7" rx="1"/>',
+  tools: '<path d="M10 3h7l3 3-3 3h-7z"/><path d="M12 9v12"/>',
+  distribution: '<path d="M12 21v-8"/><path d="M12 13L6 7M12 13l6-6"/><path d="M6 11V7h4M18 11V7h-4"/>',
+  transport: '<path d="M8 4v16M5 17l3 3 3-3"/><path d="M16 20V4M13 7l3-3 3 3"/>',
+  counts: '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20c0-3.5 2.5-6 6-6s6 2.5 6 6"/><path d="M15.5 14.5c3 0 5.5 2 5.5 5.5"/>',
+  occupations: '<path d="M14 10l5-5"/><path d="M17 3l4 4"/><path d="M14 10l-2.5-2.5-6 6c-1.2 1.2-1.2 3.3 0 4.5s3.3 1.2 4.5 0l6-6z"/>',
+  specialists: '<circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L21 21"/>',
+  recruiting: '<circle cx="10" cy="7" r="3.5"/><path d="M3 21c0-4 3-7 7-7 1.8 0 3.3.6 4.5 1.5"/><path d="M19 14v6M16 17h6"/>',
+  soldiers: '<path d="M20 4l-9.5 9.5"/><path d="M20 4h-4l-9 9 4 4 9-9z"/><path d="M6 14l4 4"/><path d="M4 20l3-3"/>',
+  garrisons: '<path d="M6 21V10h12v11"/><path d="M5 10V4h3v2h2.5V4h3v2H16V4h3v6"/><path d="M10 21v-4h4v4"/>',
+  ranks: '<path d="M6 9l6-4 6 4"/><path d="M6 14l6-4 6 4"/><path d="M6 19l6-4 6 4"/>'
+} satisfies Record<TabId | 'warning' | 'info', string> & Record<string, string>;
+export type IconName = keyof typeof ICONS;
 
-export function icon(name: keyof typeof ICONS, color = 'currentColor'): string {
+export function icon(name: IconName, color = 'currentColor'): string {
   return `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
 }
 
@@ -43,19 +60,23 @@ export function outsideStrength(gold: number): number {
 }
 
 /** The goods views and their keys follow the original game's A S D F order. */
-export const GOODS_VIEWS: { id: GoodsViewId; label: string; key: string }[] = [
-  { id: 'inventory', label: 'Inventory', key: 'a' }, { id: 'tools', label: 'Tools', key: 's' },
-  { id: 'distribution', label: 'Distribution', key: 'd' }, { id: 'transport', label: 'Transport', key: 'f' }
+export const GOODS_VIEWS: { id: GoodsViewId; label: string; key: string; icon: IconName }[] = [
+  { id: 'inventory', label: 'Inventory', key: 'a', icon: 'inventory' }, { id: 'tools', label: 'Tools', key: 's', icon: 'tools' },
+  { id: 'distribution', label: 'Distribution', key: 'd', icon: 'distribution' }, { id: 'transport', label: 'Transport', key: 'f', icon: 'transport' }
 ];
 
 /** The Settlers views and their keys follow the original game's Z X C order. */
-export const SETTLERS_VIEWS: { id: SettlersViewId; label: string; key: string }[] = [
-  { id: 'counts', label: 'Counts', key: 'z' }, { id: 'occupations', label: 'Occupations', key: 'x' }, { id: 'specialists', label: 'Specialists', key: 'c' }
+export const SETTLERS_VIEWS: { id: SettlersViewId; label: string; key: string; icon: IconName }[] = [
+  { id: 'counts', label: 'Counts', key: 'z', icon: 'counts' }, { id: 'occupations', label: 'Occupations', key: 'x', icon: 'occupations' },
+  { id: 'specialists', label: 'Specialists', key: 'c', icon: 'specialists' }
 ];
 
-const MILITARY_VIEWS: { id: MilitaryViewId; label: string }[] = [
-  { id: 'recruiting', label: 'Recruiting' }, { id: 'soldiers', label: 'Soldiers' }, { id: 'garrisons', label: 'Garrisons' }, { id: 'ranks', label: 'Ranks' }
+const MILITARY_VIEWS: { id: MilitaryViewId; label: string; icon: IconName }[] = [
+  { id: 'recruiting', label: 'Recruiting', icon: 'recruiting' }, { id: 'soldiers', label: 'Soldiers', icon: 'soldiers' },
+  { id: 'garrisons', label: 'Garrisons', icon: 'garrisons' }, { id: 'ranks', label: 'Ranks', icon: 'ranks' }
 ];
+/** The build menu's groups, drawn as icons. */
+const BUILDING_GROUP_ICONS: Record<BuildingGroupType, IconName> = { resources: 'resources', food: 'food', military: 'swords', misc: 'misc' };
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -70,9 +91,23 @@ function storedOf(world: World, owner: number, good: GoodType): number {
   return world.buildings.reduce((sum, b) => sum + (b.owner === owner && isStorageBuilding(b) ? b.stock[good] : 0), 0);
 }
 
-function pills<T extends string>(items: { id: T; label: string; key?: string }[], active: T, action: string, label: string): string {
-  return `<div class="groups" role="tablist" aria-label="${label}">${items.map((v) =>
-    `<button type="button" role="tab" class="pill" data-action="${action}" data-view="${v.id}" aria-selected="${v.id === active}"${v.key ? ` title="Key ${v.key.toUpperCase()}"` : ''}>${v.label}</button>`).join('')}</div>`;
+/**
+ * A row of tabs. With icons they share one line in equal columns, each named by its tooltip and for screen
+ * readers, and the open one's name stands under the row; without icons they are text pills that wrap.
+ */
+export function pills<T extends string>(items: { id: T; label: string; key?: string; icon?: IconName }[], active: T, action: string, label: string, dataName = 'view'): string {
+  const isIcons = items.every((v) => v.icon);
+  const buttons = items.map((v) => {
+    const key = v.key ? ` (key ${v.key.toUpperCase()})` : '';
+    const attrs = `type="button" role="tab" data-action="${action}" data-${dataName}="${v.id}" aria-selected="${v.id === active}"`;
+    return isIcons
+      ? `<button ${attrs} class="pill is-icon" aria-label="${v.label}" title="${v.label}${key}">${icon(v.icon!)}</button>`
+      : `<button ${attrs} class="pill"${key ? ` title="Key${key.slice(5, -1)}"` : ''}>${v.label}</button>`;
+  }).join('');
+  if (!isIcons) return `<div class="groups" role="tablist" aria-label="${label}">${buttons}</div>`;
+  const current = items.find((v) => v.id === active);
+  return `<div class="groups is-icons" role="tablist" aria-label="${label}" style="--count: ${items.length}">${buttons}</div>
+    ${current ? `<span class="groups-caption">${current.label}</span>` : ''}`;
 }
 
 export function renderTabs(active: TabId): string {
@@ -101,8 +136,7 @@ function countText(c: { built: number; building: number } | undefined): string {
 
 export function renderBuildPanel(groupType: BuildingGroupType, selected: BuildingTypeId, placing: BuildingTypeId | null, race: RaceType,
   counts: Partial<Record<BuildingTypeId, { built: number; building: number }>> = {}): string {
-  const groups = BUILDING_GROUP_TYPES.map((g) =>
-    `<button type="button" role="tab" class="pill" data-action="group" data-group="${g.id}" aria-selected="${g.id === groupType}" title="Key ${g.key.toUpperCase()}">${g.label}</button>`).join('');
+  const groups = pills(BUILDING_GROUP_TYPES.map((g) => ({ ...g, icon: BUILDING_GROUP_ICONS[g.id] })), groupType, 'group', 'Building groups', 'group');
   // Only the buildings this people can build; its own ones are marked.
   const types = Object.values(BUILDING_TYPES).filter((t) => t.groupType === groupType && isBuildableBy(t.id, race));
   const cards = types.map((t) => `
@@ -114,7 +148,7 @@ export function renderBuildPanel(groupType: BuildingGroupType, selected: Buildin
   const t = BUILDING_TYPES[isBuildableBy(selected, race) ? selected : types[0]?.id ?? selected];
   const isPlacing = placing === selected;
   return `
-    <div class="groups" role="tablist" aria-label="Building groups">${groups}</div>
+    ${groups}
     <div class="buildings">${cards}</div>
     <div class="detail">
       <div class="detail-head"><span class="detail-title">${buildingLabel(t.id, race)}</span><span class="muted">${t.size}×${t.size} tiles</span></div>
