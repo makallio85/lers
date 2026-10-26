@@ -132,6 +132,8 @@ interface SettlerView {
   lastX?: number; lastY?: number;
   /** The pebble an idle carrier kicks, made the first time one does. */
   pebble?: Graphics;
+  /** The green cloud an idle carrier lets out, much more rarely; made the first time. */
+  fart?: Graphics;
 }
 
 /** How long picking up or putting down a load takes on screen, in milliseconds. */
@@ -143,6 +145,8 @@ const HANDLE_MS = 600;
  */
 const KICK_FRAME_MS = 110, KICK_MS = 6 * KICK_FRAME_MS, KICK_EVERY_MS = 9000, KICK_SPREAD_MS = 9000;
 const PEBBLE_MS = 900, PEBBLE_TILES = 0.55;
+/** Far more rarely, every 70 to 140 seconds of game time, an idle carrier lets out a green cloud that drifts up and fades. */
+const FART_EVERY_MS = 70_000, FART_SPREAD_MS = 70_000, FART_MS = 1800;
 
 /** Workshops with a fire: smoke rises from them while their worker is at work. */
 const SMOKY_BUILDINGS: ReadonlySet<BuildingTypeId> = new Set<BuildingTypeId>([
@@ -835,8 +839,10 @@ export class MapView {
     if (s.settlerType === 'carrier' && v.handledAt !== undefined && now - v.handledAt < HANDLE_MS && this.bank.hasAnim(race, look, 'work')) {
       anim = 'work'; frame = Math.floor(((now - v.handledAt) / HANDLE_MS) * 6) - s.id;
     }
-    const kickAt = s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying && !isWalking && anim === 'walk' && this.bank.hasAnim(race, look, 'kick')
+    const isIdleCarrier = s.settlerType === 'carrier' && s.phase === 'idle' && !s.carrying && !isWalking && anim === 'walk';
+    const kickAt = isIdleCarrier && this.bank.hasAnim(race, look, 'kick')
       ? (now + s.id * 1237) % (KICK_EVERY_MS + ((s.id * 2731) % KICK_SPREAD_MS)) : Infinity;
+    this.drawFart(v, isIdleCarrier ? (now + s.id * 7919) % (FART_EVERY_MS + ((s.id * 4111) % FART_SPREAD_MS)) : Infinity);
     if (kickAt < KICK_MS) { anim = 'kick'; frame = Math.floor(kickAt / KICK_FRAME_MS) - s.id; }
     this.drawPebble(v, kickAt - KICK_MS / 2);
     // Ships rock on the swell all the time, slowly.
@@ -871,6 +877,27 @@ export class MapView {
    * Sounds of work and battle, at the frame the stroke lands (the fourth of six): a chop, a hammer blow, a pick on
    * stone, a spade in earth, swords meeting, a bow released, a war machine's shot. Once per stroke.
    */
+  /** An idle carrier's green cloud, `since` ms after it came out: puffs from behind it that swell, drift up and fade. */
+  private drawFart(v: SettlerView, since: number): void {
+    if (!(since >= 0 && since < FART_MS)) { if (v.fart) v.fart.visible = false; return; }
+    const g = v.fart ??= new Graphics();
+    if (!g.parent) v.root.addChild(g);
+    const t = since / FART_MS;
+    // Out of the back, opposite the way it faces, at hip height.
+    const bx = -Math.sin(v.dir * Math.PI / 4), by = -Math.cos(v.dir * Math.PI / 4);
+    const back = iso(bx * 0.3, by * 0.3);
+    g.clear();
+    for (let k = 0; k < 4; k++) {
+      const u = Math.max(0, Math.min(1, t * 1.4 - k * 0.12));
+      if (u <= 0) continue;
+      const x = back.x + bx * u * 14 + Math.sin(u * 5 + k * 1.7) * 4, y = back.y - 9 - u * 18 - k * 3;
+      g.circle(x, y, 4 + u * 8 - k * 0.6).fill({ color: k % 2 === 0 ? 0x8fd13a : 0x6fae22, alpha: 0.75 * (1 - u * u) });
+    }
+    g.visible = true;
+    // In front of the body, so the cloud shows whichever way the carrier faces.
+    v.root.setChildIndex(g, v.root.children.length - 1);
+  }
+
   /** The kicked pebble, `since` ms after the foot met it: it hops away in the direction the carrier faces and fades. */
   private drawPebble(v: SettlerView, since: number): void {
     if (!(since >= 0 && since < PEBBLE_MS)) { if (v.pebble) v.pebble.visible = false; return; }
