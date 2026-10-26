@@ -2,9 +2,9 @@ import {
   BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
-  placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS
+  placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED
 } from '../../simulation/src/index.ts';
-import type { BotType, MapSizeType, RaceType, SoldierType, SpecialistType, SpellType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotType, MapSizeType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
@@ -16,8 +16,8 @@ import type { GoodsViewId, MilitaryViewId, OrderMode, SettlersViewId, TabId } fr
 
 const TICK_MS = 100;
 const PLAYER = 0;
-const SAVE_KEY = 'lers.save.v8';
-const AUTOSAVE_KEY = 'lers.autosave.v8';
+const SAVE_KEY = 'lers.save.v9';
+const AUTOSAVE_KEY = 'lers.autosave.v9';
 const AUTOSAVE_MS = 5 * 60 * 1000;
 const DRAG_THRESHOLD = 6;
 
@@ -73,6 +73,9 @@ const ui = {
   settlersView: 'counts' as SettlersViewId,
   /** A gatherer whose new work area the next map click sets. */
   workAreaFor: null as number | null,
+  /** While setting a marketplace's route: the marketplace, and the spots tapped so far (the last is the route's end). */
+  routeFor: null as number | null,
+  routePoints: [] as { x: number; y: number }[],
   selectedType: 'woodcutter' as BuildingTypeId,
   placing: null as BuildingTypeId | null,
   ghost: null as Ghost | null,
@@ -187,6 +190,14 @@ function renderMenu(): void {
 }
 
 function renderHint(): void {
+  if (!ui.placing && ui.routeFor !== null) {
+    const n = ui.routePoints.length;
+    els.hint.hidden = false;
+    els.hint.innerHTML = `<span>Trade route</span><span>${n === 0 ? 'Tap up to 3 spots to pass, then the end: the caravans unload at your storage near it.' : `${n} ${n === 1 ? 'spot' : 'spots'} set; the last one is the end.`}</span>
+      <button type="button" class="primary" data-action="route-done" ${n === 0 ? 'disabled' : ''}>Done</button>
+      <button type="button" class="secondary" data-action="route-cancel">Cancel</button>`;
+    return;
+  }
   const workSite = buildingById(world, ui.workAreaFor);
   if (!ui.placing && workSite) {
     els.hint.hidden = false;
@@ -225,7 +236,7 @@ function selectedSoldierList(): Settler[] {
 function renderSelectionCard(): void {
   const b = buildingById(world, ui.selectedId);
   if (!b || !view.isBuildingVisible(b)) { ui.selectedId = null; ui.isConfirmingDemolish = false; els.selection.hidden = true; return; }
-  if (ui.workAreaFor !== null) { els.selection.hidden = true; return; }
+  if (ui.workAreaFor !== null || ui.routeFor !== null) { els.selection.hidden = true; return; }
   els.selection.hidden = false;
   els.selection.innerHTML = renderSelection(world, b, PLAYER, ui.isConfirmingDemolish, ui.selectedSoldiers.size);
 }
@@ -426,6 +437,13 @@ function soldierAt(clientX: number, clientY: number): Settler | undefined {
 
 function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
   ui.isConfirmingDemolish = false;
+  if (ui.routeFor !== null) {
+    const tile = view.screenToTile(clientX, clientY);
+    if (tile.x < 0 || tile.y < 0 || tile.x >= world.width || tile.y >= world.height) return;
+    if (ui.routePoints.length < 4) ui.routePoints.push(tile);
+    if (ui.routePoints.length === 4) finishRoute(); else renderHint();
+    return;
+  }
   if (ui.workAreaFor !== null) {
     const tile = view.screenToTile(clientX, clientY);
     submit({ type: 'setWorkArea', playerId: PLAYER, buildingId: ui.workAreaFor, x: tile.x, y: tile.y });
@@ -476,6 +494,18 @@ function orderAt(clientX: number, clientY: number, mode: 'move' | 'attack' | 'au
   // Waypoint mode stays on, so the player can tap one spot after another until Done.
   if (mode !== 'waypoint' || ui.orderMode !== 'waypoint') ui.orderMode = null;
   renderOrders();
+}
+
+/** Sends the tapped route: the last spot is the end, the ones before it waypoints. */
+function finishRoute(): void {
+  const points = ui.routePoints, id = ui.routeFor;
+  ui.routeFor = null; ui.routePoints = [];
+  if (id !== null && points.length > 0) {
+    const end = points[points.length - 1];
+    submit({ type: 'setTradeRoute', playerId: PLAYER, buildingId: id, x: end.x, y: end.y, waypoints: points.slice(0, -1) });
+    ui.selectedId = id;
+  }
+  renderHint(); renderSelectionCard();
 }
 
 /** Casts the aimed spell on the spot with the selected priest that can (the nearest one first). */
@@ -782,6 +812,24 @@ document.addEventListener('click', (e) => {
       if (ids.length && castle) submit({ type: 'moveSoldiers', playerId: PLAYER, soldierIds: ids, x: castle.doorX, y: castle.doorY + 2 });
       break;
     }
+    case 'set-route':
+      if (selected) { ui.routeFor = selected.id; ui.routePoints = []; ui.orderMode = null; renderHint(); renderSelectionCard(); }
+      break;
+    case 'route-done': finishRoute(); break;
+    case 'route-cancel': ui.routeFor = null; ui.routePoints = []; renderHint(); renderSelectionCard(); break;
+    case 'trade-mode':
+      if (selected) submit({ type: 'setTradeMode', playerId: PLAYER, buildingId: selected.id, mode: target.dataset.mode as TradeModeType });
+      renderSelectionCard(); break;
+    case 'trade-good': {
+      if (!selected?.tradeRoute) break;
+      const good = target.dataset.good as GoodType;
+      const amount = selected.tradeRoute.goods[good] ?? 0;
+      // Steps of a donkey's load, up to 64; one more step means "all".
+      const up = amount === TRADE_UNLIMITED ? TRADE_UNLIMITED : amount >= 64 ? TRADE_UNLIMITED : amount + DONKEY_LOAD;
+      const down = amount === TRADE_UNLIMITED ? 64 : Math.max(0, amount - DONKEY_LOAD);
+      submit({ type: 'setTradeGood', playerId: PLAYER, buildingId: selected.id, good, amount: target.dataset.step === '1' ? up : down });
+      renderSelectionCard(); break;
+    }
     case 'cast-mode': {
       const spell = target.dataset.spell as SpellType;
       const isOff = ui.orderMode === 'spell' && ui.spell === spell;
@@ -894,10 +942,20 @@ function frame(now: number): void {
   }
   view.render(ui.speed > 0 && world.winner === null ? accumulator / TICK_MS : 1, {
     ghost: ui.ghost, markers: ui.markers, markerSize: ui.placing ? BUILDING_TYPES[ui.placing].size : 0, selectedId: ui.selectedId, hoveredId: ui.hoveredId,
-    selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown(), spellRange: spellRangeShown()
+    selectedSoldiers: ui.selectedSoldiers, selectionBox: ui.selectionBox, workArea: workAreaShown(), spellRange: spellRangeShown(), tradeRoute: tradeRouteShown()
   });
   if (now - lastLive > 250) { lastLive = now; refreshLive(); }
   requestAnimationFrame(frame);
+}
+
+/** The route of the selected marketplace, or the one being set: from its door through the spots in order. */
+function tradeRouteShown(): { from: { x: number; y: number }; points: { x: number; y: number }[] } | null {
+  const b = buildingById(world, ui.routeFor ?? ui.selectedId);
+  if (!b || b.typeId !== 'marketplace' || b.owner !== PLAYER) return null;
+  if (ui.routeFor !== null) return { from: { x: b.doorX, y: b.doorY }, points: ui.routePoints };
+  if (!b.tradeRoute) return null;
+  const w = world.width;
+  return { from: { x: b.doorX, y: b.doorY }, points: [...b.tradeRoute.waypoints.map((i) => ({ x: i % w, y: Math.floor(i / w) })), { x: b.tradeRoute.x, y: b.tradeRoute.y }] };
 }
 
 /** While a priest aims a spell that needs him near: how far he reaches. */

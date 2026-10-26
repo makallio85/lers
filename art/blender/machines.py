@@ -12,6 +12,7 @@ CELL = (128, 120)
 FRAMES = {'walk': 4, 'attack': 6}
 # Each people's machine; the kit models point along +X, so they turn -90 degrees to face direction 0 (south).
 MACHINES = {'romans': 'catapult', 'egyptians': 'ballista', 'asians': 'cannon', 'amazons': 'war_gong'}
+DONKEY_FRAMES = {'walk': 6}
 
 
 def build(race, machine):
@@ -76,6 +77,39 @@ def render(race, quick=False):
     if not quick: write_meta(base + '.json', {'anchor': s.anchor(), 'anims': FRAMES, 'cell': list(CELL)})
 
 
+def donkey():
+    """A donkey with pack bags, walking: one sheet shared by every people."""
+    s = Scene(None)
+    root = bpy.data.objects.new('donkey', None); s.sc.collection.objects.link(root); root.rotation_mode = 'XYZ'
+    hide = s.mat('hide', '7d746a', noise=10); dark = s.mat('mane', '3a332c'); bag = s.mat('bag', 'a07a48', noise=12)
+    parts = [s.box(0, 0, 0.24, 0.5, 0.2, 0.2, hide), s.box(0.3, 0, 0.36, 0.12, 0.12, 0.14, hide),
+             s.box(0.38, 0, 0.36, 0.14, 0.1, 0.09, hide), s.box(0.3, 0, 0.5, 0.04, 0.03, 0.1, dark), s.box(0.3, 0.04, 0.5, 0.04, 0.03, 0.1, dark),
+             s.box(-0.27, 0, 0.36, 0.04, 0.04, 0.12, dark)]
+    for y in (-0.13, 0.13): parts.append(s.box(0.02, y, 0.26, 0.24, 0.07, 0.16, bag))
+    legs = []
+    for x in (-0.18, 0.18):
+        for y in (-0.07, 0.07):
+            leg = s.box(x, y, 0, 0.06, 0.06, 0.25, hide); legs.append(leg); parts.append(leg)
+    bpy.context.view_layer.update()
+    for o in parts:
+        mw = o.matrix_world.copy(); o.parent = root; o.matrix_world = mw
+    s.camera(*CELL, target_z=0.2)
+    base = os.path.join(RENDERS, 'settlers', 'romans', 'donkey')
+    n = DONKEY_FRAMES['walk']
+    for d in range(8):
+        root.rotation_euler = (0, 0, math.radians(d * 45 - 90))
+        for k in range(n):
+            t = k / n
+            for i, leg in enumerate(legs):
+                leg.rotation_euler = (0, 0.45 * math.sin(2 * math.pi * t + (math.pi if i in (1, 2) else 0)), 0)
+            root.location = (0, 0, 0.01 * abs(math.sin(2 * math.pi * t)))
+            s.render(os.path.join(base, f'walk_{d}_{k}.png'), 16)
+    write_meta(base + '.json', {'anchor': s.anchor(), 'anims': DONKEY_FRAMES, 'cell': list(CELL)})
+
+
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
+if 'donkey' in args:
+    donkey()
+    sys.exit(0)
 for race in [a for a in args if a in RACES] or list(RACES):
     render(race, 'quick' in args)

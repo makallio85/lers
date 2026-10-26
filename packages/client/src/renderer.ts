@@ -61,6 +61,8 @@ export interface ViewState {
   workArea: { x: number; y: number; radius: number } | null;
   /** How far the selected priest reaches with the spell being aimed. */
   spellRange?: { x: number; y: number; radius: number } | null;
+  /** The selected marketplace's trade route: from its door through each spot. */
+  tradeRoute?: { from: { x: number; y: number }; points: { x: number; y: number }[] } | null;
 }
 
 function hash(i: number): number {
@@ -484,7 +486,8 @@ export class MapView {
       v.load.scale.set(this.bank.scale * 0.8);
       const fx = Math.sin(v.dir * Math.PI / 4), fy = Math.cos(v.dir * Math.PI / 4);
       const front = iso(fx * 0.12, fy * 0.12);
-      v.load.position.set(front.x, front.y - (anim === 'carry' ? 11 : 24));
+      // A donkey's load sits on its back; a carrier's in its hands; others carry it above the head.
+      v.load.position.set(front.x, front.y - (s.settlerType === 'donkey' ? 14 : anim === 'carry' ? 11 : 24));
       // Behind the body when the settler walks away from the viewer.
       v.root.setChildIndex(v.load, v.dir >= 3 && v.dir <= 5 ? 0 : 1);
     }
@@ -566,6 +569,25 @@ export class MapView {
         g.moveTo(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r).lineTo(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
       }
       g.stroke({ width: 2, color: 0xe3a33b });
+    }
+    if (state.tradeRoute) {
+      // The route as a dashed line, spots as rings and the end as a filled one.
+      let a = state.tradeRoute.from;
+      const at = (p: { x: number; y: number }) => ({ x: (p.x + 0.5) * TILE, y: (p.y + 0.5) * TILE });
+      for (const p of state.tradeRoute.points) {
+        const from = at(a), to = at(p), d = Math.hypot(to.x - from.x, to.y - from.y), n = Math.max(1, Math.floor(d / 8));
+        for (let k = 0; k < n; k += 2) {
+          g.moveTo(from.x + (to.x - from.x) * k / n, from.y + (to.y - from.y) * k / n)
+            .lineTo(from.x + (to.x - from.x) * Math.min(n, k + 1) / n, from.y + (to.y - from.y) * Math.min(n, k + 1) / n);
+        }
+        a = p;
+      }
+      g.stroke({ width: 2, color: 0xe3a33b });
+      state.tradeRoute.points.forEach((p, k) => {
+        const c = at(p);
+        if (k === state.tradeRoute!.points.length - 1) g.circle(c.x, c.y, 6).fill(0xe3a33b).stroke({ width: 2, color: 0x1b2420 });
+        else g.circle(c.x, c.y, 4).stroke({ width: 2, color: 0xe3a33b });
+      });
     }
     if (state.spellRange) {
       const { x, y, radius } = state.spellRange;
