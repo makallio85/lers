@@ -666,6 +666,18 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
     }
     if (type.mine) lines.push(`<dt>Meals left</dt><dd>${b.meals}</dd>`);
   }
+  // Goods traffic: what carriers are bringing, and what they are coming to take away.
+  const traffic = (pick: (s: Settler) => boolean) => {
+    const n: Partial<Record<GoodType, number>> = {};
+    for (const s of world.settlers) if (s.owner === b.owner && pick(s) && (s.carrying ?? s.good)) { const g = (s.carrying ?? s.good)!; n[g] = (n[g] ?? 0) + 1; }
+    return GOOD_TYPES.filter((g) => n[g]).map((g) => `${n[g]} ${GOOD_NAMES[g][n[g] === 1 ? 0 : 1]}`).join(', ');
+  };
+  const comingIn = traffic((s) => s.toId === b.id && (s.carrying !== null || s.phase === 'toPickup') && s.fromId !== b.id);
+  const goingOut = traffic((s) => s.fromId === b.id && s.phase === 'toPickup');
+  if (b.owner === owner && (comingIn || goingOut || b.isComplete)) {
+    lines.push(`<dt><span class="traffic-dot is-in"></span>Arriving</dt><dd>${comingIn || 'Nothing'}</dd>`);
+    lines.push(`<dt><span class="traffic-dot is-out"></span>Leaving</dt><dd>${goingOut || 'Nothing'}</dd>`);
+  }
   if ((b.typeId === 'marketplace' || b.typeId === 'landing_dock') && b.isComplete) return renderMarketplace(world, b, owner, isConfirmingDemolish);
   if (b.typeId === 'shipyard' && b.isComplete) {
     const race = world.players[b.owner].raceType;

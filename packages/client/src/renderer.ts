@@ -96,6 +96,8 @@ interface BuildingView {
 /** How long a demolished building takes to collapse, in milliseconds. */
 const COLLAPSE_MS = 1500;
 
+/** Most piles the castle's stockpile shows on the ground around it. */
+const CASTLE_PILES = 40;
 /** Goods drawn per pile: a pile of eight, as storage holds them. */
 const PILE_SIZE = 8;
 /** Where the items of a pile sit, in screen pixels from its foot: two layers of four. */
@@ -377,6 +379,8 @@ export class MapView {
       v.root.zIndex = cx + cy;
       v.foot = { x: cx, y: cy };
       cullPoints.set(v.root, iso(cx, cy));
+      // The piles lie around the building, in map space: they are culled with it.
+      cullPoints.set(v.piles, iso(cx, cy));
       // While it rises the building has no shadow yet; it gets its full shadow once it is finished.
       const art = b.isComplete ? this.bank.building(this.raceOf(b.owner), b.typeId) : this.bank.buildingWithoutShadow(this.raceOf(b.owner), b.typeId);
       const scaffoldArt = this.bank.scaffold(b.size);
@@ -441,24 +445,31 @@ export class MapView {
    * materials. The castle keeps its goods inside.
    */
   private drawPiles(b: Building, v: BuildingView): void {
+    const isCastle = b.typeId === 'castle';
+    const isStore = b.isComplete && isStorageBuilding(b);
+    // Every good a building holds lies on the map: a workshop's at its door, a store's and the castle's on its yard.
+    const limit = isCastle ? CASTLE_PILES : isStore ? Math.ceil(BUILDING_TYPES[b.typeId].storageCapacity / PILE_SIZE) : 12;
     const piles: { good: GoodType; count: number }[] = [];
     const add = (amounts: Partial<Record<GoodType, number>>) => {
       for (const g of GOOD_TYPES) {
         let n = amounts[g] ?? 0;
-        while (n > 0 && piles.length < 12) { piles.push({ good: g, count: Math.min(PILE_SIZE, n) }); n -= PILE_SIZE; }
+        while (n > 0 && piles.length < limit) { piles.push({ good: g, count: Math.min(PILE_SIZE, n) }); n -= PILE_SIZE; }
       }
     };
-    const inputs = b.isComplete ? b.input : b.delivered;
-    if (b.typeId !== 'castle') add(inputs);
+    if (!isCastle && !isStore) add(b.isComplete ? b.input : b.delivered);
     const inputPiles = piles.length;
-    if (b.typeId !== 'castle' && b.isComplete) add(b.stock);
+    if (b.isComplete) add(b.stock);
     let k = 0;
     const want = piles.reduce((n, p) => n + p.count, 0);
     while (v.piles.children.length < want) v.piles.addChild(new Sprite());
-    // Slots along the front edge of the yard: inputs from the left, made goods from the right; storage fills rows.
-    const isStore = b.isComplete && isStorageBuilding(b);
+    // Slots along the front edge of the yard: inputs from the left, made goods from the right; storage fills rows;
+    // the castle's stockpile lies around it on the ground, nearest its door first.
+    const yard = isCastle ? this.castleYard(b) : [];
     const slot = (index: number, isOutput: boolean) => {
+      if (isCastle) return yard[index % Math.max(1, yard.length)] ?? { x: b.doorX, y: b.doorY + 1 };
       if (isStore) return { x: b.x + 0.5 + (index % b.size), y: b.y + b.size - 0.55 - Math.floor(index / b.size) * 0.8 };
+      // A construction site's materials wait in the open along its right front edge, clear of the crew on the site.
+      if (!b.isComplete) return { x: b.x + b.size + 0.55, y: b.y + b.size - 0.5 - index * 0.75 };
       const along = isOutput ? b.x + b.size - 0.45 - (index - inputPiles) * 0.55 : b.x + 0.45 + index * 0.55;
       return { x: along, y: b.y + b.size - 0.45 };
     };
@@ -478,6 +489,30 @@ export class MapView {
     for (let j = k; j < v.piles.children.length; j++) v.piles.children[j].visible = false;
     // In front of the building, sorted with the settlers walking past.
     v.piles.zIndex = b.x + b.y + b.size + 0.1;
+  }
+
+  private readonly yards = new Map<number, { x: number; y: number }[]>();
+  /** Spots for the castle's stockpile: open tiles one and two out from its front walls, keeping the way to its door free. */
+  private castleYard(b: Building): { x: number; y: number }[] {
+    const known = this.yards.get(b.id);
+    if (known && this.world.tick % 50 !== 0) return known;
+    const w = this.world, spots: { x: number; y: number; d: number }[] = [];
+    for (let y = b.y - 2; y <= b.y + b.size + 1; y++) {
+      for (let x = b.x - 2; x <= b.x + b.size + 1; x++) {
+        if (x >= b.x && x < b.x + b.size && y >= b.y && y < b.y + b.size) continue;
+        if (Math.abs(x - b.doorX) <= 1 && y >= b.y + b.size) continue;
+        // Only the castle's two front sides, which are drawn in front of it.
+        if (x + y < b.x + b.y + b.size) continue;
+        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+        const i = tileIndex(w, x, y);
+        if (w.footprint[i] !== 0 || w.door[i] !== 0 || w.terrain[i] === TERRAIN_WATER || w.rock[i] !== 0 || w.tree[i] >= 0) continue;
+        spots.push({ x: x + 0.5, y: y + 0.5, d: Math.hypot(x - b.doorX, y - b.doorY) });
+      }
+    }
+    spots.sort((p, q) => p.d - q.d || p.x - q.x);
+    const yard = spots.map(({ x, y }) => ({ x, y }));
+    this.yards.set(b.id, yard);
+    return yard;
   }
 
   /** A finished mill's sails: turning a quarter in 8 steps while the miller grinds, at rest otherwise. */
@@ -625,7 +660,7 @@ export class MapView {
     p.x = x; p.y = y;
   }
 
-  private drawSettlers(alpha: number, selected: ReadonlySet<number>, now: number): void {
+  private drawSettlers(alpha: number, selected: ReadonlySet<number>, now: number, selectedBuilding: number | null): void {
     const marks = this.marks.clear();
     const bars = this.bars.clear();
     const alive = new Set<number>();
@@ -641,6 +676,13 @@ export class MapView {
       const gx = tx * TILE, gy = ty * TILE;
       marks.circle(gx, gy, TILE * 0.28).fill({ color: OWNER_COLORS[s.owner], alpha: s.owner === this.viewer ? 0.35 : 0.6 });
       if (selected.has(s.id)) marks.circle(gx, gy, TILE * 0.42).stroke({ width: 2, color: 0xffffff });
+      // The selected building's traffic: carriers bringing it goods in green, those coming to take goods away in orange.
+      if (selectedBuilding !== null) {
+        const isComing = s.toId === selectedBuilding && (s.carrying !== null || s.phase === 'toPickup');
+        const isFetching = s.fromId === selectedBuilding && s.phase === 'toPickup';
+        if (isFetching) marks.circle(gx, gy, TILE * 0.4).stroke({ width: 2.5, color: 0xe8a33b });
+        else if (isComing) marks.circle(gx, gy, TILE * 0.4).stroke({ width: 2.5, color: 0x7fd36a });
+      }
       // Spells working on a soldier glow on the ground under it: Shield gold, Fury red, Freeze ice blue.
       const tick = this.world.tick;
       if (s.shieldUntil > tick) marks.circle(gx, gy, TILE * 0.55).fill({ color: 0xffd678, alpha: 0.28 });
@@ -913,7 +955,7 @@ export class MapView {
     }
     if (fogKey !== this.fogKey) { this.fogKey = fogKey; this.drawFog(); }
     this.drawBuildings(state);
-    this.drawSettlers(alpha, state.selectedSoldiers, now);
+    this.drawSettlers(alpha, state.selectedSoldiers, now, state.selectedId);
     this.drawGhost(state.ghost);
     this.drawOverlay(state);
     this.cull();
