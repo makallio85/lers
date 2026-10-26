@@ -207,17 +207,14 @@ class Builder:
         return deck + 0.85 + r * 1.15
 
     # ------------------------------------------------------------ props
-    def logs(self, x, y, s_=1.2): self.s.put(NAT + 'log_stack.glb', x, y, 0, 0, s_)
-    def planks(self, x, y, k=3):
-        for i in range(k): self.s.put(SURV + 'resource-planks.glb', x, y + i * 0.4, 0, 0, 0.85)
-    def stones(self, x, y):
-        self.s.put(SURV + 'resource-stone-large.glb', x, y, 0, 0, 1.0); self.s.put(SURV + 'resource-stone.glb', x + 0.45, y - 0.2, 0, 40, 1.0)
-    def barrels(self, x, y, k=3):
-        for i in range(k): self.s.put(SURV + 'barrel.glb', x + (i % 2) * 0.34, y + (i // 2) * 0.34 - (i % 2) * 0.1, 0, i * 40, 0.9)
-    def crates(self, x, y, k=3):
-        for i in range(k): self.s.put(SURV + ('box-large.glb' if i % 2 else 'box.glb'), x + i * 0.38, y - (i % 2) * 0.2, 0, i * 25, 0.9)
-    def sacks(self, x, y, k=3, m=None):
-        for i in range(k): self.s.sphere(x + i * 0.22, y - (i % 2) * 0.15, 0.12, 0.14, m or self.CLOTH, 0.9)
+    # Goods are never painted on a building: the game draws the real piles at its door, so a picture of logs or
+    # sacks would show goods that are not there. These stay as no-ops so the recipes read as before.
+    def logs(self, x, y, s_=1.2): pass
+    def planks(self, x, y, k=3): pass
+    def stones(self, x, y): pass
+    def barrels(self, x, y, k=3): pass
+    def crates(self, x, y, k=3): pass
+    def sacks(self, x, y, k=3, m=None): pass
     def chimney(self, x, y, z, h=0.6, m=None):
         self.s.box(x, y, z - 0.3, 0.26, 0.26, h + 0.3, m or self.STONE); self.s.box(x, y, z + h, 0.32, 0.32, 0.06, self.SLIT)
     def fence_pen(self, x0, y0, x1, y1):
@@ -290,9 +287,6 @@ def recipe(b, typeId):
     elif typeId in ('smelter', 'gold_smelter'):
         top = b.body(2.0, 1.5, -0.2, 0.3); b.chimney(0.45, 0.55, top - 0.3, 0.9)
         s.box(0.95, -0.55, 0, 0.5, 0.5, 0.45, b.STONE); s.box(0.95, -0.81, 0.08, 0.22, 0.02, 0.2, b.GLOW)
-        ingot = b.GOLD if typeId == 'gold_smelter' else b.IRON
-        for i in range(4): s.box(-0.4 + (i % 2) * 0.2, -1.0 + (i // 2) * 0.1, (i // 2) * 0.07, 0.17, 0.08, 0.07, ingot)
-        if typeId == 'smelter': s.put(NAT + 'rock_smallA.glb', -0.9, -0.9, 0, 0, 1.2)
     elif typeId == 'charcoal_maker':
         b.body(1.2, 1.0, -0.35, 0.35); s.cone(0.55, -0.45, 0, 0.55, 0.6, b.COAL, 20); s.cone(0.55, -0.45, 0.55, 0.08, 0.15, b.GLOW, 8)
         b.logs(-0.6, -0.7, 0.9)
@@ -331,7 +325,6 @@ def recipe(b, typeId):
     elif typeId == 'bakery':
         top = b.body(1.9, 1.4, -0.3, 0.35); s.sphere(0.85, -0.6, 0.0, 0.42, b.STONE, 0.85); s.box(0.85, -1.0, 0.05, 0.22, 0.04, 0.18, b.GLOW)
         b.chimney(0.85, -0.6, 0.35, 0.35); b.chimney(0.3, 0.6, top - 0.3, 0.5)
-        for i in range(3): s.sphere(-0.6 + i * 0.22, -0.95, 0.07, 0.09, s.mat('bread', 'b5763a'), 0.6)
     elif typeId == 'waterworks':
         b.body(1.2, 1.0, -0.35, 0.35)
         s.cyl(0.5, -0.5, 0, 0.32, 0.32, b.STONE, 20); s.cyl(0.5, -0.5, 0.28, 0.25, 0.04, b.WATER, 20)
@@ -341,7 +334,7 @@ def recipe(b, typeId):
     elif typeId == 'fisher':
         b.body(1.3, 1.0, -0.3, 0.35); s.put(NAT + 'canoe.glb', 0.55, -0.6, 0, 60, 0.8)
         for dx in (-0.2, 0.2): s.box(-0.65 + dx, -0.7, 0, 0.04, 0.04, 0.5, b.DARKWOOD)
-        s.box(-0.65, -0.7, 0.45, 0.45, 0.03, 0.03, b.DARKWOOD); s.put(SURV + 'fish.glb', -0.6, -0.72, 0.25, 0, 0.8)
+        s.box(-0.65, -0.7, 0.45, 0.45, 0.03, 0.03, b.DARKWOOD)
         b.barrels(0.9, -0.1, 1)
     elif typeId == 'pig_farm':
         b.body(1.5, 1.2, -0.65, 0.5, wood=True); b.fence_pen(0.15, -1.25, 1.3, 0.6)
