@@ -60,3 +60,8 @@ Add `?seed=<number>` to the address to replay the same map, `&mode=sandbox` for 
 ## License
 
 Original project code is provided under the MIT license; see [LICENSE](LICENSE). Commercial reuse is permitted, although this project's goal is not monetization. Third-party assets and dependencies must retain their own compatible licenses and attribution. No original Settlers content is included. The map art is rendered from Kenney's CC0 3D kits (see [art/README.md](art/README.md) and `packages/client/public/art/CREDITS.txt`).
+
+## Deployment
+
+`docker-compose.yml` builds the game (`npm run build`) and serves it as static files with nginx, with `/health` for health checks. Coolify deploys `main` to https://lers-dev.dev.rocksoftware.fi and gives each pull request against `main` its own preview address. Saves live in each player's browser, so there is no database yet.
+
