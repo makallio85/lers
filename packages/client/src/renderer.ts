@@ -1,7 +1,7 @@
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Matrix, Sprite, Text, Texture } from 'pixi.js';
 import {
-  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
+  BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_SULFUR, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
   GOOD_TYPES, isStorageBuilding, TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, isShipType, tileIndex,
   BUILDING_STRUCTURE, WAR_MACHINE_STATS, buildingLabel
 } from '../../simulation/src/index.ts';
@@ -20,7 +20,10 @@ const MIN_SCALE = 0.3;
 const MAX_SCALE = 3;
 
 /** Geologist sign colours: black for coal, silver for iron, gold for gold; an empty ring means nothing found. */
-const SIGN_COLORS: Record<number, number> = { [DEPOSIT_COAL]: 0x1e1e1e, [DEPOSIT_IRON]: 0xc9ccd1, [DEPOSIT_GOLD]: 0xe8c547 };
+/** Flag colour of a geologist's sign per ore: coal black, iron steel, gold yellow, gems blue, sulfur green-yellow. */
+const SIGN_COLORS: Record<number, number> = {
+  [DEPOSIT_COAL]: 0x1e1e1e, [DEPOSIT_IRON]: 0xb8c4d0, [DEPOSIT_GOLD]: 0xf0c53a, [DEPOSIT_GEMS]: 0x4fc3e8, [DEPOSIT_SULFUR]: 0xc8d84a
+};
 
 /** Border and banner colour per player: you, then the computer. */
 /** One colour per player, for borders, flags and the soldiers' ground marks. */
@@ -147,6 +150,8 @@ export class MapView {
   /** Upright things (buildings, trees, settlers) sorted front to back. */
   private readonly upright = new Container();
   private readonly bars = new Graphics();
+  /** Geologists' signs: little posts standing on the mountain, a flag per ore found, an empty frame where there is none. */
+  private readonly signs = new Graphics();
   private readonly screenOverlay = new Graphics();
   private readonly buildingViews = new Map<number, BuildingView>();
   private readonly settlerViews = new Map<number, SettlerView>();
@@ -174,7 +179,7 @@ export class MapView {
     this.ghostSprite.alpha = 0.6;
     this.ghostSprite.visible = false;
     this.upright.addChild(this.ghostSprite);
-    this.camera.addChild(this.groundBase, this.upright, this.groundTop, this.bars);
+    this.camera.addChild(this.groundBase, this.upright, this.signs, this.groundTop, this.bars);
     app.stage.addChild(this.camera, this.screenOverlay);
   }
 
@@ -315,14 +320,18 @@ export class MapView {
   private drawFlats(): void {
     const { world } = this;
     const g = this.flats.clear();
+    const signs = this.signs.clear();
     const prospect = world.prospect[this.viewer];
     for (let i = 0; i < world.tree.length; i++) {
       const tx = i % world.width, ty = Math.floor(i / world.width);
       const cx = tx * TILE + TILE / 2, cy = ty * TILE + TILE / 2;
       if (prospect && prospect[i] === 1 && world.rock[i] === 0 && tx % 2 === 0 && ty % 2 === 0) {
+        // A standing sign: a post with a flag in the ore's colour, or a bare cross-piece where there is none.
+        const p = iso(tx + 0.5, ty + 0.5);
         const hasOre = world.deposit[i] !== 0 && world.depositAmount[i] > 0;
-        if (hasOre) g.circle(cx, cy, 4).fill(SIGN_COLORS[world.deposit[i]] ?? 0xffffff).stroke({ width: 1, color: 0x1b2420 });
-        else g.circle(cx, cy, 3.5).stroke({ width: 1.2, color: 0xece6d6 });
+        signs.rect(p.x - 1, p.y - 16, 2, 16).fill(0x5a3d22);
+        if (hasOre) signs.rect(p.x + 1, p.y - 16, 10, 7).fill(SIGN_COLORS[world.deposit[i]] ?? 0xffffff).stroke({ width: 1, color: 0x1b2420 });
+        else signs.rect(p.x - 5, p.y - 14, 10, 2).fill(0xd8d0bc);
       }
       if (this.bank.isReady) continue;
       if (world.field[i] >= 0) {
