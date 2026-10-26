@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SHIP_TICKS, TERRAIN_WATER, TRANSPORT_CAPACITY, castleOf, createMatch, loadGame, newBuilding, newSettler, passengersOf, placementProblem,
-  saveGame, step, tileIndex
+  saveGame, step, stepMatch, tileIndex
 } from '../src/index.ts';
 import { reachableFrom } from '../src/pathfinding.ts';
-import type { Building, BuildingTypeId, Command, Settler, World } from '../src/index.ts';
+import type { BotLogEntry, Building, BuildingTypeId, Command, Settler, World } from '../src/index.ts';
 
 function runUntil(world: World, isDone: () => boolean, maxTicks: number): void {
   for (let i = 0; i < maxTicks && !isDone(); i++) step(world);
@@ -135,4 +135,13 @@ test('trade ships carry a landing dock\'s goods across the sea to a colony on th
   assert.equal(command(world, { type: 'setTradeGood', playerId: 0, buildingId: dock.id, good: 'plank', amount: 24 }).isAccepted, true);
   runUntil(world, () => store.stock.plank >= 24, 12_000);
   assert.equal(ship.homeId, dock.id);
+});
+
+test('on an islands map two built-in bots build ships, ferry their armies across and play to a winner', () => {
+  const world = createMatch(7, 'aggressive', 'small', 'romans', 'egyptians', 'islands');
+  world.players[0].isBot = true;
+  const log: BotLogEntry[] = [];
+  for (let t = 0; t < 75 * 600 && world.winner === null; t++) stepMatch(world, [], log);
+  assert.notEqual(world.winner, null, 'the match should end within 75 minutes');
+  assert.ok(log.some((e) => e.text.startsWith('land ')), 'an army went ashore across the sea');
 });

@@ -5,12 +5,14 @@ import type { BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
 import { landRegion } from './regions.ts';
 import { isMachinePassable } from './movement.ts';
+import { isSeaPassable, waterBodyOf } from './sea.ts';
+import { BOARDING_RANGE } from './definitions.ts';
 import { reachableFrom } from './pathfinding.ts';
 import type { Command, CommandResult } from './commands.ts';
 import { step } from './step.ts';
 import { observe } from './vision.ts';
 import {
-  NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TREE_MATURE, VISION_NONE, castleOf, createWorld, inBounds, isWalkable, tileIndex
+  NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TREE_MATURE, VISION_NONE, VISION_VISIBLE, castleOf, createWorld, inBounds, isWalkable, tileIndex
 } from './world.ts';
 import type { World } from './world.ts';
 
@@ -95,9 +97,73 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
     .map((b) => ({ x: b.doorX, y: b.doorY }));
 
   const machineReach = new Map<number, (tile: number) => boolean>();
+  const walkReach = new Map<number, (tile: number) => boolean>();
+  const reachOf = (from?: { x: number; y: number }) => {
+    if (!from) { reachable ??= reachableFrom(world, tileIndex(world, castle!.doorX, castle!.doorY)); return reachable; }
+    const start = tileIndex(world, Math.round(from.x), Math.round(from.y));
+    let reach = walkReach.get(start);
+    if (!reach) { reach = reachableFrom(world, start); walkReach.set(start, reach); }
+    return reach;
+  };
+  /** Walkable land the castle's settlers cannot walk to: another island's shore. */
+  const isForeignShore = (i: number) => isWalkable(world, i) && !reachOf()(i);
   return {
-    canReach(x: number, y: number) {
-      return isNearReachable(x, y);
+    canReach(x: number, y: number, from?: { x: number; y: number }) {
+      if (!from) return isNearReachable(x, y);
+      const reach = reachOf(from);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) if (inBounds(world, x + dx, y + dy) && reach(tileIndex(world, x + dx, y + dy))) return true;
+      }
+      return false;
+    },
+    boardingTile(shipX: number, shipY: number) {
+      if (!castle) return null;
+      // The castle's land nearest the ship, close enough to step aboard.
+      let best: { x: number; y: number } | null = null, bestDistance = BOARDING_RANGE - 0.5;
+      for (let ty = Math.floor(shipY - BOARDING_RANGE); ty <= Math.ceil(shipY + BOARDING_RANGE); ty++) {
+        for (let tx = Math.floor(shipX - BOARDING_RANGE); tx <= Math.ceil(shipX + BOARDING_RANGE); tx++) {
+          if (!inBounds(world, tx, ty)) continue;
+          const d = Math.hypot(tx - shipX, ty - shipY);
+          if (d <= bestDistance && reachOf()(tileIndex(world, tx, ty))) { bestDistance = d; best = { x: tx, y: ty }; }
+        }
+      }
+      return best;
+    },
+    sailTarget(shipX: number, shipY: number, towardX: number, isLoaded: boolean) {
+      if (!castle) return null;
+      const body = waterBodyOf(world, tileIndex(world, Math.round(shipX), Math.round(shipY)));
+      if (body === 0) return null;
+      // Loaded: a seen shore of another island toward the enemy side, else the farthest seen water that way to look further.
+      // Empty: back to the home shore nearest the castle.
+      const hasLand = (x: number, y: number, isWanted: (i: number) => boolean) => {
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) if (inBounds(world, x + dx, y + dy) && isWanted(tileIndex(world, x + dx, y + dy))) return true;
+        }
+        return false;
+      };
+      const enemies = world.buildings.filter((b) => b.owner !== playerId && vision[tileIndex(world, b.doorX, b.doorY)] === VISION_VISIBLE);
+      let best: { x: number; y: number; isLanding: boolean } | null = null, bestScore = Infinity;
+      for (let y = 0; y < world.height; y++) {
+        for (let vx = 0; vx < world.width; vx++) {
+          const x = mirrorX(vx, 1);
+          const i = tileIndex(world, x, y);
+          if (vision[i] === VISION_NONE || !isSeaPassable(world, i) || waterBodyOf(world, i) !== body) continue;
+          let score: number, isLanding = false;
+          if (!isLoaded) {
+            if (!hasLand(x, y, reachOf())) continue;
+            score = Math.hypot(x - castle.doorX, y - castle.doorY);
+            isLanding = true;
+          } else if (hasLand(x, y, isForeignShore) && Math.abs(x - towardX) < world.width * 0.4) {
+            const nearestEnemy = Math.min(Infinity, ...enemies.map((b) => Math.hypot(b.doorX - x, b.doorY - y)));
+            score = (nearestEnemy < Infinity ? nearestEnemy : Math.abs(x - towardX)) - 1000;
+            isLanding = true;
+          } else {
+            score = Math.abs(x - towardX) + Math.abs(y - castle.doorY) * 0.3;
+          }
+          if (score < bestScore) { bestScore = score; best = { x, y, isLanding }; }
+        }
+      }
+      return best;
     },
     canFireAt(fromX: number, fromY: number, x: number, y: number, range: number) {
       const start = tileIndex(world, fromX, fromY);
@@ -127,9 +193,9 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
       }
       return best;
     },
-    frontTile(towardX: number) {
+    frontTile(towardX: number, from?: { x: number; y: number }) {
       if (!castle) return null;
-      const isReachable = reachableFrom(world, tileIndex(world, castle.doorX, castle.doorY));
+      const isReachable = reachOf(from);
       let best: { x: number; y: number } | null = null, bestScore = Infinity;
       for (let y = 0; y < world.height; y += 2) {
         for (let vx = 0; vx < world.width; vx += 2) {
@@ -192,7 +258,8 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
               });
               score -= toCastle * 0.4;
               break;
-            case 'castle': score = -toCastle; break;
+            case 'castle':
+            case 'shore': score = -toCastle; break;
             case 'ore':
             case 'distant_rocks': {
               // Closest to ore (or rocks) on land the player has seen but does not own yet.
