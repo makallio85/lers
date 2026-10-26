@@ -17,7 +17,7 @@ import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
   WAIT_RADIUS, spreadSpots, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isWalkable, newSettler, playerOf, pushMessage,
-  recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex, isEnemy
+  recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex, isEnemy, STATS_SAMPLE_TICKS
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
 
@@ -129,8 +129,24 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   warnAboutBlockedBuildings(world);
   // The economic mode's race is checked once a second.
   if (world.victoryType === 'economy' && world.tick % 10 === 0) checkVictory(world);
+  if (world.tick % STATS_SAMPLE_TICKS === 0) recordStats(world);
   world.tick++;
   return results;
+}
+
+/** Takes each player's statistics sample for the graphs. */
+function recordStats(world: World): void {
+  const land = new Array<number>(world.players.length).fill(0);
+  for (const t of world.territory) if (t > 0 && t <= land.length) land[t - 1]++;
+  for (const p of world.players) {
+    let settlers = 0, soldiers = 0, buildings = 0;
+    for (const s of world.settlers) {
+      if (s.owner !== p.id) continue;
+      if (isSoldierType(s.settlerType)) soldiers++; else if (!isUnitType(s.settlerType)) settlers++;
+    }
+    for (const b of world.buildings) if (b.owner === p.id && b.isComplete) buildings++;
+    p.stats.history.push({ tick: world.tick, goodsMade: { ...p.stats.goodsMade }, land: land[p.id], settlers, soldiers, buildings });
+  }
 }
 
 function grow(world: World): void {
@@ -779,7 +795,12 @@ function updateWorker(world: World, s: Settler): void {
       return finishWork(world, s, home, type);
     case 'returning':
       if (!advance(world, s)) return;
-      if (s.carrying) home.stock[s.carrying]++;
+      if (s.carrying) {
+        home.stock[s.carrying]++;
+        // Gathered goods count as made, like a workshop's: the statistics show logs, stone and fish too.
+        const player = playerOf(world, home.owner);
+        if (player) player.stats.goodsMade[s.carrying] = (player.stats.goodsMade[s.carrying] ?? 0) + 1;
+      }
       s.carrying = null;
       s.phase = 'inside'; s.isInside = true; s.timer = isGatherType(type) ? GATHER_RULES[type].restTicks : 5;
       return;

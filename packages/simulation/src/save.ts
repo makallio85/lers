@@ -6,7 +6,7 @@ import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, ShipType, Soldier
 import { FIELD_RIPE, TREE_MATURE, recomputeTerritory, tileIndex } from './world.ts';
 import { BOT_TYPES } from './bot.ts';
 import type { BotType } from './bot.ts';
-import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, SettlerPhase, TradeRoute, World } from './world.ts';
+import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, StatsSample, SettlerPhase, TradeRoute, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
 export const SAVE_VERSION = 14;
@@ -28,11 +28,26 @@ const PHASES: readonly SettlerPhase[] = [
   'prospecting', 'claiming', 'stealing', 'leaving'
 ];
 const MADE_GOODS: readonly string[] = [...TOOL_TYPES, ...WEAPON_TYPES];
-const STAT_KEYS: readonly Exclude<keyof PlayerStats, 'goodsMade'>[] = [
+const STAT_KEYS: readonly Exclude<keyof PlayerStats, 'goodsMade' | 'history'>[] = [
   'buildingsBuilt', 'soldiersRecruited', 'soldiersLost', 'towersTaken', 'planksMade', 'breadBaked', 'largestTerritory'
 ];
 
 export class SaveError extends Error {}
+
+/** The statistics samples; saves from before the graphs have none. */
+function statsHistory(value: unknown): StatsSample[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 100_000) fail('statistics history is invalid');
+  const count = (v: unknown, what: string) => int(v, 0, Number.MAX_SAFE_INTEGER, what);
+  return value.map((raw: unknown) => {
+    if (!isRecord(raw)) fail('a statistics sample is invalid');
+    return {
+      tick: count(raw.tick, 'sample tick'), goodsMade: goodRecord(raw.goodsMade, GOOD_TYPES, count, 'sample goods'),
+      land: count(raw.land, 'sample land'), settlers: count(raw.settlers, 'sample settlers'),
+      soldiers: count(raw.soldiers, 'sample soldiers'), buildings: count(raw.buildings, 'sample buildings')
+    };
+  });
+}
 
 /** A JSON-compatible snapshot of the whole match. */
 export function saveGame(world: World): Record<string, unknown> {
@@ -202,6 +217,7 @@ export function loadGame(data: unknown): World {
     const stats = {} as PlayerStats;
     for (const key of STAT_KEYS) (stats as unknown as Record<string, number>)[key] = int(raw.stats[key], 0, Number.MAX_SAFE_INTEGER, `statistic ${key}`);
     stats.goodsMade = goodRecord(raw.stats.goodsMade, GOOD_TYPES, (v, what) => int(v, 0, Number.MAX_SAFE_INTEGER, what), 'goods made');
+    stats.history = statsHistory(raw.stats.history);
     return {
       id: int(raw.id, k, k, 'player id'), teamId: int(raw.teamId, 0, 7, 'player team'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), raceType: raceType(raw.raceType), isEliminated: bool(raw.isEliminated, 'player state'),
       transportPriority: order.map((g) => good(g, 'priority entry')), isStored,

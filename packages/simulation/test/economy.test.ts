@@ -272,3 +272,17 @@ test('same seed and commands give the same game', () => {
   };
   assert.deepEqual(play(), play());
 });
+
+test('statistics are sampled once a minute, count gathered goods, and survive a save', () => {
+  const world = createWorld({ seed: 11 });
+  const castle = castleOf(world, 0)!;
+  place(world, 'woodcutter');
+  run(world, 6000 - world.tick);
+  const stats = world.players[0].stats;
+  assert.equal(stats.history.length, 10, 'one sample per minute, the first at the start');
+  assert.deepEqual(stats.history.map((s) => s.tick), Array.from({ length: 10 }, (_, k) => k * 600));
+  assert.ok((stats.goodsMade.log ?? 0) > 0, 'logs the woodcutter brought home count as made');
+  assert.ok(stats.history[9].land > 0 && stats.history[9].buildings >= 1 && castle.isComplete);
+  const copy = loadGame(JSON.parse(JSON.stringify(saveGame(world))));
+  assert.deepEqual(copy.players[0].stats.history, stats.history);
+});
