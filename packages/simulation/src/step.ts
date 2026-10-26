@@ -8,7 +8,7 @@ import type { BuildingTypeId, GoodType, SettlerType, WarMachineType } from './de
 import { applyCommand } from './commands.ts';
 import type { Command, CommandResult } from './commands.ts';
 import { checkVictory, releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
-import { WALK_SPEED, advance, distance, doorTile, tileOf, walkTo } from './movement.ts';
+import { WALK_SPEED, advance, distance, doorTile, spreadStanding, tileOf, walkTo } from './movement.ts';
 import { updateVision } from './vision.ts';
 import { landRegion } from './regions.ts';
 import { decideBreeding, finishBreeding, marketplaceWants, updateDonkey } from './trade.ts';
@@ -92,6 +92,7 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   if (world.tick % 2 === 1) soldiers.reverse();
   for (const s of soldiers) updateSoldier(world, s);
   removeDead(world);
+  spreadStanding(world);
   warnAboutBlockedBuildings(world);
   // The economic mode's race is checked once a second.
   if (world.victoryType === 'economy' && world.tick % 10 === 0) checkVictory(world);
