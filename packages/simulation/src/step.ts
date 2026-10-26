@@ -27,6 +27,8 @@ const HEAL_TICKS = 10;
 /** A geologist looks this far around the spot he was sent to; a pioneer claims this far. */
 export const PROSPECT_RADIUS = 6;
 export const CLAIM_RADIUS = 4;
+/** Pioneers go on pushing the border outward from their spot, claiming land next to the player's own, this far. */
+export const PIONEER_REACH = 12;
 const PROSPECT_TICKS = 40;
 const CLAIM_TICKS = 60;
 
@@ -1200,20 +1202,49 @@ function canClaim(world: World, owner: number, i: number): boolean {
   return (military === 0 || military === owner + 1) && world.territory[i] !== owner + 1 && world.terrain[i] !== TERRAIN_WATER;
 }
 
-/** Tiles around the work centre still worth a sign or a post, nearest to the specialist first. */
+/**
+ * Tiles around the work centre still worth a sign or a post, nearest to the specialist first. A pioneer claims
+ * land next to the player's own, near its spot first and then on outward, up to PIONEER_REACH. Tiles another specialist of the same player is already heading for are left to it.
+ */
 function specialistTiles(world: World, s: Settler): number[] {
   const cx = s.workCentre % world.width, cy = Math.floor(s.workCentre / world.width);
-  const radius = s.settlerType === 'geologist' ? PROSPECT_RADIUS : CLAIM_RADIUS;
+  const isPioneer = s.settlerType === 'pioneer';
+  const radius = s.settlerType === 'geologist' ? PROSPECT_RADIUS : isPioneer ? PIONEER_REACH : CLAIM_RADIUS;
+  const taken = new Set<number>();
+  for (const o of world.settlers) {
+    if (o !== s && o.owner === s.owner && o.settlerType === s.settlerType && o.targetTile >= 0) {
+      // A claim or a check covers the 3 × 3 tiles around it.
+      const ox = o.targetTile % world.width, oy = Math.floor(o.targetTile / world.width);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(world, ox + dx, oy + dy)) taken.add(tileIndex(world, ox + dx, oy + dy));
+    }
+  }
+  // The first claim on land of its own (a new island) may stand anywhere near the spot; every later one touches
+  // the player's land, so the claimed land stays one piece.
+  let hasOwnNear = false;
+  if (isPioneer) {
+    for (let y = cy - CLAIM_RADIUS; y <= cy + CLAIM_RADIUS && !hasOwnNear; y++) for (let x = cx - CLAIM_RADIUS; x <= cx + CLAIM_RADIUS && !hasOwnNear; x++) {
+      if (inBounds(world, x, y) && world.territory[tileIndex(world, x, y)] === s.owner + 1) hasOwnNear = true;
+    }
+  }
+  const isNextToOwn = (x: number, y: number) => {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (inBounds(world, x + dx, y + dy) && world.territory[tileIndex(world, x + dx, y + dy)] === s.owner + 1) return true;
+    }
+    return false;
+  };
   const found: { i: number; d: number }[] = [];
   for (let y = cy - radius; y <= cy + radius; y++) {
     for (let x = cx - radius; x <= cx + radius; x++) {
       if (!inBounds(world, x, y) || Math.hypot(x - cx, y - cy) > radius) continue;
       const i = tileIndex(world, x, y);
       if (!isWalkable(world, i)) continue;
+      if (taken.has(i)) continue;
+      const fromCentre = Math.hypot(x - cx, y - cy);
       const isWanted = s.settlerType === 'geologist'
         ? world.terrain[i] === TERRAIN_MOUNTAIN && world.prospect[s.owner][i] === 0
-        : canClaim(world, s.owner, i);
-      if (isWanted) found.push({ i, d: distance(x, y, s.x, s.y) });
+        : canClaim(world, s.owner, i) && (isNextToOwn(x, y) || (!hasOwnNear && fromCentre <= CLAIM_RADIUS));
+      // Near the spot by the specialist's own walk; further out, ring by ring from the spot.
+      if (isWanted) found.push({ i, d: fromCentre <= CLAIM_RADIUS ? distance(x, y, s.x, s.y) : 100 + fromCentre * 10 + distance(x, y, s.x, s.y) * 0.1 });
     }
   }
   return found.sort((a, b) => a.d - b.d || a.i - b.i).map((f) => f.i);
