@@ -50,5 +50,5 @@ done <<LIST_END
 $LIST
 LIST_END
 printf '%s' "$CMDS" > .audio/convert.sh
-docker run --rm -v "$PWD/.audio:/in:ro" -v "$(cd "$OUT" && pwd):/out" alpine:3.20 sh -c "apk add -q --no-progress ffmpeg >/dev/null && sh -e /in/convert.sh"
+docker run --rm -v "$PWD/.audio:/in:ro" -v "$(cd "$OUT" && pwd):/out" alpine:3.20 sh -c "apk add -q --no-progress ffmpeg >/dev/null && sh -e /in/convert.sh && chown -R $(id -u):$(id -g) /out"
 cp .audio/rpg-audio/License.txt "$OUT/LICENSE-kenney.txt"
