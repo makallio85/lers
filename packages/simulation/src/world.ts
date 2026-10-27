@@ -202,6 +202,8 @@ export interface PlayerState {
   /** The player's people: their building costs and the buildings only they have. */
   raceType: RaceType;
   isEliminated: boolean;
+  /** Computer players: since when the match has looked lost to them (tick), or null. */
+  hopelessSince: number | null;
   /** All goods, carried first to last. */
   transportPriority: GoodType[];
   /** Goods that carriers may take to storage. */
@@ -502,7 +504,7 @@ export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'ag
   }
   return {
     teamId,
-    id, isBot, botType, difficultyType, attackStartType, raceType, isEliminated: false,
+    id, isBot, botType, difficultyType, attackStartType, raceType, isEliminated: false, hopelessSince: null,
     transportPriority: ['plank', 'stone', 'log', ...TOOL_TYPES, ...WEAPON_TYPES, 'coal', 'iron_ore', 'iron', 'gold_ore', 'gold',
       'water', 'grain', 'flour', 'bread', 'fish', 'pig', 'meat', 'rice', 'honey', 'sulfur', 'gems', 'gunpowder',
       'wine', 'beer', 'rice_wine', 'mead'],

@@ -531,6 +531,10 @@ export function applyCommand(world: World, command: Command): CommandResult {
     case 'surrender': {
       player.isEliminated = true;
       pushMessage(world, player.id, 'Defeat', 'You surrendered.', true, null);
+      // Everyone else hears of it: a computer player gives up when its match is lost.
+      for (const other of world.players) {
+        if (other.id !== player.id) pushMessage(world, other.id, `The ${RACE_SETTINGS[player.raceType].label} surrendered`, isEnemy(world, other.id, player.id) ? 'An enemy gave up.' : 'An ally gave up.', !isEnemy(world, other.id, player.id), null);
+      }
       settleWinner(world);
       return accept();
     }

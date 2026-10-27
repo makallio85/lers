@@ -234,7 +234,7 @@ export function loadGame(data: unknown): World {
     stats.goodsMade = goodRecord(raw.stats.goodsMade, GOOD_TYPES, (v, what) => int(v, 0, Number.MAX_SAFE_INTEGER, what), 'goods made');
     stats.history = statsHistory(raw.stats.history);
     return {
-      id: int(raw.id, k, k, 'player id'), teamId: int(raw.teamId, 0, 7, 'player team'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), difficultyType: difficultyType(raw.difficultyType), attackStartType: attackStartType(raw.attackStartType), raceType: raceType(raw.raceType), isEliminated: bool(raw.isEliminated, 'player state'),
+      id: int(raw.id, k, k, 'player id'), teamId: int(raw.teamId, 0, 7, 'player team'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), difficultyType: difficultyType(raw.difficultyType), attackStartType: attackStartType(raw.attackStartType), raceType: raceType(raw.raceType), isEliminated: bool(raw.isEliminated, 'player state'), hopelessSince: raw.hopelessSince === undefined ? null : nullableInt(raw.hopelessSince, 'player surrender clock'),
       transportPriority: order.map((g) => good(g, 'priority entry')), isStored,
       productionOrders: goodRecord(raw.productionOrders, MADE_GOODS, (v, w) => int(v, 0, 99, w), 'production orders'),
       productionShares: goodRecord(raw.productionShares, MADE_GOODS, (v, w) => int(v, 0, 10, w), 'production shares'),
