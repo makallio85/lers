@@ -150,6 +150,15 @@ def soldier_gear(s, arm, look):
         attach(s, sh, arm, 'arm-left')
 
 
+def civilian_cap(s, arm):
+    """A dark felt cap on every civilian, so a dark head reads as a worker and a coloured crest as a soldier. It sits
+    over the top of the kit's square head (about 0.45 wide, top at 0.68) with a short brim at the front (facing -Y)."""
+    felt = s.mat('cap-felt', '3a2a1f', rough=0.9)
+    cap = [s.box(0, 0.0, 0.635, 0.46, 0.4, 0.1, felt), s.box(0, 0.01, 0.70, 0.34, 0.28, 0.04, felt),
+           s.box(0, -0.22, 0.595, 0.3, 0.08, 0.025, felt)]
+    attach(s, cap, arm, 'head')
+
+
 def build(race, look):
     model, tool, anims = LOOKS[look]
     # One outfit for every civilian, another for soldiers; the priest keeps the people's robe.
@@ -184,6 +193,8 @@ def build(race, look):
         props = hand_tool(s, tool, hx, hy, hz)
     if look in SOLDIERS:
         soldier_gear(s, arm, look)
+    elif look != 'priest':
+        civilian_cap(s, arm)
     if props: attach(s, [o for o in props if o.parent is None], arm, 'arm-left' if tool == 'bow' else 'arm-right')
     arm.scale = (SCALE, SCALE, SCALE)
     actions = {a.name.split('_')[0]: a for a in bpy.data.actions}
