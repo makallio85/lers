@@ -14,3 +14,4 @@ export * from './regions.ts';
 export * from './trade.ts';
 export * from './sea.ts';
 export * from './land.ts';
+export * from './heaps.ts';

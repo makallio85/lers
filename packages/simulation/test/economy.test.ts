@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BUILDING_TYPES, FIELD_RIPE, FISH_REGROW_TICKS, GOOD_TYPES, NO_TREE, TREE_MATURE, castleOf, createWorld, cropQuality, loadGame, newBuilding, placementProblem,
+  BUILDING_TYPES, FIELD_RIPE, FISH_REGROW_TICKS, GOOD_TYPES, NO_TREE, TREE_MATURE, castleHeapSpots, castleOf, createWorld, cropQuality, groundProblem, isHeapGround, loadGame, newBuilding, placementProblem,
   saveGame, step, tileIndex
 } from '../src/index.ts';
 import type { BuildingTypeId, Command, World } from '../src/index.ts';
@@ -293,6 +293,21 @@ test('a new storage area takes the castle\'s stored goods when carriers are free
   runUntil(world, () => totalOf(building(world, storeId)) >= 20, 6000);
   assert.ok(castle.stock.plank < planks, 'planks left the castle');
   assert.equal(building(world, storeId).stock.bread, 0, 'bread is not stored');
+});
+
+test('no building goes over the ground where the castle\'s goods lie', () => {
+  const world = createWorld({ seed: 11 });
+  const castle = castleOf(world, 0)!;
+  const spots = castleHeapSpots(world, castle).flat();
+  assert.ok(spots.length >= 24, `${spots.length} heap spots`);
+  for (const spot of spots) {
+    const x = Math.floor(spot.x), y = Math.floor(spot.y);
+    assert.ok(isHeapGround(world, x, y));
+    const problem = groundProblem(world, 0, 'woodcutter', x, y);
+    assert.ok(problem !== null, `a woodcutter at ${x},${y}`);
+  }
+  // On open grass the goods themselves are the reason.
+  assert.ok(spots.some((spot) => groundProblem(world, 0, 'woodcutter', Math.floor(spot.x), Math.floor(spot.y)) === 'Goods lie here'));
 });
 
 test('transport priority and pause commands are validated and applied', () => {

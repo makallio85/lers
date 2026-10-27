@@ -1,3 +1,4 @@
+import { isHeapGround } from './heaps.ts';
 import {
   BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH,
   RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType, isUnitType, isWarMachineType
@@ -119,6 +120,8 @@ export function groundProblem(world: World, playerId: number, buildingType: Buil
       if (world.tree[i] >= 0) return 'Trees are in the way';
       if (world.rock[i] > 0) return 'Rocks are in the way';
       if (world.field[i] >= 0) return 'Fields are in the way';
+      // Goods lie on the castle's yard, as in the original: no building goes over them.
+      if (isHeapGround(world, x + dx, y + dy)) return 'Goods lie here';
     }
   }
   const door = tileIndex(world, doorX, doorY);
