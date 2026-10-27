@@ -129,6 +129,15 @@ export class SpriteBank {
     return { texture, anchorX: sheet.anchor[0] / sheet.cell[0], anchorY: sheet.anchor[1] / sheet.cell[1] };
   }
 
+  /**
+   * A soldier's owner-coloured parts (helmet top and crest, the bowman's cap) for the same frame, white with their
+   * shading, to be tinted in the owner's colour and laid over the body; null for looks without one.
+   */
+  settlerTint(race: RaceType, look: SettlerLook, anim: SettlerAnim, dir: number, frame: number): Sprite | null {
+    if (!this.manifest?.settlers[`${race}/${look}_tint`]) return null;
+    return this.settler(race, `${look}_tint` as SettlerLook, anim, dir, frame);
+  }
+
   hasAnim(race: RaceType, look: SettlerLook, anim: SettlerAnim): boolean {
     return !!this.sheetOf(race, look)?.anims[anim];
   }

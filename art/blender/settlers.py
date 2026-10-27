@@ -122,13 +122,16 @@ def soldier_gear(s, arm, look):
     cap = leather if is_bow else steel
     # Helmet: a square cap over the top of the kit's square head, cheek guards, and for the foot soldiers a nose
     # guard and a crest running front to back.
-    head = [s.box(0, 0.0, 0.595, 0.49, 0.38, 0.115, cap),
-            s.box(0.238, -0.02, 0.47, 0.03, 0.2, 0.14, cap), s.box(-0.238, -0.02, 0.47, 0.03, 0.2, 0.14, cap)]
+    top = s.box(0, 0.0, 0.595, 0.49, 0.38, 0.115, cap)
+    head = [top, s.box(0.238, -0.02, 0.47, 0.03, 0.2, 0.14, cap), s.box(-0.238, -0.02, 0.47, 0.03, 0.2, 0.14, cap)]
+    # The helmet's top (the bowman's cap) and the crest are drawn in the owner's colour: they go into the tint mask.
+    top['tint'] = True
     if is_bow:
         head.append(s.box(0.2, 0.06, 0.70, 0.025, 0.04, 0.17, s.mat('feather', '4f9a3a', rough=0.6)))
     else:
         head.append(s.box(0, -0.195, 0.46, 0.05, 0.03, 0.14, steel))
-        head.append(s.box(0, 0.0, 0.715, 0.07, 0.34, 0.1, crest))
+        ridge = s.box(0, 0.0, 0.715, 0.07, 0.34, 0.1, crest); ridge['tint'] = True
+        head.append(ridge)
     attach(s, head, arm, 'head')
     # Body: a breastplate (a jerkin for bowmen) over the tunic, and a belt.
     body = [s.box(0, 0.028, 0.185, 0.3, 0.32, 0.16, leather if is_bow else steel),
@@ -149,7 +152,8 @@ def soldier_gear(s, arm, look):
 
 def build(race, look):
     model, tool, anims = LOOKS[look]
-    s = Scene(race)
+    # One outfit for every civilian, another for soldiers; the priest keeps the people's robe.
+    s = Scene(race, outfit='soldier' if look in SOLDIERS else None if look == 'priest' else 'civilian')
     new = s.put(CHAR + model + '.glb', 0, 0, 0, 0, 1.0)
     for o in new:
         if o.name.startswith('Icosphere'): bpy.data.objects.remove(o)
@@ -186,6 +190,13 @@ def build(race, look):
     return s, arm, root, actions, anims
 
 
+def rest_pose(arm):
+    """Back to the rest pose before the next action: bones it does not key would keep the last action's pose."""
+    for pb in arm.pose.bones:
+        pb.location = (0, 0, 0); pb.scale = (1, 1, 1)
+        pb.rotation_quaternion = (1, 0, 0, 0); pb.rotation_euler = (0, 0, 0)
+
+
 def render_look(race, look, only_anims=None):
     s, arm, root, actions, anims = build(race, look)
     s.camera(*CELL, target_z=0.32)
@@ -196,6 +207,7 @@ def render_look(race, look, only_anims=None):
         if anim == 'carry': act = carry_action(arm, actions['walk'], actions['holding-both'])
         elif look == 'carpenter' and anim == 'work': act = saw_action(arm, actions['static'])
         else: act = actions[LOOK_SOURCES.get(look, {}).get(anim, SOURCE[anim])]
+        rest_pose(arm)
         arm.animation_data.action = act
         f0, f1 = act.frame_range; n = FRAMES[anim]
         for d in range(8):
@@ -203,6 +215,40 @@ def render_look(race, look, only_anims=None):
             for k in range(n):
                 s.sc.frame_set(int(round(f0 + (f1 - f0) * k / n)))
                 s.render(os.path.join(base, f'{anim}_{d}_{k}.png'), 12)
+    write_meta(base + '.json', {'anchor': s.anchor(), 'anims': {a: FRAMES[a] for a in anims}, 'cell': list(CELL)})
+    if look in SOLDIERS: render_tint(s, arm, root, actions, anims, race, look, only_anims)
+
+
+def tint_mode(s):
+    """Only the parts drawn in the owner's colour, in plain shaded white; everything else still hides what is behind
+    it but shows nothing, and the ground shadow is off. The client tints this sheet and lays it over the soldier."""
+    hold = bpy.data.materials.new('holdout'); hold.use_nodes = True; nt = hold.node_tree
+    for n in list(nt.nodes): nt.nodes.remove(n)
+    out = nt.nodes.new('ShaderNodeOutputMaterial'); h = nt.nodes.new('ShaderNodeHoldout')
+    nt.links.new(h.outputs['Holdout'], out.inputs['Surface'])
+    white = s.mat('tint-white', 'f2f2f2', rough=0.6)
+    for o in bpy.data.objects:
+        if o.type != 'MESH': continue
+        if o.is_shadow_catcher: o.hide_render = True; continue
+        m = white if o.get('tint') else hold
+        if not o.material_slots: o.data.materials.append(m)
+        for slot in o.material_slots: slot.link = 'OBJECT'; slot.material = m
+
+
+def render_tint(s, arm, root, actions, anims, race, look, only_anims=None):
+    tint_mode(s)
+    base = os.path.join(RENDERS, 'settlers', race, look + '_tint')
+    for anim in anims:
+        if only_anims and anim not in only_anims: continue
+        act = actions[LOOK_SOURCES.get(look, {}).get(anim, SOURCE[anim])]
+        rest_pose(arm)
+        arm.animation_data.action = act
+        f0, f1 = act.frame_range; n = FRAMES[anim]
+        for d in range(8):
+            root.rotation_euler = (0, 0, math.radians(d * 45))
+            for k in range(n):
+                s.sc.frame_set(int(round(f0 + (f1 - f0) * k / n)))
+                s.render(os.path.join(base, f'{anim}_{d}_{k}.png'), 8)
     write_meta(base + '.json', {'anchor': s.anchor(), 'anims': {a: FRAMES[a] for a in anims}, 'cell': list(CELL)})
 
 
