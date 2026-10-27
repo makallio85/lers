@@ -747,16 +747,17 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
       <span class="muted">${RACE_SETTINGS[world.players[b.owner].raceType].label} computer ally${isMilitaryBuilding(b) && b.isComplete ? ` · ${b.garrison.length} ${b.garrison.length === 1 ? 'soldier' : 'soldiers'} inside` : ''}</span>`;
   }
   if (b.owner !== owner) {
+    const isSite = isMilitaryBuilding(b) && !b.isComplete;
     const canAttack = isMilitaryBuilding(b) && b.isComplete;
     const cover = canAttack ? coveringBuilding(world, b) : null;
     return `
       <div class="detail-head"><span class="detail-title">Enemy ${buildingLabel(b.typeId, world.players[b.owner].raceType).toLowerCase()}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
       ${canAttack ? `<span>${b.garrison.length} ${b.garrison.length === 1 ? 'defender' : 'defenders'} inside</span>`
-        : `<span class="muted">${isMilitaryBuilding(b) ? 'Still being built' : 'Not a military building'}</span>`}
+        : isSite ? '<span class="status-good">Still being built: send soldiers to it (Attack) and they tear it down.</span>' : '<span class="muted">Not a military building</span>'}
       ${b.damage > 0 && BUILDING_STRUCTURE[b.typeId] ? structureBar(b) : ''}
       ${cover ? `<span class="status-warning">Covered by the ${BUILDING_TYPES[cover.typeId].label.toLowerCase()} behind it: it cannot be taken until that one falls. Attacking still fights its defenders.</span>` : ''}
       ${canAttack && !cover && b.garrison.length === 0 ? '<span class="status-good">Empty: send soldiers to it (Attack) and it is yours.</span>' : ''}
-      ${canAttack ? `<div class="actions"><button type="button" class="primary" data-action="attack-selected" ${selectedSoldiers > 0 ? '' : 'disabled'}>${selectedSoldiers > 0 ? `Attack with ${selectedSoldiers} selected` : 'Select soldiers or war machines to attack'}</button></div>` : ''}`;
+      ${canAttack || isSite ? `<div class="actions"><button type="button" class="primary" data-action="attack-selected" ${selectedSoldiers > 0 ? '' : 'disabled'}>${selectedSoldiers > 0 ? `Attack with ${selectedSoldiers} selected` : 'Select soldiers or war machines to attack'}</button></div>` : ''}`;
   }
   const status = buildingStatus(world, b);
   const lines: string[] = [];
