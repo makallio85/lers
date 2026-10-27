@@ -12,7 +12,11 @@ function buildCommit(): string {
 // `--mode single` bundles the whole game into one HTML file that can be opened or shared directly.
 export default defineConfig(({ mode }) => ({
   base: './',
-  plugins: mode === 'single' ? [viteSingleFile()] : [],
+  plugins: mode === 'single' ? [viteSingleFile()] : [{
+    // version.json names the build, so a game left open can tell when a newer one has been deployed.
+    name: 'lers-version',
+    generateBundle() { this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ commit: buildCommit() }) }); }
+  }],
   define: { __BUILD_COMMIT__: JSON.stringify(buildCommit()) },
   build: {
     outDir: mode === 'single' ? '../../dist/single' : '../../dist/web',

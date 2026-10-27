@@ -1259,16 +1259,14 @@ function updateSpecialist(world: World, s: Settler): void {
   }
   if (s.phase === 'stealing') return updateThief(world, s);
   if (s.targetTile >= 0) {
-    // A geologist's tile that has become another player's land (their pioneers or a tower took it) is left alone.
-    const owner = world.territory[s.targetTile];
-    if (s.phase === 'prospecting' && owner !== 0 && owner !== s.owner + 1) { s.targetTile = -1; s.timer = 0; s.path = []; return; }
     // Walking to the next tile, then working there.
     if (s.path.length > 0) { advance(world, s); return; }
     if (s.timer < (s.phase === 'prospecting' ? PROSPECT_TICKS : CLAIM_TICKS)) { s.timer++; return; }
     const tx = s.targetTile % world.width, ty = Math.floor(s.targetTile / world.width);
     if (s.phase === 'prospecting') {
       // One tile per check: the geologist knocks on the rock where he stands and puts up its sign.
-      world.prospect[s.owner][s.targetTile] = 1;
+      // A sign stands on the ground for everyone to see: every player knows what it shows (where they can see it).
+      for (const signs of world.prospect) signs[s.targetTile] = 1;
       world.mapVersion++;
     } else if (canClaim(world, s.owner, s.targetTile)) {
       // One tile per post, as a geologist checks one tile at a time; rocks and other ground nobody can stand on
@@ -1334,9 +1332,8 @@ function specialistTiles(world: World, s: Settler): number[] {
       if (!isWalkable(world, i)) continue;
       if (taken.has(i)) continue;
       const fromCentre = Math.hypot(x - cx, y - cy);
-      // Geologists search their own land or land nobody holds, never another player's.
       const isWanted = s.settlerType === 'geologist'
-        ? world.terrain[i] === TERRAIN_MOUNTAIN && world.prospect[s.owner][i] === 0 && (world.territory[i] === 0 || world.territory[i] === s.owner + 1)
+        ? world.terrain[i] === TERRAIN_MOUNTAIN && world.prospect[s.owner][i] === 0
         : canClaim(world, s.owner, i) && (isNextToOwn(x, y) || (!hasOwnNear && fromCentre <= CLAIM_RADIUS));
       // Near the spot by the specialist's own walk; further out, ring by ring from the spot.
       if (isWanted) found.push({ i, d: fromCentre <= CLAIM_RADIUS ? distance(x, y, s.x, s.y) : 100 + fromCentre * 10 + distance(x, y, s.x, s.y) * 0.1 });

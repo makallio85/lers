@@ -385,13 +385,15 @@ export class MapView {
     const { world } = this;
     const g = this.flats.clear();
     const prospect = world.prospect[this.viewer];
+    // Signs are seen where the land has been explored, whoever put them up.
+    const vision = world.vision[this.viewer];
     const signed = new Set<number>();
     for (let i = 0; i < world.tree.length; i++) {
       const tx = i % world.width, ty = Math.floor(i / world.width);
       const cx = tx * TILE + TILE / 2, cy = ty * TILE + TILE / 2;
       // A sign on every tile the geologist checked.
       // A building put up there takes its signs down.
-      if (prospect && prospect[i] === 1 && world.rock[i] === 0 && world.footprint[i] === 0) {
+      if (prospect && prospect[i] === 1 && world.rock[i] === 0 && world.footprint[i] === 0 && (!vision || vision[i] !== VISION_NONE)) {
         // A wooden sign on a post, standing among the rocks and trees: sorted with them, so what is in front covers it.
         const hasOre = world.deposit[i] !== 0 && world.depositAmount[i] > 0;
         let sign = this.signSprites.get(i);
@@ -1110,7 +1112,7 @@ export class MapView {
     }
     const id: SoundId | null = isMachine ? 'siege'
       : anim === 'attack' ? (s.settlerType === 'bowman' ? 'bow' : 'clash')
-      : look === 'woodcutter' ? 'chop' : look === 'builder' ? 'hammer' : look === 'stonecutter' || look === 'geologist' ? 'pick'
+      : look === 'woodcutter' ? 'chop' : look === 'builder' ? 'hammer' : look === 'stonecutter' ? 'pick'
       : look === 'digger' || look === 'pioneer' || look === 'farmer' ? 'dig' : null;
     if (id) this.sound(id, tx, ty);
   }

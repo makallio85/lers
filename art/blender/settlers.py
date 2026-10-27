@@ -19,7 +19,7 @@ SOURCE = {'walk': 'walk', 'work': 'interact-right', 'attack': 'attack-melee-righ
 # bending down for digging, sowing and planting, and the draw for the bow.
 LOOK_SOURCES = {
     'builder': {'work': 'attack-melee-right'}, 'woodcutter': {'work': 'attack-melee-right'},
-    'stonecutter': {'work': 'attack-melee-right'}, 'geologist': {'work': 'attack-melee-right'},
+    'stonecutter': {'work': 'attack-melee-right'}, 'geologist': {'work': 'pick-up'},
     'carrier': {'work': 'pick-up'}, 'digger': {'work': 'pick-up'}, 'pioneer': {'work': 'pick-up'}, 'farmer': {'work': 'pick-up'},
     'bowman': {'attack': 'holding-both-shoot'},
     # The fisher casts: a swing of the rod.
@@ -40,7 +40,7 @@ LOOKS = {
     'worker': ('character-female-b', None, ('walk',)),
     # The sawmill's carpenter works outside, at a sawhorse by the door: walking, carrying the plank, sawing.
     'carpenter': ('character-male-c', 'saw', ('walk', 'carry', 'work')),
-    'geologist': ('character-female-d', 'tool-hammer', ('walk', 'work')),
+    'geologist': ('character-female-d', None, ('walk', 'work')),
     'pioneer': ('character-female-e', 'tool-shovel', ('walk', 'work')),
     'thief': ('character-female-f', None, ('walk', 'work')),
     'swordsman': ('character-male-e', 'sword', ('walk', 'attack', 'die')),
