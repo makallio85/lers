@@ -241,6 +241,7 @@ function storageFor(world: World, owner: number, good: GoodType, x: number, y: n
   for (const b of world.buildings) {
     if (b.owner !== owner || !isStorageBuilding(b) || !isReachable(b)) continue;
     if (respectFlags && b.typeId === 'castle') continue;
+    if (b.refusedGoods.includes(good)) continue;
     if (storedTotal(b) >= BUILDING_TYPES[b.typeId].storageCapacity) continue;
     const d = distance(b.doorX, b.doorY, x, y);
     if (d < bestDistance) { bestDistance = d; best = b; }

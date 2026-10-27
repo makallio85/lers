@@ -248,6 +248,32 @@ test('spare goods are never carried to the castle: they wait at the workplace, o
   assert.equal(castle.stock.log, castleLogs);
 });
 
+test('a storage area keeps only the goods chosen for it; carriers take the rest to another store', () => {
+  const world = createWorld({ seed: 11 });
+  const id = place(world, 'woodcutter');
+  const hut = building(world, id);
+  for (let y = hut.doorY - 6; y <= hut.doorY + 6; y++) {
+    for (let x = hut.doorX - 6; x <= hut.doorX + 6; x++) {
+      const i = tileIndex(world, x, y);
+      if (world.territory[i] === 1 && world.footprint[i] === 0 && world.door[i] === 0 && world.tree[i] === NO_TREE && (x + y) % 3 === 0) world.tree[i] = TREE_MATURE;
+    }
+  }
+  const nearId = place(world, 'storage');
+  const farId = place(world, 'storage', 6);
+  runUntil(world, () => building(world, nearId).isComplete && building(world, farId).isComplete, 9000);
+  // Whichever is nearer the woodcutter refuses logs.
+  const d = (b: { doorX: number; doorY: number }) => Math.hypot(b.doorX - hut.doorX, b.doorY - hut.doorY);
+  const [refusing, keeping] = d(building(world, nearId)) <= d(building(world, farId)) ? [nearId, farId] : [farId, nearId];
+  assert.equal(command(world, { type: 'setStorageGoods', playerId: 0, buildingId: refusing, refusedGoods: ['log'] }).isAccepted, true);
+  assert.deepEqual(building(world, refusing).refusedGoods, ['log']);
+  assert.equal(command(world, { type: 'setStorageGoods', playerId: 0, buildingId: castleOf(world, 0)!.id, refusedGoods: [] }).isAccepted, false, 'not the castle');
+  const before = building(world, refusing).stock.log;
+  runUntil(world, () => building(world, keeping).stock.log >= 4, 9000);
+  assert.equal(building(world, refusing).stock.log, before, 'no logs went to the store that refuses them');
+  // The choice survives a save.
+  assert.deepEqual(loadGame(saveGame(world)).buildings.find((b) => b.id === refusing)!.refusedGoods, ['log']);
+});
+
 test('transport priority and pause commands are validated and applied', () => {
   const world = createWorld({ seed: 11 });
   assert.equal(command(world, { type: 'setTransportPriority', playerId: 0, good: 'bread', position: 0 }).isAccepted, true);

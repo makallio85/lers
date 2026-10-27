@@ -63,6 +63,8 @@ export interface Building {
   /** Soldiers inside a military building, and how many it asks for. */
   garrison: number[];
   garrisonWanted: number;
+  /** A storage area: goods its owner chose not to keep here; carriers take them to another store. */
+  refusedGoods: GoodType[];
   /** A military building claims land from the first soldier moving in until its last defender is gone. */
   isOccupied: boolean;
   /** Shifts a miner can still work from the last meal. */
@@ -398,7 +400,7 @@ export function newBuilding(world: World, typeId: BuildingTypeId, owner: number,
     stock: emptyGoods(), input: emptyGoods(), incoming: emptyGoods(), reserved: emptyGoods(),
     delivered: emptyGoods(), built: emptyGoods(),
     levelProgress: 0, buildProgress: 0, diggerIds: [], builderIds: [], workerId: null,
-    garrison: [], garrisonWanted: typeId === 'castle' ? 3 : Math.min(1, type.garrisonCapacity), isOccupied: false, meals: 0,
+    refusedGoods: [], garrison: [], garrisonWanted: typeId === 'castle' ? 3 : Math.min(1, type.garrisonCapacity), isOccupied: false, meals: 0,
     isPaused: false, isPriority: false, workX: null, workY: null, residentsLeft: 0,
     blockedReason: null, blockedSince: null, hasWarned: false, damage: 0, timer: 0, blightUntil: 0,
     tradeRoute: null, tradeMode: 'surplus', shipOrders: {}, shipInProgress: null

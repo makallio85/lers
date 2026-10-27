@@ -23,6 +23,7 @@ export type Command =
   | { type: 'setBuildingPaused'; playerId: number; buildingId: number; isPaused: boolean }
   | { type: 'setTransportPriority'; playerId: number; good: GoodType; position: number }
   | { type: 'setGoodStored'; playerId: number; good: GoodType; isStored: boolean }
+  | { type: 'setStorageGoods'; playerId: number; buildingId: number; refusedGoods: GoodType[] }
   | { type: 'setProductionOrder'; playerId: number; good: GoodType; count: number }
   | { type: 'setProductionShare'; playerId: number; good: GoodType; share: number }
   | { type: 'setDistribution'; playerId: number; good: GoodType; buildingType: BuildingTypeId; share: number }
@@ -255,6 +256,14 @@ export function applyCommand(world: World, command: Command): CommandResult {
     case 'setGoodStored': {
       if (!isKnownGood(command.good) || typeof command.isStored !== 'boolean') return refuse('Malformed command');
       player.isStored[command.good] = command.isStored;
+      return accept();
+    }
+    case 'setStorageGoods': {
+      // Which goods one storage area keeps; carriers take the others to another store.
+      const b = ownBuilding(world, command.playerId, command.buildingId);
+      if (!b || b.typeId === 'castle' || BUILDING_TYPES[b.typeId].storageCapacity === 0) return refuse('Only storage areas keep chosen goods');
+      if (!Array.isArray(command.refusedGoods) || !command.refusedGoods.every(isKnownGood)) return refuse('Malformed command');
+      b.refusedGoods = GOOD_TYPES.filter((g) => command.refusedGoods.includes(g));
       return accept();
     }
     case 'setProductionOrder':

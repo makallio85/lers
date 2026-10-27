@@ -841,6 +841,8 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
   const garrison = orders.length ? `<h3 class="section-title">Ships to build (${SHIP_TICKS / TICKS_PER_SECOND / 60} min each)</h3>${orders.join('')}`
     : b.isComplete && isMilitaryBuilding(b)
     ? `<div class="made-row"><span>Soldiers wanted</span>${stepper('garrison', `data-id="${b.id}"`, b.garrisonWanted, 'Soldiers wanted')}<span class="muted">of ${type.garrisonCapacity}</span></div>` : '';
+  // A storage area keeps only the goods its owner picks; the castle takes everything.
+  const keeps = b.typeId !== 'castle' && type.storageCapacity > 0 ? storageGoodsSection(world, b) : '';
   const canPause = (b.isComplete && type.worker !== null) || !b.isComplete;
   // Settable while the building still goes up, so its worker starts in the right place.
   const hasWorkArea = (WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId);
@@ -860,7 +862,26 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
     <span class="${status.isWarning ? 'status-warning' : ''}">${escapeHtml(status.text)}</span>
     ${lines.length ? `<dl class="facts">${lines.join('')}</dl>` : ''}
     ${garrison}
+    ${keeps}
     ${actions}`;
+}
+
+/** The goods a storage area keeps, each switched on or off; goods the player stores nowhere are marked so. */
+function storageGoodsSection(world: World, b: Building): string {
+  const player = world.players[b.owner];
+  const kept = GOOD_TYPES.filter((g) => !b.refusedGoods.includes(g)).length;
+  const chips = GOOD_TYPES.map((g) => {
+    const isKept = !b.refusedGoods.includes(g);
+    const note = player.isStored[g] ? '' : ' (not stored anywhere)';
+    return `<button type="button" class="chip ${isKept ? 'is-on' : ''}" data-action="toggle-storage-good" data-id="${b.id}" data-good="${g}" aria-pressed="${isKept}"
+      title="${GOOD_LABELS[g]}${note}" aria-label="${GOOD_LABELS[g]}: ${isKept ? 'kept here' : 'not kept here'}${note}">${GOOD_LABELS[g]}</button>`;
+  }).join('');
+  return `<details class="storage-goods">
+      <summary>Goods kept here <span class="muted">${kept === GOOD_TYPES.length ? 'all' : `${kept} of ${GOOD_TYPES.length}`}</span></summary>
+      <div class="actions"><button type="button" class="secondary" data-action="storage-goods-all" data-id="${b.id}">Keep all</button><button type="button" class="secondary" data-action="storage-goods-none" data-id="${b.id}">Keep none</button></div>
+      <div class="chip-grid">${chips}</div>
+      <span class="muted">Carriers take the others to another storage area. Goods turned off under Goods › Priority are stored nowhere.</span>
+    </details>`;
 }
 
 /** What the priest bar needs to know: the player's manna, people and the spell being aimed. */
