@@ -155,6 +155,9 @@ function recordStats(world: World): void {
   }
 }
 
+/** The quality of an ordinary spot: it works at the old full pace, a better one faster, a poorer one slower. */
+const TYPICAL_LAND = 0.6;
+
 /** A steady, repeatable chance for a tile at this tick: true about `share` of the time. */
 function landChance(world: World, i: number, share: number): boolean {
   return share >= 1 || ((Math.imul(i, 2654435761) + Math.imul(world.tick, 40503)) >>> 0) % 1000 < share * 1000;
@@ -165,7 +168,7 @@ function grow(world: World): void {
   for (let i = 0; i < tree.length; i++) {
     if (tree[i] >= 0 && tree[i] < TREE_MATURE && ++tree[i] === TREE_MATURE) world.mapVersion++;
     // A field grows at its soil's pace: every step on good soil, now and then on poor soil or in a swamp.
-    if (field[i] >= 0 && field[i] < FIELD_RIPE && landChance(world, i, cropQuality(world, i, 'grain'))) {
+    if (field[i] >= 0 && field[i] < FIELD_RIPE && landChance(world, i, cropQuality(world, i, 'grain') / TYPICAL_LAND)) {
       field[i]++;
       if (field[i] === FIELD_RIPE || field[i] % 30 === 0) world.mapVersion++;
     }
@@ -937,7 +940,7 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
     // The land sets the pace: a mine in thin ore, or vines, rice or bees in a poor spot, take longer.
     // A blighted mine works at half speed besides.
     const land = siteQuality(world, home.typeId, home.x, home.y, home.x + Math.floor(home.size / 2), home.y + Math.floor(home.size / 2));
-    const pace = land === null ? 1 : mine ? 0.35 + 0.65 * land : Math.max(0.2, land);
+    const pace = land === null ? 1 : mine ? 0.35 + 0.65 * land : Math.max(0.2, Math.min(1.2, land / TYPICAL_LAND));
     const ticks = Math.round(recipe.ticks / pace);
     s.phase = 'working'; s.timer = mine && home.blightUntil > world.tick ? ticks * 2 : ticks;
     return;
@@ -1118,7 +1121,7 @@ function finishWork(world: World, s: Settler, home: Building, type: SettlerType)
   else if (type === 'fisher') {
     // The richer the water, the surer the catch; a poor one often sends the fisher home with nothing.
     const water = bestFishWater(world, i % world.width, Math.floor(i / world.width));
-    if (water >= 0 && landChance(world, water, world.fish[water] / FISH_MAX + 0.15)) { world.fish[water]--; s.carrying = 'fish'; }
+    if (water >= 0 && landChance(world, water, world.fish[water] / FISH_MAX)) { world.fish[water]--; s.carrying = 'fish'; }
   }
   else if (type === 'farmer') {
     if (world.field[i] >= FIELD_RIPE) { world.field[i] = NO_FIELD; s.carrying = 'grain'; }

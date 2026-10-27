@@ -365,12 +365,18 @@ export class MapView {
       // A sign on every tile the geologist checked.
       // A building put up there takes its signs down.
       if (prospect && prospect[i] === 1 && world.rock[i] === 0 && world.footprint[i] === 0) {
-        // A standing sign: a post with a flag in the ore's colour, or a bare cross-piece where there is none.
+        // A wooden sign on a post: painted with a lump of the ore found, or left plain with a dash where there is none.
         const p = iso(tx + 0.5, ty + 0.5);
         const hasOre = world.deposit[i] !== 0 && world.depositAmount[i] > 0;
-        signs.rect(p.x - 1, p.y - 16, 2, 16).fill(0x5a3d22);
-        if (hasOre) signs.rect(p.x + 1, p.y - 16, 10, 7).fill(SIGN_COLORS[world.deposit[i]] ?? 0xffffff).stroke({ width: 1, color: 0x1b2420 });
-        else signs.rect(p.x - 5, p.y - 14, 10, 2).fill(0xd8d0bc);
+        signs.rect(p.x - 1, p.y - 12, 2, 12).fill(0x4a321c);
+        signs.roundRect(p.x - 6, p.y - 21, 12, 10, 1.5).fill(0xc9a46c).stroke({ width: 1, color: 0x3b2814 });
+        if (hasOre) {
+          const color = SIGN_COLORS[world.deposit[i]] ?? 0xffffff;
+          signs.poly([p.x - 3.5, p.y - 14, p.x - 2.5, p.y - 18, p.x + 0.5, p.y - 19.2, p.x + 3.5, p.y - 17.2, p.x + 3.6, p.y - 14, p.x + 0.4, p.y - 12.8])
+            .fill(color).stroke({ width: 0.8, color: 0x1b2420 });
+        } else {
+          signs.rect(p.x - 3, p.y - 16.5, 6, 1.4).fill(0x6a4a2a);
+        }
       }
       if (this.bank.isReady) continue;
       if (world.field[i] >= 0) {
