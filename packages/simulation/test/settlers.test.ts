@@ -306,3 +306,14 @@ test('specialists sent somewhere wait there; they start work only when told', ()
   assert.ok(own() > before, 'told to, it claims land where it stands');
   assert.equal(command(world, { type: 'startSpecialistWork', playerId: 0, settlerIds: [castle.id] }).isAccepted, false);
 });
+
+test('a work area can be set while the building is still going up', () => {
+  const world = createWorld({ seed: 11 });
+  const spot = freeSpot(world, 'woodcutter');
+  const site = command(world, { type: 'placeBuilding', playerId: 0, buildingType: 'woodcutter', ...spot });
+  assert.equal(site.isAccepted, true);
+  const b = world.buildings.find((x) => x.id === (site as { buildingId: number }).buildingId)!;
+  assert.equal(b.isComplete, false);
+  assert.equal(command(world, { type: 'setWorkArea', playerId: 0, buildingId: b.id, x: b.doorX + 3, y: b.doorY }).isAccepted, true);
+  assert.equal(b.workX, b.doorX + 3);
+});

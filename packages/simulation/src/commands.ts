@@ -68,13 +68,15 @@ export const MAX_SPECIALISTS = 50;
 export const MAX_WAYPOINTS = 8;
 
 /**
- * Another occupied military building of the same owner whose land reaches this one. As in the original game,
- * a tower cannot be taken while another of its owner's towers (or the castle) covers it.
+ * Another military building of the same owner, with soldiers in it, whose land reaches this one. As in the original
+ * game, a tower cannot be taken while another of its owner's towers (or the castle) covers it.
  */
 export function coveringBuilding(world: World, b: Building): Building | null {
   const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
   for (const other of world.buildings) {
     if (other.id === b.id || other.owner !== b.owner || !claimsTerritory(other)) continue;
+    // Only a tower with soldiers in it (or at its door) shields another: empty ones do not cover each other.
+    if (other.garrison.length === 0 && !world.settlers.some((s) => s.homeId === other.id && s.phase === 'defending' && s.health > 0)) continue;
     const r = BUILDING_TYPES[other.typeId].territoryRadius;
     if (Math.hypot(other.x + other.size / 2 - cx, other.y + other.size / 2 - cy) <= r) return other;
   }

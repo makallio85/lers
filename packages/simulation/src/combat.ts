@@ -133,13 +133,18 @@ export function removeDead(world: World): void {
   releaseEmptyBuildings(world);
 }
 
-/** A tower whose garrison and defenders are all gone stops claiming land (it can then be taken). */
+
+/**
+ * A tower whose garrison and defenders are all gone stops claiming land (it can then be taken). One that another of
+ * its owner's manned towers (or the castle, while soldiers are in it) covers cannot be taken, so it keeps its land until that cover is emptied or falls: otherwise
+ * it would stand on the enemy's land, untakeable.
+ */
 export function releaseEmptyBuildings(world: World): void {
   let isChanged = false;
   for (const b of world.buildings) {
     if (!b.isOccupied || b.garrison.length > 0) continue;
     const isDefended = world.settlers.some((s) => s.homeId === b.id && s.phase === 'defending' && s.health > 0);
-    if (!isDefended) { b.isOccupied = false; isChanged = true; }
+    if (!isDefended && !coveringBuilding(world, b)) { b.isOccupied = false; isChanged = true; }
   }
   if (isChanged) recomputeTerritory(world);
 }

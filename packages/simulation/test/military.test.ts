@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, castleOf, createMatch, loadGame, newBuilding, newSettler,
+  GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, castleOf, coveringBuilding, createMatch, loadGame, newBuilding, newSettler, placementProblem,
   recomputeTerritory, saveGame, step, strengthOf, tileIndex
 } from '../src/index.ts';
 import type { Building, BuildingTypeId, Command, Settler, World } from '../src/index.ts';
@@ -221,4 +221,25 @@ test('a manned tower or castle sees a thief near its door and sends a soldier ou
   runUntil(world, () => !world.settlers.includes(thief) || thief.carrying !== null, 6000);
   assert.ok(!world.settlers.includes(thief), 'the guard caught the thief');
   assert.equal(enemy.stock.gold, 3, 'before it took anything');
+});
+
+test('an emptied tower that another tower covers keeps its land until the cover falls', () => {
+  const world = createMatch(4);
+  run(world, 10);
+  const enemy = castleOf(world, 1)!;
+  // An enemy small tower in front of its castle, emptied in a fight.
+  let spot: { x: number; y: number } | null = null;
+  for (let r = 4; r < 12 && !spot; r++) for (let dx = -r; dx <= r && !spot; dx++) {
+    const x = enemy.x - r, y = enemy.y + dx;
+    if (placementProblem(world, 1, 'guard_tower_small', x, y) === null) spot = { x, y };
+  }
+  assert.ok(spot);
+  const front = finished(world, 'guard_tower_small', 1, spot!.x, spot!.y);
+  front.isOccupied = true;
+  recomputeTerritory(world);
+  const footprint = tileIndex(world, front.x, front.y);
+  run(world, 20);
+  assert.ok(coveringBuilding(world, front), 'the castle covers it');
+  assert.equal(front.isOccupied, true, 'covered, it still holds');
+  assert.equal(world.territory[footprint], 2, "and its land stays the enemy's");
 });
