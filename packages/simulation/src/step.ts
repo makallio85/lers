@@ -276,6 +276,11 @@ function distributionShare(player: PlayerState | undefined, good: GoodType, type
  * the player's transport priority; a good several building types use is shared by the Distribution setting.
  * Surplus output goes to storage for goods the player stores.
  */
+/** Castle goods sent to storage areas per logistics run and player, when carriers are free. */
+const CASTLE_TO_STORAGE_PER_RUN = 2;
+/** The share of a storage area castle goods may fill. */
+const CASTLE_GOODS_STORE_SHARE = 0.5;
+
 function runLogistics(world: World): void {
   const carriers = world.settlers.filter((s) => isIdle(s, 'carrier'));
   if (carriers.length === 0) return;
@@ -373,6 +378,24 @@ function runLogistics(world: World): void {
           const store = storageFor(world, b.owner, good, b.doorX, b.doorY, true);
           if (!store || !send(b, store, good)) break;
         }
+      }
+    }
+  }
+
+  // Last, with carriers to spare: the castle's goods move to storage areas, as loose goods do to a new storage area in
+  // the original. Only goods the player stores, a few at a time, so carriers stay free for the work above.
+  for (const player of world.players) {
+    const castle = castleOf(world, player.id);
+    if (!castle) continue;
+    let sent = 0;
+    for (const good of player.transportPriority) {
+      while (sent < CASTLE_TO_STORAGE_PER_RUN && castle.stock[good] - castle.reserved[good] > 0) {
+        if (carriers.length === 0) return;
+        const store = storageFor(world, player.id, good, castle.doorX, castle.doorY, true);
+        // Castle goods fill a store only halfway: the rest stays free for what the workplaces make.
+        if (!store || storedTotal(store) >= BUILDING_TYPES[store.typeId].storageCapacity * CASTLE_GOODS_STORE_SHARE) break;
+        if (!send(castle, store, good)) break;
+        sent++;
       }
     }
   }

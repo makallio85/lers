@@ -6,6 +6,11 @@ import {
 } from '../src/index.ts';
 import type { BuildingTypeId, Command, World } from '../src/index.ts';
 
+/** Goods a building holds in all. */
+function totalOf(b: { stock: Record<string, number> }): number {
+  return Object.values(b.stock).reduce((n, v) => n + v, 0);
+}
+
 /** First valid spot for a building type, searched outward from the castle. */
 function findSpot(world: World, typeId: BuildingTypeId, minRing = 1): { x: number; y: number } {
   const castle = castleOf(world, 0)!;
@@ -260,11 +265,15 @@ test('a storage area keeps only the goods chosen for it; carriers take the rest 
   }
   const nearId = place(world, 'storage');
   const farId = place(world, 'storage', 6);
+  // Both refuse everything while being built, so the castle's goods do not fill them before the test sets them.
+  for (const id of [nearId, farId]) command(world, { type: 'setStorageGoods', playerId: 0, buildingId: id, refusedGoods: [...GOOD_TYPES] });
   runUntil(world, () => building(world, nearId).isComplete && building(world, farId).isComplete, 9000);
   // Whichever is nearer the woodcutter refuses logs.
   const d = (b: { doorX: number; doorY: number }) => Math.hypot(b.doorX - hut.doorX, b.doorY - hut.doorY);
   const [refusing, keeping] = d(building(world, nearId)) <= d(building(world, farId)) ? [nearId, farId] : [farId, nearId];
   assert.equal(command(world, { type: 'setStorageGoods', playerId: 0, buildingId: refusing, refusedGoods: ['log'] }).isAccepted, true);
+  // The other keeps logs only, so the castle's goods do not fill it first.
+  command(world, { type: 'setStorageGoods', playerId: 0, buildingId: keeping, refusedGoods: GOOD_TYPES.filter((g) => g !== 'log') });
   assert.deepEqual(building(world, refusing).refusedGoods, ['log']);
   assert.equal(command(world, { type: 'setStorageGoods', playerId: 0, buildingId: castleOf(world, 0)!.id, refusedGoods: [] }).isAccepted, false, 'not the castle');
   const before = building(world, refusing).stock.log;
@@ -272,6 +281,18 @@ test('a storage area keeps only the goods chosen for it; carriers take the rest 
   assert.equal(building(world, refusing).stock.log, before, 'no logs went to the store that refuses them');
   // The choice survives a save.
   assert.deepEqual(loadGame(saveGame(world)).buildings.find((b) => b.id === refusing)!.refusedGoods, ['log']);
+});
+
+test('a new storage area takes the castle\'s stored goods when carriers are free, not the ones the player does not store', () => {
+  const world = createWorld({ seed: 11 });
+  const castle = castleOf(world, 0)!;
+  command(world, { type: 'setGoodStored', playerId: 0, good: 'bread', isStored: false });
+  const storeId = place(world, 'storage');
+  runUntil(world, () => building(world, storeId).isComplete, 6000);
+  const planks = castle.stock.plank;
+  runUntil(world, () => totalOf(building(world, storeId)) >= 20, 6000);
+  assert.ok(castle.stock.plank < planks, 'planks left the castle');
+  assert.equal(building(world, storeId).stock.bread, 0, 'bread is not stored');
 });
 
 test('transport priority and pause commands are validated and applied', () => {
