@@ -159,6 +159,8 @@ const showProgress = (share: number) => {
 const view = await MapView.create(els.map, world, showProgress);
 const sounds = new SoundBoard();
 const music = new MusicPlayer();
+// Once the music plays, the title's hint to tap for it goes.
+music.onPlaying = () => { if (ui.front === 'title') renderFront(); };
 view.onSound = (id, x, y) => sounds.playAt(id, x, y, els.map.clientWidth, els.map.clientHeight, view.scale);
 /** What the player has already heard about: messages, finished buildings and the match result. */
 const heard = { messageId: Number.MAX_SAFE_INTEGER, built: new Set<number>(), isOver: false };
@@ -302,7 +304,7 @@ function renderFront(): void {
   // The title and anything opened from it stand on the menu backdrop; from the game, the map shows dimmed behind.
   els.front.classList.toggle('is-title', ui.front === 'title' || ui.front === 'loading' || ui.frontReturn === 'title');
   if (ui.front === 'loading') return;
-  if (ui.front === 'title') setHtml(els.front, renderTitle({ autosavedAt: savedLabel(AUTOSAVE_KEY), savedAt: savedLabel(SAVE_KEY) }));
+  if (ui.front === 'title') setHtml(els.front, renderTitle({ autosavedAt: savedLabel(AUTOSAVE_KEY), savedAt: savedLabel(SAVE_KEY), isMusicWaiting: music.isWaitingForGesture }));
   else if (ui.front === 'setup') {
     setHtml(els.front, renderMatchSetup({
       botType: lastBotType, difficultyType: lastDifficulty, mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored,
@@ -506,11 +508,32 @@ function showToast(text: string): void {
   }
 }
 
+/** The specialists of a type there were when more were asked for, to tell the new ones once they come. */
+const specialistsBefore = new Map<Command, Set<number>>();
+
+/**
+ * New specialists are selected at once, ready for their orders. Added to a selection of the same kind (several
+ * added one after another), else in its place.
+ */
+function selectNewSpecialists(command: Extract<Command, { type: 'setSpecialists' }>): void {
+  const before = specialistsBefore.get(command);
+  specialistsBefore.delete(command);
+  if (!before) return;
+  const added = world.settlers.filter((s) => s.owner === PLAYER && s.settlerType === command.specialistType && !before.has(s.id));
+  if (added.length === 0) return;
+  const kept = [...ui.selectedSoldiers].map((id) => world.settlers.find((s) => s.id === id));
+  const isSameKind = kept.length > 0 && kept.every((s) => s && s.settlerType === command.specialistType);
+  ui.selectedSoldiers = new Set([...(isSameKind ? ui.selectedSoldiers : []), ...added.map((s) => s.id)]);
+  ui.selectedId = null; ui.orderMode = null;
+  renderSelectionCard(); renderOrders();
+}
+
 function handleResults(results: CommandResult[], commands: Command[]): void {
   let isPanelStale = false;
   results.forEach((result, k) => {
     const command = commands[k];
-    if (!result.isAccepted) showProblem(result.reason);
+    if (result.isAccepted && command.type === 'setSpecialists') selectNewSpecialists(command);
+    if (!result.isAccepted) { specialistsBefore.delete(command); showProblem(result.reason); }
     else if (command.type === 'placeBuilding') { ui.selectedId = result.buildingId ?? null; sounds.play('place'); }
     else if (!['moveSoldiers', 'attackBuilding', 'moveSpecialists', 'patrolSoldiers', 'holdSoldiers'].includes(command.type)) isPanelStale = true;
   });
@@ -928,8 +951,10 @@ document.addEventListener('click', (e) => {
     case 'specialists': {
       const type = target.dataset.type as SpecialistType;
       if (!(SPECIALIST_TYPES as readonly string[]).includes(type)) break;
-      const have = world.settlers.filter((s) => s.owner === PLAYER && s.settlerType === type).length;
-      submit({ type: 'setSpecialists', playerId: PLAYER, specialistType: type, count: Math.max(0, Math.min(MAX_SPECIALISTS, have + delta)) });
+      const ofType = world.settlers.filter((s) => s.owner === PLAYER && s.settlerType === type);
+      const command: Command = { type: 'setSpecialists', playerId: PLAYER, specialistType: type, count: Math.max(0, Math.min(MAX_SPECIALISTS, ofType.length + delta)) };
+      specialistsBefore.set(command, new Set(ofType.map((s) => s.id)));
+      submit(command);
       break;
     }
     case 'select-specialists':

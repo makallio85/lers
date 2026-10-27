@@ -480,6 +480,8 @@ export interface SettingsState {
 }
 
 export interface TitleState {
+  /** Music is on but the browser waits for a first tap or click before it may play. */
+  isMusicWaiting: boolean;
   /** When the autosave was made, if there is one to continue. */
   autosavedAt: string | null;
   savedAt: string | null;
@@ -562,6 +564,7 @@ export function renderTitle(state: TitleState): string {
       <button type="button" class="title-item" disabled aria-describedby="multiplayer-note">Multiplayer<span id="multiplayer-note">Coming soon</span></button>
       <button type="button" class="title-item" data-action="open-settings">Settings<span>Sound and music</span></button>
     </div>
+    ${state.isMusicWaiting ? '<p class="title-music-hint">♪ Tap or click anywhere to start the music</p>' : ''}
     <p class="menu-build">${buildLabel()}</p>
   </div>`;
 }
