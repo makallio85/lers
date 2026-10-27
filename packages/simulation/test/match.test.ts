@@ -131,6 +131,12 @@ test('taking an undefended tower changes its owner and destroys the loser\'s bui
   recomputeTerritory(world);
   runUntil(world, () => tower.owner === 0, 300);
   assert.equal(tower.garrison[0], attacker.id);
+  // Only the soldier who took it moves in, even with other soldiers free nearby.
+  const other = newSettler(world, 0, 'swordsman', tower.doorX + 1, tower.doorY);
+  other.isInside = false; other.phase = 'idle';
+  run(world, 100);
+  assert.equal(tower.garrisonWanted, 1);
+  assert.equal(tower.garrison.length, 1);
   assert.equal(world.buildings.includes(hut), false);
   assert.equal(world.players[0].stats.towersTaken, 1);
 });
