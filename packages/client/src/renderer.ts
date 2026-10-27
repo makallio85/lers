@@ -175,6 +175,8 @@ export class MapView {
   private readonly groundOutlines = new Graphics();
   /** Sites being levelled: bare earth on the ground, under the diggers working on it. */
   private readonly siteGround = new Graphics();
+  /** Fish swimming in the water: shadows where a water holds fish, more where it holds many. */
+  private readonly fishLayer = new Graphics();
   private readonly fog = new Sprite();
   private readonly overlay = new Graphics();
   /** Upright things (buildings, trees, settlers) sorted front to back. */
@@ -206,7 +208,7 @@ export class MapView {
     const m = new Matrix(ISO_W / 2 / TILE, ISO_H / 2 / TILE, -ISO_W / 2 / TILE, ISO_H / 2 / TILE, 0, 0);
     this.groundBase.setFromMatrix(m);
     this.groundTop.setFromMatrix(m);
-    this.groundBase.addChild(this.terrain, this.territory, this.flats, this.siteGround, this.marks, this.groundOutlines);
+    this.groundBase.addChild(this.terrain, this.fishLayer, this.territory, this.flats, this.siteGround, this.marks, this.groundOutlines);
     this.groundTop.addChild(this.fog, this.overlay);
     this.upright.sortableChildren = true;
     this.ghostSprite.alpha = 0.6;
@@ -398,6 +400,29 @@ export class MapView {
   isBuildingVisible(b: Building): boolean {
     return b.owner === this.viewer || canSee(this.world, this.viewer, b.doorX, b.doorY)
       || canSee(this.world, this.viewer, b.x + b.size / 2, b.y + b.size / 2);
+  }
+
+  /** Fish shadows drifting in the water, as many as the water holds (a few tiles each, so it stays light). */
+  private drawFish(): void {
+    const g = this.fishLayer.clear();
+    const { world } = this;
+    const t = this.clock / 1000;
+    for (let i = 0; i < world.fish.length; i += 3) {
+      const fish = world.fish[i];
+      if (fish < 3) continue;
+      const x = i % world.width, y = Math.floor(i / world.width);
+      for (let k = 0; k < (fish >= 8 ? 2 : 1); k++) {
+        const seed = (i * 7 + k * 13) % 97;
+        const a = t * (0.25 + (seed % 5) * 0.05) + seed;
+        const fx = (x + 0.5 + Math.cos(a) * 0.9) * TILE, fy = (y + 0.5 + Math.sin(a * 1.3) * 0.9) * TILE;
+        const dir = Math.atan2(Math.cos(a * 1.3) * 1.3, -Math.sin(a));
+        const dx = Math.cos(dir), dy = Math.sin(dir);
+        g.poly([fx + dx * 5, fy + dy * 5, fx - dy * 1.8, fy + dx * 1.8, fx - dx * 4, fy - dy * 4, fx + dy * 1.8, fy - dx * 1.8])
+          .fill({ color: 0x0b1f2a, alpha: 0.45 });
+        g.poly([fx - dx * 4, fy - dy * 4, fx - dx * 7 - dy * 2, fy - dy * 7 + dx * 2, fx - dx * 7 + dy * 2, fy - dy * 7 - dx * 2])
+          .fill({ color: 0x0b1f2a, alpha: 0.4 });
+      }
+    }
   }
 
   private drawBuildings(state: ViewState): void {
@@ -1102,6 +1127,7 @@ export class MapView {
       this.drawObjects();
     }
     if (fogKey !== this.fogKey) { this.fogKey = fogKey; this.drawFog(); }
+    this.drawFish();
     this.drawBuildings(state);
     this.drawSettlers(alpha, state.selectedSoldiers, now, state.selectedId);
     this.drawGhost(state.ghost);

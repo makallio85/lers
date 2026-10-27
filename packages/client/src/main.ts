@@ -3,7 +3,7 @@ import {
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
-  BOARDING_RANGE, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, isEnemy, isWinner, maxPlayersOf, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
+  BOARDING_RANGE, qualityLabel, siteQuality, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, isEnemy, isWinner, maxPlayersOf, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
 } from '../../simulation/src/index.ts';
 import type { BotDifficultyType, BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
@@ -14,7 +14,7 @@ import * as simulation from '../../simulation/src/index.ts';
 import {
   GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, buildingCounts, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
   renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs, machinesOf,
-  renderLoading, renderMatchSetup, renderSettings, renderTitle
+  renderLoading, renderMatchSetup, renderSettings, renderTitle, landName
 } from './ui.ts';
 import { renderStatsScreen } from './stats.ts';
 import type { StatsGoodsGroupId, StatsViewId } from './stats.ts';
@@ -121,6 +121,8 @@ const ui = {
   hoveredId: null as number | null,
   ghostKey: '',
   ghostProblem: null as string | null,
+  /** How good the land under the building being placed is for it, 0 to 1, when its land matters. */
+  ghostQuality: null as number | null,
   markers: [] as number[],
   markersKey: '',
   isTouchPlacement: false,
@@ -356,7 +358,9 @@ function renderHint(): void {
       ? (ui.ghost ? 'Move it by tapping elsewhere, then press Place.' : 'Tap a green marker where it should go.')
       : 'Click a green marker to place it. Esc to cancel.';
   els.hint.hidden = false;
-  setHtml(els.hint, `<span>Placing ${label}</span><span class="${problem ? 'is-problem' : ''}">${problem ?? instructions}</span>
+  const q = problem ? null : ui.ghostQuality;
+  const land = q === null ? '' : `<span class="land-quality is-${qualityLabel(q).toLowerCase().replace(' ', '-')}">${landName(ui.placing)}: ${qualityLabel(q)} · ${Math.round(q * 100)} %</span>`;
+  setHtml(els.hint, `<span>Placing ${label}</span>${land}<span class="${problem ? 'is-problem' : ''}">${problem ?? instructions}</span>
     ${ui.isTouchPlacement && ui.ghost ? `<button type="button" class="primary" data-action="confirm-place" ${ui.ghost.isValid ? '' : 'disabled'}>Place</button>` : ''}
     <button type="button" class="secondary" data-action="cancel-placing">Cancel</button>`);
 }
@@ -578,6 +582,8 @@ function checkGhost(x: number, y: number): void {
   ui.ghostKey = key;
   ui.ghostProblem = placementProblem(world, PLAYER, ui.placing, x, y);
   ui.ghost = { typeId: ui.placing, x, y, isValid: ui.ghostProblem === null };
+  const half = Math.floor(BUILDING_TYPES[ui.placing].size / 2);
+  ui.ghostQuality = ui.ghostProblem === null ? siteQuality(world, ui.placing, x, y, x + half, y + half) : null;
   renderHint();
 }
 
@@ -1322,7 +1328,7 @@ requestAnimationFrame(frame);
 
 // Exposed for automated screenshots and debugging in the browser console.
 Object.defineProperty(window, 'lers', {
-  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders, sounds, music })
+  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders, checkGhost, sounds, music })
 });
 
 // The statistics charts' hover readout: a crosshair at the nearest sample and its values beside it.

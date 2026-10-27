@@ -13,6 +13,7 @@
   --warning: #e8763a;
   --warning-text: #f08a52;
   --info: #8fb3d9;
+  --good: #7fcf6a;
   --side-width: 340px;
   --top-height: 52px;
   color-scheme: dark;
@@ -395,3 +396,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 a.build-commit:hover { color: var(--accent); text-decoration: underline; }
 .order-mode.is-work { border-color: var(--accent); color: var(--accent); }
 .title-music-hint { margin: 0; font-size: 13px; color: var(--accent); }
+.land-quality { font-weight: 600; }
+.land-quality.is-good { color: var(--good); }
+.land-quality.is-fair { color: var(--accent); }
+.land-quality.is-poor, .land-quality.is-very-poor { color: var(--warning-text); }

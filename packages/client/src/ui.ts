@@ -6,7 +6,7 @@ import {
   OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
   DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf,
   MAP_LAYOUT_LABELS, MAP_LAYOUT_TYPES, SHIP_COSTS, SHIP_TICKS, SHIP_TYPES, TRADE_SHIPS_PER_DOCK, TRADE_SHIP_PILES, TRANSPORT_CAPACITY, BOARDING_RANGE, isShipType,
-  passengersOf, shipsOfDock, isSpecialistType, STARTING_GOODS_LABELS, STARTING_GOODS_TYPES, VICTORY_LABELS, VICTORY_TYPES, economyProgress, isEnemy, isWinner
+  passengersOf, shipsOfDock, isSpecialistType, qualityLabel, siteQuality, STARTING_GOODS_LABELS, STARTING_GOODS_TYPES, VICTORY_LABELS, VICTORY_TYPES, economyProgress, isEnemy, isWinner
 } from '../../simulation/src/index.ts';
 import type {
   BotDifficultyType, BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, StartingGoodsType, VictoryType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
@@ -437,6 +437,12 @@ export function renderSpeed(speed: number): string {
   return options.map((o) => `<button type="button" data-action="speed" data-speed="${o.value}" aria-label="${o.aria}" aria-pressed="${o.value === speed}">${o.label}</button>`).join('');
 }
 
+/** What the land is judged by for a building whose work depends on it. */
+export function landName(typeId: BuildingTypeId): string {
+  return BUILDING_TYPES[typeId].mine ? 'Ore' : typeId === 'fisher' ? 'Fish' : typeId === 'winery' ? 'Hillside'
+    : typeId === 'rice_farm' ? 'Wet land' : typeId === 'beekeeper' ? 'Trees and flowers' : 'Soil';
+}
+
 /** Which build this is: its short commit, linked to the commit on GitHub when known. */
 export function buildLabel(): string {
   const commit = __BUILD_COMMIT__;
@@ -771,6 +777,10 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
       lines.push(`<dt>Worker</dt><dd>${worker ? SETTLER_LABELS[worker.settlerType] : 'None yet'}</dd>`);
     }
     if (type.mine) lines.push(`<dt>Meals left</dt><dd>${b.meals}</dd>`);
+    // How good its land is for it: the pace it works at.
+    const half = Math.floor(type.size / 2);
+    const q = siteQuality(world, b.typeId, b.x, b.y, b.x + half, b.y + half);
+    if (q !== null) lines.push(`<dt>${landName(b.typeId)}</dt><dd><span class="land-quality is-${qualityLabel(q).toLowerCase().replace(' ', '-')}">${qualityLabel(q)} · ${Math.round(q * 100)} %</span></dd>`);
   }
   // Goods traffic: what carriers are bringing, and what they are coming to take away.
   const traffic = (pick: (s: Settler) => boolean) => {

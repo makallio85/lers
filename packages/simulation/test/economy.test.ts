@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BUILDING_TYPES, FIELD_RIPE, GOOD_TYPES, NO_TREE, TREE_MATURE, castleOf, createWorld, loadGame, placementProblem,
+  BUILDING_TYPES, FIELD_RIPE, FISH_REGROW_TICKS, GOOD_TYPES, NO_TREE, TREE_MATURE, castleOf, createWorld, cropQuality, loadGame, placementProblem,
   saveGame, step, tileIndex
 } from '../src/index.ts';
 import type { BuildingTypeId, Command, World } from '../src/index.ts';
@@ -322,4 +322,28 @@ test('a toolsmith with no hammer in storage gets one from an idle builder, and n
   runUntil(world, () => smith.isComplete, 8000);
   runUntil(world, () => smith.workerId !== null, 1200);
   assert.notEqual(smith.workerId, null, 'an idle builder handed in its hammer and the toolsmith has a worker');
+});
+
+test('land quality: fields grow at their soil pace, fishers catch only where fish are, and fishing thins the water', () => {
+  const world = createWorld({ seed: 11 });
+  // Soil: a field on the best tile ripens well before one on the worst.
+  let good = -1, poor = -1;
+  for (let i = 0; i < world.terrain.length; i++) {
+    if (world.terrain[i] !== 0) continue;
+    const q = cropQuality(world, i, 'grain');
+    if (good < 0 || q > cropQuality(world, good, 'grain')) good = i;
+    if (poor < 0 || q < cropQuality(world, poor, 'grain')) poor = i;
+  }
+  assert.ok(cropQuality(world, good, 'grain') > 0.8 && cropQuality(world, poor, 'grain') < 0.3);
+  world.field[good] = 0; world.field[poor] = 0;
+  runUntil(world, () => world.field[good] >= FIELD_RIPE, 40_000);
+  assert.ok(world.field[poor] < FIELD_RIPE * 0.6, `the poor field is far behind (${world.field[poor]} of ${FIELD_RIPE})`);
+  // Fish: a water tile at its stock loses one per catch and grows back slowly.
+  const water = world.fish.findIndex((f) => f >= 6);
+  assert.ok(water >= 0, 'some water holds fish');
+  const before = world.fish[water];
+  world.fish[water] = before - 3;
+  run(world, FISH_REGROW_TICKS * 2 + 1);
+  assert.equal(world.fish[water], before - 1, 'two came back');
+  assert.ok(world.fish.some((f, i) => world.terrain[i] === 1 && f === 0), 'and some water holds none');
 });

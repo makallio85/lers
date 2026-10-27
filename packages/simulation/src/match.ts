@@ -3,6 +3,7 @@ import type { BuildingTypeId, MapLayoutType, MapSizeType, RaceType, StartingGood
 import { BOT_DECISION_TICKS, BOT_DIFFICULTY_SETTINGS, decideBot } from './bot.ts';
 import type { BotDifficultyType, BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
+import { siteQuality } from './land.ts';
 import { landRegion } from './regions.ts';
 import { isMachinePassable } from './movement.ts';
 import { isSeaPassable, waterBodyOf } from './sea.ts';
@@ -344,6 +345,9 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
               break;
             }
           }
+          // Good land for a farm, vineyard, rice, bees or fish counts for much: a poor spot slows the work for good.
+          // (Mines are judged by the ore its geologists found, above.)
+          if (!BUILDING_TYPES[typeId].mine) { const half = Math.floor(BUILDING_TYPES[typeId].size / 2); const q = siteQuality(world, typeId, x, y, x + half, y + half); if (q !== null) score += q * 24; }
           scored.push({ x, y, vx, score });
         }
       }
