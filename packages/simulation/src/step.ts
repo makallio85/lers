@@ -17,7 +17,7 @@ import { decideShip, launchShip } from './sea.ts';
 import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
-  WAIT_RADIUS, spreadSpots, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isSupplyBuilding, isWalkable, newSettler, playerOf, pushMessage,
+  WAIT_RADIUS, isGoodsYard, spreadSpots, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isSupplyBuilding, isWalkable, newSettler, playerOf, pushMessage,
   recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex, isEnemy, STATS_SAMPLE_TICKS
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
@@ -646,23 +646,6 @@ function updateIdle(world: World, s: Settler): void {
   if (spot < 0 || !walkTo(world, s, spot)) s.timer = 50;
 }
 
-/**
- * Ground where goods lie in the open, which idle settlers keep off (they may walk across it): the castle's heaps in
- * front of it either side of the way in and along its right wall, and a construction site's materials along its right
- * edge. Matches where the client draws them.
- */
-function isGoodsYard(world: World, i: number): boolean {
-  const x = i % world.width, y = Math.floor(i / world.width);
-  for (const b of world.buildings) {
-    const s = b.size;
-    if (b.typeId === 'castle') {
-      const inFront = y >= b.y + s && y <= b.y + s + 3 && x >= b.doorX - 4 && x <= b.doorX + 5 && Math.abs(x - b.doorX) > 1;
-      const bySide = x >= b.x + s && x <= b.x + s + 3 && y >= b.y - 1 && y <= b.y + s + 1;
-      if (inFront || bySide) return true;
-    } else if (!b.isComplete && x === b.x + s && y >= b.y - 1 && y <= b.y + s) return true;
-  }
-  return false;
-}
 
 /** The nearest tile of the settler's own land, out of doorways and goods yards, to wait on; -1 within 6 tiles. */
 function nearbyWaitingTile(world: World, s: Settler): number {
