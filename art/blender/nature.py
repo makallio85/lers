@@ -81,8 +81,18 @@ def goods():
     pot = lambda c: (lambda s: (s.sphere(0, 0, 0.12, 0.12, s.mat('pot' + c, c, rough=0.35), 1.0), s.cyl(0, 0, 0.2, 0.06, 0.06, s.mat('pot' + c, c))))
     barrel = lambda c: (lambda s: s.put(SURV + 'barrel.glb', 0, 0, 0, 0, 0.55))
     tool = lambda t, rot=90: (lambda s: s.put(SURV + t + '.glb', 0, 0, 0.02, rot, 0.75))
-    def log(s): s.put(NAT + 'log.glb', 0, 0, 0, 0, 0.7)
-    def plank(s): s.put(SURV + 'resource-planks.glb', 0, 0, 0, 0, 0.55)
+    def log(s):
+        # Three brown logs, two below and one on top, with their pale cut ends toward the viewer.
+        bark = s.mat('logbark', '7a4a26', noise=16); cut = s.mat('logcut', 'd8b07a')
+        for (y, z) in [(-0.07, 0.0), (0.07, 0.0), (0.0, 0.11)]:
+            s.cyl(0, y, z + 0.06 - 0.15, 0.06, 0.30, bark, 14, rot=(0, math.pi / 2, 0))
+            s.cyl(0.151, y, z + 0.06 - 0.004, 0.052, 0.008, cut, 14, rot=(0, math.pi / 2, 0))
+    def plank(s):
+        # A stack of light, almost beige boards, crossed a little so they read as planks.
+        wood = s.mat('plankwood', 'cfae78', noise=10)
+        for k, rot in enumerate((0, 0, 8, -6)):
+            for dy in (-0.05, 0.05):
+                s.box(0, dy, k * 0.026, 0.34, 0.085, 0.022, wood, rot=rot)
     def stone(s): s.put(SURV + 'resource-stone.glb', 0, 0, 0, 0, 0.8)
     def bread(s): s.sphere(0, 0, 0.08, 0.13, s.mat('bread', 'b5763a', noise=12), 0.6)
     def fish(s): s.put(SURV + 'fish.glb', 0, 0, 0.05, 0, 0.9)

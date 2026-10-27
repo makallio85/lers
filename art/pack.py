@@ -1,7 +1,7 @@
 """Crops the Blender renders, packs settler frames into sheets and writes the client's sprite manifest.
 
 Usage: python3 art/pack.py [look ...]   (needs Pillow with WebP support)
-With names given (settler looks such as catapult, or building types), only those are packed into the existing manifest.
+With names given (settler looks such as catapult, building types, or nature and goods such as log), only those are packed into the existing manifest.
 Reads art/.renders/, writes packages/client/public/art/ and packages/client/public/art/manifest.json.
 All sizes and anchors in the manifest are in render pixels, which are twice the on-screen size at zoom 1.
 """
@@ -53,9 +53,10 @@ def main():
         im, entry = crop(png)
         entry['file'] = save(im, f'buildings/{group}/{name}.webp')
         manifest['buildings'][f'{group}/{name}'] = entry
-    for kind in () if only else ('nature', 'goods'):
+    for kind in ('nature', 'goods'):
         for png in sorted(glob.glob(os.path.join(RENDERS, kind, '*.png'))):
             name = os.path.basename(png)[:-4]
+            if only and name not in only: continue
             im, entry = crop(png)
             entry['file'] = save(im, f'{kind}/{name}.webp')
             manifest[kind][name] = entry

@@ -87,7 +87,7 @@ const cullPoints = new WeakMap<object, { x: number; y: number }>();
 
 interface BuildingView {
   root: Container; body: Sprite; scaffold: Sprite; mask: Graphics; marks: Graphics; label: Text; key: string;
-  /** Goods piled in the yard, each sorted with the settlers by where it lies, so one walking over it stays in front. */
+  /** Goods piled in the yard: drawn flat on the ground, under the settlers, trees and buildings. */
   piles: Sprite[];
   /** Soldiers on the walls. */
   guards: Container;
@@ -144,7 +144,9 @@ const PILE_SIZE = 8;
 const PILE_OFFSETS = [[0, 0], [7, -3], [-7, -3], [0, -6], [0, -6], [7, -9], [-7, -9], [0, -12]];
 /** Building materials are drawn larger than other goods, on the ground and in a carrier's arms, so they read at a glance. */
 const LARGE_GOODS: ReadonlySet<string> = new Set(['log', 'plank', 'stone']);
-const LARGE_GOODS_SCALE = 1.45;
+const LARGE_GOODS_SCALE = 2.2;
+/** Planks' art is already a wide stack, so they grow less. */
+const PLANK_SCALE = 1.5;
 /** A building stone is about the size of a settler's head: its art is a small block, so it is scaled up most. */
 const STONE_SCALE = 3;
 interface SettlerView {
@@ -202,6 +204,8 @@ export class MapView {
   private readonly groundOutlines = new Graphics();
   /** Sites being levelled: bare earth on the ground, under the diggers working on it. */
   private readonly siteGround = new Graphics();
+  /** Goods piled on the ground, under everything upright. */
+  private readonly goodsLayer = new Container();
   /** Fish swimming in the water: shadows where a water holds fish, more where it holds many. */
   private readonly fishLayer = new Graphics();
   private readonly fog = new Sprite();
@@ -242,7 +246,9 @@ export class MapView {
     this.ghostSprite.alpha = 0.6;
     this.ghostSprite.visible = false;
     this.upright.addChild(this.ghostSprite);
-    this.camera.addChild(this.groundBase, this.upright, this.groundTop, this.bars);
+    // Goods lie flat on the ground, as in the original: settlers, trees and buildings are always drawn over them.
+    this.goodsLayer.sortableChildren = true;
+    this.camera.addChild(this.groundBase, this.goodsLayer, this.upright, this.groundTop, this.bars);
     app.stage.addChild(this.camera, this.screenOverlay);
   }
 
@@ -597,7 +603,7 @@ export class MapView {
     } else if (b.isComplete) add(b.stock);
     let k = 0;
     const want = piles.reduce((n, p) => n + p.count, 0);
-    while (v.piles.length < want) { const sprite = new Sprite(); v.piles.push(sprite); this.upright.addChild(sprite); }
+    while (v.piles.length < want) { const sprite = new Sprite(); v.piles.push(sprite); this.goodsLayer.addChild(sprite); }
     // Slots along the front edge of the yard: inputs from the left, made goods from the right; storage fills rows;
     // the castle's stockpile lies around it on the ground, nearest its door first.
     const heaps = isCastle ? this.castleHeaps(b) : [];
@@ -623,11 +629,11 @@ export class MapView {
       const foot = iso(at.x, at.y);
       for (let n = 0; n < p.count; n++) {
         const sprite = v.piles[k++];
-        // A settler standing on the pile's spot is drawn in front of it, one on the tile behind it is not.
-        sprite.zIndex = at.x + at.y - 0.4;
+        // Among the goods, the nearer ones in front.
+        sprite.zIndex = at.x + at.y + n * 0.01;
         if (!art) { sprite.visible = false; continue; }
         this.place(sprite, art, 0, 0);
-        const size = p.good === 'stone' ? STONE_SCALE : LARGE_GOODS.has(p.good) ? LARGE_GOODS_SCALE : 1;
+        const size = p.good === 'stone' ? STONE_SCALE : p.good === 'plank' ? PLANK_SCALE : LARGE_GOODS.has(p.good) ? LARGE_GOODS_SCALE : 1;
         sprite.scale.set(this.bank.scale * 0.75 * size);
         sprite.position.set(foot.x + PILE_OFFSETS[n][0] * size, foot.y + PILE_OFFSETS[n][1] * size);
         sprite.visible = true;
@@ -1042,7 +1048,7 @@ export class MapView {
     if (good) {
       this.place(v.load, good, 0, 0);
       // Large enough to tell what is carried at normal zoom.
-      v.load.scale.set(this.bank.scale * (s.settlerType === 'donkey' ? 1.3 : 1.5) * (s.carrying === 'stone' ? 2 : s.carrying && LARGE_GOODS.has(s.carrying) ? 1.3 : 1));
+      v.load.scale.set(this.bank.scale * (s.settlerType === 'donkey' ? 1.3 : 1.5) * (s.carrying === 'stone' ? 2 : s.carrying && LARGE_GOODS.has(s.carrying) ? 1.8 : 1));
       const fx = Math.sin(v.dir * Math.PI / 4), fy = Math.cos(v.dir * Math.PI / 4);
       const front = iso(fx * 0.12, fy * 0.12);
       // A donkey's load sits on its back; a carrier's in its hands; others carry it above the head.
