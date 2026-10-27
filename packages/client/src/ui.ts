@@ -494,6 +494,8 @@ export interface SettingsState {
   /** Loudness of the sound effects and of the music, 0 to 100. */
   soundLevel: number;
   musicLevel: number;
+  /** Practice tips during a match. */
+  isTipsOn: boolean;
 }
 
 export interface TitleState {
@@ -579,7 +581,7 @@ export function renderTitle(state: TitleState): string {
       <button type="button" class="title-item ${state.autosavedAt ? '' : 'primary'}" data-action="open-setup">Single player<span>Against the computer</span></button>
       ${state.savedAt ? `<button type="button" class="title-item" data-action="load">Load saved game<span>${state.savedAt}</span></button>` : ''}
       <button type="button" class="title-item" disabled aria-describedby="multiplayer-note">Multiplayer<span id="multiplayer-note">Coming soon</span></button>
-      <button type="button" class="title-item" data-action="open-settings">Settings<span>Sound and music</span></button>
+      <button type="button" class="title-item" data-action="open-settings">Settings<span>Sound, music and tips</span></button>
     </div>
     ${state.isMusicWaiting ? '<p class="title-music-hint">♪ Tap or click anywhere to start the music</p>' : ''}
     <p class="menu-build">${buildLabel()}</p>
@@ -626,8 +628,28 @@ export function renderSettings(state: SettingsState): string {
       <span class="num settings-level">${level} %</span>
     </div>`;
   const body = `${row('Sound effects', 'sound', state.isSoundOn, 'sound', state.soundLevel)}${row('Music', 'music', state.isMusicOn, 'music', state.musicLevel)}
+    <div class="settings-row">
+      <span class="settings-name">Practice tips</span>
+      <button type="button" class="toggle" role="switch" aria-checked="${state.isTipsOn}" data-action="tips" aria-label="Practice tips"><span></span></button>
+      <span class="muted">Short hints in your first minutes</span>
+    </div>
     <p class="muted settings-note">Settings are kept in this browser.</p>`;
   return frontCard('Settings', body, '<button type="button" class="primary" data-action="close-front">Done</button>', 'settings-card');
+}
+
+/** The practice tip shown now, above the game's messages. */
+export function renderTip(tip: { text: string; detail: string } | null): string {
+  if (!tip) return '';
+  return `
+    <div class="message is-tip">
+      ${icon('info', '#e3a33b')}
+      <div class="message-body">
+        <strong>Tip · ${escapeHtml(tip.text)}</strong>
+        <span class="muted">${escapeHtml(tip.detail)}</span>
+        <button type="button" class="link" data-action="tips-off">Turn tips off</button>
+      </div>
+      <button type="button" class="close" data-action="tip-done" aria-label="Got it">×</button>
+    </div>`;
 }
 
 export function renderMessages(world: World, owner: number, dismissed: Set<number>): string {
