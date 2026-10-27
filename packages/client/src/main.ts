@@ -413,12 +413,24 @@ function renderEnd(): void {
   if (!isShown) delete els.end.dataset.shown;
 }
 
+/** The statistics redraw at most this often, so the screen holds still while it is read. */
+const STATS_REDRAW_MS = 2000;
+let statsDrawnAt = 0, statsDrawnFor = '';
+
 function renderStats(): void {
   els.stats.hidden = !ui.isStatsOpen;
-  if (!ui.isStatsOpen) return;
+  if (!ui.isStatsOpen) { statsDrawnFor = ''; return; }
   // Keep the hover readout while the pointer is over a chart; the charts redraw when it leaves.
   if (els.stats.querySelector('.chart:hover')) return;
+  // A new view or goods group draws at once; otherwise the numbers catch up every two seconds.
+  const choice = `${ui.statsView}:${ui.statsGroup}`;
+  if (choice === statsDrawnFor && performance.now() - statsDrawnAt < STATS_REDRAW_MS) return;
+  statsDrawnFor = choice; statsDrawnAt = performance.now();
+  // Redrawing replaces the card: keep where it was scrolled to.
+  const scrollTop = els.stats.querySelector('.stats-card')?.scrollTop ?? 0;
   setHtml(els.stats, renderStatsScreen(world, PLAYER, ui.statsView, ui.statsGroup));
+  const card = els.stats.querySelector('.stats-card');
+  if (card) card.scrollTop = scrollTop;
 }
 
 const TIPS_KEY = 'lers.tips';
