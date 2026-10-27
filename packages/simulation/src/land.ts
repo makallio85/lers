@@ -14,7 +14,7 @@ import type { World } from './world.ts';
 /** Most fish a water tile holds. */
 export const FISH_MAX = 12;
 /** Fish come back one per tile every this many ticks, up to the water's own stock. */
-export const FISH_REGROW_TICKS = 1200;
+export const FISH_REGROW_TICKS = 3000;
 
 interface LandCache { wet: Float32Array; hill: Float32Array; fishCap: Uint8Array; waterDistance: Uint8Array; mapVersion: number; terrainSum: number }
 const cache = new WeakMap<World, LandCache>();
@@ -72,7 +72,8 @@ function landOf(world: World): LandCache {
     wet[i] = Math.max(0, Math.min(1, 0.62 * (1 - waterDistance[i] / 6) + 0.48 * at(soilNoise, i) - 0.08));
     // The hillside: the land within a few tiles of a mountain, steepest next to it.
     hill[i] = world.terrain[i] === TERRAIN_GRASS && mountainDistance[i] <= 6 ? 1 - (mountainDistance[i] - 1) / 6 : 0;
-    if (world.terrain[i] === TERRAIN_WATER) fishCap[i] = Math.round(FISH_MAX * Math.max(0, Math.min(1, (at(fishNoise, i) - 0.38) * 2.4)));
+    // Only some waters hold fish, most of those few: rich fishing grounds are rare.
+    if (world.terrain[i] === TERRAIN_WATER) fishCap[i] = Math.round(FISH_MAX * Math.max(0, Math.min(1, (at(fishNoise, i) - 0.55) * 2.6)) ** 1.5);
   }
   const land = { wet, hill, fishCap, waterDistance, mapVersion: world.mapVersion, terrainSum: terrainSum(world) };
   cache.set(world, land);

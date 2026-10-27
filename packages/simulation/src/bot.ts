@@ -108,6 +108,8 @@ export interface BotSpotFinder {
   sailTarget(shipX: number, shipY: number, toward: { x: number; y: number }, isLoaded: boolean): { x: number; y: number; isLanding: boolean } | null;
   /** Whether a war machine standing here can roll to open ground within `range` tiles of a point. */
   canFireAt(fromX: number, fromY: number, x: number, y: number, range: number): boolean;
+  /** How good a spot is for a building whose work depends on its land (land.ts), 0 to 1; what anyone can see there. */
+  landQuality?(typeId: BuildingTypeId, x: number, y: number): number;
   /** The explored tile closest to the given side of the map that the castle's settlers (or those at a point) can walk to, for scouting with the army. */
   frontTile(toward: { x: number; y: number }, from?: { x: number; y: number }): { x: number; y: number } | null;
 }
@@ -330,6 +332,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     if ((cost.plank ?? 0) > spare('plank') || (cost.stone ?? 0) > spare('stone')) return false;
     const spot = spots.findSpot(typeId, need, toward);
     if (!spot) { noRoomFor.push(typeId); return false; }
+    // A fisher by water that holds next to no fish would only stand idle.
+    if (typeId === 'fisher' && (spots.landQuality?.(typeId, spot.x, spot.y) ?? 1) < 0.1) return false;
     commands.push({ type: 'placeBuilding', playerId: me, buildingType: typeId, x: spot.x, y: spot.y });
     note(`place ${typeId} at ${spot.x},${spot.y} (${need})`);
     return true;

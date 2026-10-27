@@ -267,6 +267,10 @@ export function spotFinder(world: World, playerId: number): BotSpotFinder {
       }
       return best;
     },
+    landQuality(typeId: BuildingTypeId, x: number, y: number) {
+      const half = Math.floor(BUILDING_TYPES[typeId].size / 2);
+      return siteQuality(world, typeId, x, y, x + half, y + half) ?? 1;
+    },
     findSpot(typeId: BuildingTypeId, need: SpotNeed, toward: Point) {
       if (!castle) return null;
       const dir = direction(toward);
