@@ -668,12 +668,8 @@ export function releaseFromBuilding(world: World, settlerId: number, buildingId:
     if (to) to.incoming[s.good] = Math.max(0, to.incoming[s.good] - 1);
   }
   if (s.phase === 'toRecruit' && s.good && castle) castle.stock[s.good]++;
-  const isWorker = s.settlerType !== 'carrier' && s.settlerType !== 'builder' && s.settlerType !== 'digger';
-  if (s.homeId === buildingId && isWorker) {
-    // A worker whose workplace is gone hands in the tool and goes back to carrying.
-    if (castle && tool && s.phase !== 'toTool') castle.stock[tool]++;
-    s.settlerType = 'carrier';
-  }
+  // A worker whose workplace is gone (demolished, or lost with its land) keeps the trade and the tool: it waits on its
+  // own land, jobless, and is the first to take the next workplace of its kind. A tool another trade needs it hands in then.
   if (s.phase === 'toTool') {
     // The tool was never collected: the settler stays a carrier and the workplace waits for someone else.
     const home = buildingById(world, s.homeId);

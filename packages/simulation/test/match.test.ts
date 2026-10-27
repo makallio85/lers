@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, FAVOURITE_FOOD_MEALS, SOLDIER_STATS, castleOf, createMatch, createWorld, loadGame,
-  BOT_DECISION_TICKS, BOT_TYPE_SETTINGS, decideBot, newBuilding, spotFinder, updateVision, newSettler, observe, placementProblem, recomputeTerritory, saveGame, step, stepMatch, tileIndex
+  BOT_DECISION_TICKS, BOT_TYPE_SETTINGS, applyCommand, toolShortage, decideBot, newBuilding, spotFinder, updateVision, newSettler, observe, placementProblem, recomputeTerritory, saveGame, step, stepMatch, tileIndex
 } from '../src/index.ts';
 import type { BotLogEntry, Building, BuildingTypeId, World } from '../src/index.ts';
 
@@ -155,6 +155,73 @@ test('soldiers turned to the tower covering their target come back for the targe
   runUntil(world, () => target.owner === 0 || !world.buildings.includes(target), 3000);
   assert.equal(cover.owner, 0);
   assert.ok(world.messages.some((m) => m.owner === 0 && m.text === 'Small tower is covered'), 'the attacker is told why');
+});
+
+test('workers whose building is lost with its land keep their tools for the player and walk back home', () => {
+  const world = createMatch(4);
+  const enemyCastle = castleOf(world, 1)!;
+  // An empty enemy tower far from its castle, with a coal mine and its miner on the tower's land.
+  const tower = finished(world, 'guard_tower_small', 1, enemyCastle.x - 20, enemyCastle.y);
+  tower.garrisonWanted = 1;
+  const mine = finished(world, 'coal_mine', 1, enemyCastle.x - 20, enemyCastle.y + 4);
+  const miner = newSettler(world, 1, 'miner', mine.doorX, mine.doorY);
+  miner.isInside = true; miner.phase = 'working'; miner.homeId = mine.id; mine.workerId = miner.id;
+  enemyCastle.garrisonWanted = 1;
+  world.settlers = world.settlers.filter((s) => s.owner !== 1 || !['swordsman', 'spearman', 'bowman'].includes(s.settlerType));
+  enemyCastle.garrison = [];
+  recomputeTerritory(world);
+  const picks = () => world.buildings.filter((b) => b.owner === 1).reduce((n, b) => n + b.stock.pick + b.input.pick, 0)
+    + world.settlers.filter((s) => s.owner === 1 && (s.carrying === 'pick' || s.settlerType === 'miner' || s.settlerType === 'stonecutter' || (s.phase === 'toTool' && s.good === 'pick'))).length;
+  const before = picks();
+  const attacker = newSettler(world, 0, 'swordsman', tower.doorX, tower.doorY);
+  attacker.isInside = false; attacker.phase = 'attacking'; attacker.attackId = tower.id;
+  runUntil(world, () => tower.owner === 0, 300);
+  assert.equal(world.buildings.includes(mine), false, 'the mine is destroyed with its land');
+  assert.equal(picks(), before, 'the pick is not lost');
+  run(world, 1200);
+  assert.equal(picks(), before, 'the pick is still there later');
+  assert.equal(miner.settlerType, 'miner', 'the miner keeps the trade');
+  assert.equal(world.territory[tileIndex(world, Math.round(miner.x), Math.round(miner.y))], 2, 'the miner went back to its own land');
+});
+
+test('a worker whose building is demolished keeps trade and tool, and takes the next workplace of the trade', () => {
+  const world = createMatch(4);
+  const castle = castleOf(world, 0)!;
+  const first = finished(world, 'coal_mine', 0, castle.x + 6, castle.y + 6);
+  const miner = newSettler(world, 0, 'miner', first.doorX, first.doorY);
+  miner.isInside = true; miner.phase = 'working'; miner.homeId = first.id; first.workerId = miner.id;
+  const picksInStock = castle.stock.pick;
+  assert.ok(applyCommand(world, { type: 'demolishBuilding', playerId: 0, buildingId: first.id }).isAccepted);
+  run(world, 50);
+  assert.equal(miner.settlerType, 'miner');
+  assert.equal(castle.stock.pick, picksInStock, 'the pick stays with the miner');
+  const second = finished(world, 'coal_mine', 0, castle.x - 7, castle.y + 6);
+  runUntil(world, () => second.workerId !== null, 50);
+  assert.equal(second.workerId, miner.id, 'the jobless miner takes the new mine');
+  assert.equal(castle.stock.pick, picksInStock, 'no new pick was needed');
+});
+
+test('the tool shortage counts finished workplaces waiting for a tool nobody has', () => {
+  const world = createMatch(4);
+  const castle = castleOf(world, 0)!;
+  castle.stock.pick = 1; castle.stock.axe = 0;
+  for (const [typeId, dx] of [['stonecutter', 6], ['stonecutter', -7], ['woodcutter', 12]] as const) finished(world, typeId, 0, castle.x + dx, castle.y + 6);
+  const short = toolShortage(world, 0);
+  assert.equal(short.pick, 1, 'two quarries, one pick in stock');
+  assert.equal(short.axe, 1);
+  assert.equal(short.saw, 0);
+});
+
+test('a jobless worker hands in its tool when another trade waits for it', () => {
+  const world = createMatch(4);
+  const castle = castleOf(world, 0)!;
+  castle.stock.pick = 0;
+  const miner = newSettler(world, 0, 'miner', castle.doorX + 2, castle.doorY + 2);
+  miner.isInside = false; miner.phase = 'idle';
+  const quarry = finished(world, 'stonecutter', 0, castle.x + 6, castle.y + 6);
+  runUntil(world, () => quarry.workerId !== null, 200);
+  // It may well become the stonecutter itself, taking the pick back from storage.
+  assert.notEqual(miner.settlerType, 'miner', 'the miner handed in the pick');
 });
 
 test('observations hide what a player cannot see', () => {

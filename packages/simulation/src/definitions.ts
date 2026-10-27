@@ -460,6 +460,17 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   marketplace: building('marketplace', 'Marketplace', 'misc', 3, 1, 5, 'Donkeys', 'Goods for its route', 'Caravans to a far storage')
 };
 
+/** The tool a kind of workplace worker holds, if any: the same for every building that worker works in. */
+export function workerToolOf(type: SettlerType): ToolType | null {
+  for (const t of Object.values(BUILDING_TYPES)) if (t.worker === type && t.tool) return t.tool;
+  return null;
+}
+
+/** Whether a settler type is a workplace worker (miner, farmer, baker, …), as opposed to carriers, crews, soldiers and specialists. */
+export function isWorkplaceWorkerType(type: SettlerType): boolean {
+  return Object.values(BUILDING_TYPES).some((t) => t.worker === type);
+}
+
 export function costTotal(cost: Partial<GoodAmounts>): number {
   let total = 0;
   for (const good of GOOD_TYPES) total += cost[good] ?? 0;
