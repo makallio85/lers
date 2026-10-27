@@ -1072,7 +1072,7 @@ export class MapView {
     if (good) {
       this.place(v.load, good, 0, 0);
       // Large enough to tell what is carried at normal zoom.
-      v.load.scale.set(this.bank.scale * (s.settlerType === 'donkey' ? 1.3 : 1.5) / (s.carrying === 'stone' ? 1.5 : s.carrying === 'plank' ? 0.83 : s.carrying === 'log' ? 1.22 : 1));
+      v.load.scale.set(this.bank.scale * (s.settlerType === 'donkey' ? 1.3 : 1.5) / (s.carrying === 'stone' ? 1.5 : s.carrying === 'plank' ? 0.83 : s.carrying === 'log' ? 2.4 : 1));
       const fx = Math.sin(v.dir * Math.PI / 4), fy = Math.cos(v.dir * Math.PI / 4);
       const front = iso(fx * 0.12, fy * 0.12);
       // A donkey's load sits on its back; a carrier's in its hands; others carry it above the head.
