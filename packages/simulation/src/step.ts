@@ -641,12 +641,30 @@ function updateIdle(world: World, s: Settler): void {
   if (s.timer > 0) { s.timer--; return; }
   // Idle settlers wait where they stopped; one in a doorway, on a building or off its own land steps aside.
   const here = tileOf(world, s);
-  if (world.door[here] === 0 && isWalkable(world, here) && world.territory[here] === s.owner + 1) return;
+  if (world.door[here] === 0 && isWalkable(world, here) && world.territory[here] === s.owner + 1 && !isGoodsYard(world, here)) return;
   const spot = nearbyWaitingTile(world, s);
   if (spot < 0 || !walkTo(world, s, spot)) s.timer = 50;
 }
 
-/** The nearest tile of the settler's own land, out of doorways, to wait on; -1 within 6 tiles. */
+/**
+ * Ground where goods lie in the open, which idle settlers keep off (they may walk across it): the castle's heaps in
+ * front of it either side of the way in and along its right wall, and a construction site's materials along its right
+ * edge. Matches where the client draws them.
+ */
+function isGoodsYard(world: World, i: number): boolean {
+  const x = i % world.width, y = Math.floor(i / world.width);
+  for (const b of world.buildings) {
+    const s = b.size;
+    if (b.typeId === 'castle') {
+      const inFront = y >= b.y + s && y <= b.y + s + 3 && x >= b.doorX - 4 && x <= b.doorX + 5 && Math.abs(x - b.doorX) > 1;
+      const bySide = x >= b.x + s && x <= b.x + s + 3 && y >= b.y - 1 && y <= b.y + s + 1;
+      if (inFront || bySide) return true;
+    } else if (!b.isComplete && x === b.x + s && y >= b.y - 1 && y <= b.y + s) return true;
+  }
+  return false;
+}
+
+/** The nearest tile of the settler's own land, out of doorways and goods yards, to wait on; -1 within 6 tiles. */
 function nearbyWaitingTile(world: World, s: Settler): number {
   const cx = Math.round(s.x), cy = Math.round(s.y);
   let best = -1, bestDistance = Infinity;
@@ -654,7 +672,7 @@ function nearbyWaitingTile(world: World, s: Settler): number {
     const x = cx + dx, y = cy + dy;
     if (!inBounds(world, x, y)) continue;
     const i = tileIndex(world, x, y);
-    if (world.door[i] !== 0 || !isWalkable(world, i) || world.territory[i] !== s.owner + 1) continue;
+    if (world.door[i] !== 0 || !isWalkable(world, i) || world.territory[i] !== s.owner + 1 || isGoodsYard(world, i)) continue;
     const d = Math.hypot(dx, dy) + ((i * 7 + s.id * 13) % 17) * 0.02;
     if (d < bestDistance) { bestDistance = d; best = i; }
   }
