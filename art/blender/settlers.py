@@ -38,6 +38,8 @@ LOOKS = {
     'farmer': ('character-female-a', 'tool-hoe', ('walk', 'work')),
     'fisher': ('character-male-f', 'rod', ('walk', 'work')),
     'worker': ('character-female-b', None, ('walk',)),
+    # The sawmill's carpenter works outside, at a sawhorse by the door: walking, carrying the plank, sawing.
+    'carpenter': ('character-male-c', 'saw', ('walk', 'carry', 'work')),
     'geologist': ('character-female-d', 'tool-hammer', ('walk', 'work')),
     'pioneer': ('character-female-e', 'tool-shovel', ('walk', 'work')),
     'thief': ('character-female-f', None, ('walk', 'work')),
@@ -59,6 +61,25 @@ def carry_action(arm, walk, hold):
         new = act.fcurves.new(fc.data_path, index=fc.array_index, action_group=fc.group.name if fc.group else '')
         v = fc.evaluate(hold.frame_range[0])
         new.keyframe_points.insert(walk.frame_range[0], v); new.keyframe_points.insert(walk.frame_range[1], v)
+    return act
+
+
+SAW_FORWARD, SAW_BACK = math.radians(float(os.environ.get('SAW_A', '85'))), math.radians(float(os.environ.get('SAW_B', '55')))
+
+
+def saw_action(arm, still):
+    """Sawing: the still pose with the right arm held out over the sawhorse, pushing the saw forward and drawing it
+    back, one stroke out and back over the action."""
+    act = still.copy(); act.name = 'saw'
+    for fc in list(act.fcurves):
+        if 'arm-right' in fc.data_path: act.fcurves.remove(fc)
+    arm.animation_data_create(); arm.animation_data.action = act
+    pb = arm.pose.bones['arm-right']; pb.rotation_mode = 'QUATERNION'
+    from mathutils import Quaternion
+    for frame, angle in ((0, SAW_FORWARD), (6, SAW_BACK), (12, SAW_FORWARD)):
+        pb.rotation_quaternion = Quaternion((1, 0, 0), angle)
+        pb.keyframe_insert('rotation_quaternion', frame=frame)
+    act.frame_range = (0, 12)
     return act
 
 
@@ -147,6 +168,12 @@ def build(race, look):
     elif tool == 'staff':
         props = [s.cyl(hx, hy, hz - 0.3, 0.016, 0.75, s.mat('staff', '6a4a2a'), 8),
                  s.sphere(hx, hy, hz + 0.47, 0.05, s.mat('orb', 'c9b2ff', rough=0.2))]
+    elif tool == 'saw':
+        # A frame-less handsaw held out in front, the blade pointing forward and down a little.
+        steel = s.mat('saw-blade', 'c4c8cc', rough=0.25, metal=0.8); wood = s.mat('handle', '7a5a32')
+        # The blade runs on from the hand along the arm, so with the arm held out it points forward and down.
+        props = [s.box(hx, hy - 0.02, hz - 0.36, 0.012, 0.085, 0.3, steel),
+                 s.box(hx, hy, hz - 0.08, 0.035, 0.05, 0.09, wood)]
     elif tool == 'rod':
         props = [s.cyl(hx, hy, hz - 0.05, 0.012, 0.6, s.mat('rod', '8a6a3a'), 6, rot=(math.radians(-50), 0, 0))]
     elif tool:
@@ -167,6 +194,7 @@ def render_look(race, look, only_anims=None):
     for anim in anims:
         if only_anims and anim not in only_anims: continue
         if anim == 'carry': act = carry_action(arm, actions['walk'], actions['holding-both'])
+        elif look == 'carpenter' and anim == 'work': act = saw_action(arm, actions['static'])
         else: act = actions[LOOK_SOURCES.get(look, {}).get(anim, SOURCE[anim])]
         arm.animation_data.action = act
         f0, f1 = act.frame_range; n = FRAMES[anim]

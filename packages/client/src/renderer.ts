@@ -93,10 +93,32 @@ interface BuildingView {
   guards: Container;
   /** A mill's sails, turning while the miller works. */
   sails: Sprite;
+  /** A sawmill's sawhorse by the door. */
+  sawhorse?: Sprite;
   /** When the building left the world and began to collapse, and where its sprite stood then. */
   collapsedAt?: number; collapseY?: number;
   /** The building's middle, in tiles, for the sound of its collapse. */
   foot?: { x: number; y: number };
+}
+
+/** A settler drawn outside its building while the simulation has it inside: where, facing which way, doing what. */
+interface OutdoorPose { x: number; y: number; dir: number; anim: SettlerAnim; isWalking: boolean; carrying: GoodType | null }
+
+/** The share of each plank's time the carpenter saws; the rest he carries the plank to the pile and walks back. */
+const SAW_SHARE = 0.65;
+
+/** A sawmill's yard, in map coordinates: the sawhorse left of the door, where he stands to saw, the door, the pile. */
+function sawmillSpots(b: Building): { horse: { x: number; y: number }; saw: { x: number; y: number }; door: { x: number; y: number }; pile: { x: number; y: number } } {
+  const front = b.y + b.size + 0.45;
+  return {
+    horse: { x: b.x + 0.05, y: front }, saw: { x: b.x + 0.78, y: front },
+    door: { x: b.doorX + 0.5, y: b.doorY + 0.75 }, pile: { x: b.x + b.size - 0.45, y: b.y + b.size + 0.25 }
+  };
+}
+
+/** The 8-way direction from one point to another (0 south, 2 east, 4 north, 6 west in map terms). */
+function dirToward(from: { x: number; y: number }, to: { x: number; y: number }): number {
+  return (Math.round(Math.atan2(to.x - from.x, to.y - from.y) / (Math.PI / 4)) + 8) % 8;
 }
 
 /** How long a demolished building takes to collapse, in milliseconds. */
@@ -255,7 +277,7 @@ export class MapView {
     this.mapVersion = -1;
     this.territoryVersion = -1;
     this.fogKey = -1;
-    for (const v of this.buildingViews.values()) { for (const p of v.piles) p.destroy(); v.root.destroy({ children: true }); }
+    for (const v of this.buildingViews.values()) { for (const p of v.piles) p.destroy(); v.sawhorse?.destroy(); v.root.destroy({ children: true }); }
     this.buildingViews.clear();
     for (const v of this.settlerViews.values()) v.root.destroy({ children: true });
     this.settlerViews.clear();
@@ -494,6 +516,7 @@ export class MapView {
       } else if (v.body.mask) { v.body.mask = null; v.mask.clear(); v.mask.visible = false; }
       v.body.alpha = isRising ? 0.95 : 1;
       this.drawSails(b, v, cx, cy);
+      this.drawSawhorse(b, v);
       this.drawBuildingMarks(b, v, cx, cy, !!art, state);
       this.drawPiles(b, v);
       this.drawGuards(b, v, !!art);
@@ -531,6 +554,7 @@ export class MapView {
         }
       }
       for (const p of v.piles) p.destroy();
+      v.sawhorse?.destroy();
       v.root.destroy({ children: true });
       this.buildingViews.delete(id);
     }
@@ -805,10 +829,12 @@ export class MapView {
     const alive = new Set<number>();
     const shown = this.spacedPositions(alpha);
     for (const s of this.world.settlers) {
-      if (s.isInside) continue;
+      // A sawmill's carpenter works in the yard, though the simulation has him inside.
+      const pose = s.isInside ? this.outdoorPose(s) : null;
+      if (s.isInside && !pose) continue;
       if (s.owner !== this.viewer && !canSee(this.world, this.viewer, s.x, s.y)) continue;
       alive.add(s.id);
-      const at = shown.get(s.id)!;
+      const at = pose ? { x: pose.x - 0.5, y: pose.y - 0.5 } : shown.get(s.id)!;
       const x = at.x, y = at.y;
       const tx = x + 0.5, ty = y + 0.5;
       // Owner colour as a soft disc on the ground under every settler, a white ring when selected.
@@ -827,7 +853,7 @@ export class MapView {
       if (s.shieldUntil > tick) marks.circle(gx, gy, TILE * 0.55).fill({ color: 0xffd678, alpha: 0.28 });
       if (s.furyUntil > tick) marks.circle(gx, gy, TILE * 0.5).stroke({ width: 2, color: 0xe85a3a, alpha: 0.8 });
       if (s.frozenUntil > tick) marks.circle(gx, gy, TILE * 0.55).fill({ color: 0xa8d8ff, alpha: 0.4 });
-      if (!this.drawSettlerSprite(s, tx, ty, now)) this.drawSettlerShape(s, tx, ty);
+      if (!this.drawSettlerSprite(s, tx, ty, now, pose)) this.drawSettlerShape(s, tx, ty);
       if (isSoldierType(s.settlerType) || isWarMachineType(s.settlerType) || s.settlerType === 'thief') {
         const max = isSoldierType(s.settlerType) ? SOLDIER_STATS[s.settlerType].health : isWarMachineType(s.settlerType) ? WAR_MACHINE_STATS[s.settlerType].health : 30;
         if (s.health < max) {
@@ -858,7 +884,72 @@ export class MapView {
     }
   }
 
-  private drawSettlerSprite(s: Settler, tx: number, ty: number, now: number): boolean {
+  /**
+   * Where a sawmill's carpenter is seen while the simulation has him inside, as in The Settlers III: at the sawhorse
+   * left of the door sawing for most of each plank, then carrying the plank to the pile right of the door and walking
+   * back; with no logs, waiting by the door. Null for everyone else.
+   */
+  private outdoorPose(s: Settler): OutdoorPose | null {
+    if (s.settlerType !== 'carpenter') return null;
+    const b = this.world.buildings.find((x) => x.id === s.homeId);
+    if (!b || b.typeId !== 'sawmill' || !b.isComplete || b.workerId !== s.id) return null;
+    const spots = sawmillSpots(b);
+    if (s.phase === 'working') {
+      const ticks = BUILDING_TYPES.sawmill.recipe?.ticks ?? 155;
+      const t = Math.max(0, Math.min(1, 1 - s.timer / ticks));
+      if (t < SAW_SHARE) return { ...spots.saw, dir: 6, anim: 'work', isWalking: false, carrying: null };
+      const to = (a: { x: number; y: number }, c: { x: number; y: number }, u: number) => ({ x: a.x + (c.x - a.x) * u, y: a.y + (c.y - a.y) * u });
+      const carryEnd = SAW_SHARE + (1 - SAW_SHARE) / 2;
+      if (t < carryEnd) {
+        const u = (t - SAW_SHARE) / (carryEnd - SAW_SHARE);
+        return { ...to(spots.saw, spots.pile, u), dir: dirToward(spots.saw, spots.pile), anim: 'carry', isWalking: true, carrying: 'plank' };
+      }
+      const u = (t - carryEnd) / (1 - carryEnd);
+      return { ...to(spots.pile, spots.saw, u), dir: dirToward(spots.pile, spots.saw), anim: 'walk', isWalking: true, carrying: null };
+    }
+    // No logs to saw: he waits by the door.
+    if (b.blockedReason === 'Waiting: no logs') return { ...spots.door, dir: 0, anim: 'walk', isWalking: false, carrying: null };
+    return null;
+  }
+
+  /** The sawmill's sawhorse by its door, with a log on it while the carpenter saws. */
+  private drawSawhorse(b: Building, v: BuildingView): void {
+    if (b.typeId !== 'sawmill' || !b.isComplete || !v.body.visible) { if (v.sawhorse) v.sawhorse.visible = false; return; }
+    if (!v.sawhorse) { v.sawhorse = new Sprite(); v.sawhorse.anchor.set(0.5, 1); this.upright.addChild(v.sawhorse); }
+    const worker = b.workerId === null ? undefined : this.world.settlers.find((s) => s.id === b.workerId);
+    const ticks = BUILDING_TYPES.sawmill.recipe?.ticks ?? 155;
+    const isSawing = !!worker && worker.phase === 'working' && 1 - worker.timer / ticks < SAW_SHARE;
+    v.sawhorse.texture = this.sawhorseTexture(isSawing);
+    const at = sawmillSpots(b).horse, p = iso(at.x, at.y);
+    v.sawhorse.position.set(p.x, p.y);
+    v.sawhorse.zIndex = at.x + at.y - 0.05;
+    v.sawhorse.visible = true;
+  }
+
+  private readonly sawhorseTextures = new Map<boolean, Texture>();
+  /** A trestle of two crossed leg pairs and a beam, drawn along the map's x axis; with a log laid on it, or bare. */
+  private sawhorseTexture(hasLog: boolean): Texture {
+    const kept = this.sawhorseTextures.get(hasLog);
+    if (kept) return kept;
+    const g = new Graphics();
+    const wood = 0x8a5c30, dark = 0x3b2814;
+    const a = iso(-0.36, 0), c = iso(0.36, 0);
+    for (const end of [a, c]) {
+      g.moveTo(end.x - 4.5, end.y).lineTo(end.x + 3, end.y - 14).moveTo(end.x + 4.5, end.y).lineTo(end.x - 3, end.y - 14).stroke({ width: 2.6, color: dark });
+    }
+    g.moveTo(a.x, a.y - 13).lineTo(c.x, c.y - 13).stroke({ width: 4.5, color: wood });
+    if (hasLog) {
+      const la = iso(-0.46, 0), lc = iso(0.46, 0);
+      g.moveTo(la.x, la.y - 18).lineTo(lc.x, lc.y - 18).stroke({ width: 7, color: 0x9a6a3a, cap: 'round' });
+      g.circle(lc.x, lc.y - 18, 3.4).fill(0xd9b27a).stroke({ width: 1, color: 0x7a5228 });
+    }
+    const texture = this.app.renderer.generateTexture({ target: g, resolution: 3 });
+    g.destroy();
+    this.sawhorseTextures.set(hasLog, texture);
+    return texture;
+  }
+
+  private drawSettlerSprite(s: Settler, tx: number, ty: number, now: number, pose: OutdoorPose | null = null): boolean {
     if (!this.bank.isReady) return false;
     let v = this.settlerViews.get(s.id);
     if (!v) {
@@ -921,6 +1012,12 @@ export class MapView {
     this.drawPebble(v, kickAt - KICK_MS / 2);
     // Ships rock on the swell all the time, slowly.
     if (isShipType(s.settlerType)) { anim = 'walk'; frame = Math.floor(now / 260); }
+    // At work in a yard: the pose says where he faces and what he does.
+    if (pose) {
+      v.dir = pose.dir;
+      anim = pose.anim === 'work' && !this.bank.hasAnim(race, look, 'work') ? 'walk' : pose.anim === 'carry' && !this.bank.hasAnim(race, look, 'carry') ? 'walk' : pose.anim;
+      frame = anim === 'work' ? Math.floor(now / 140) : pose.isWalking ? Math.floor(now / 85) : 0;
+    }
     const art = this.bank.settler(race, look, anim, v.dir, frame + s.id);
     if (!art) return false;
     if (isSoldierType(s.settlerType)) { v.race = race; v.look = look; }
@@ -931,7 +1028,8 @@ export class MapView {
     v.root.zIndex = tx + ty;
     v.lastX = tx; v.lastY = ty;
     // A trade ship's cargo is in its hold.
-    const good = s.carrying && !isShipType(s.settlerType) ? this.bank.good(s.carrying) : null;
+    const carriedGood = pose ? pose.carrying : s.carrying;
+    const good = carriedGood && !isShipType(s.settlerType) ? this.bank.good(carriedGood) : null;
     v.load.visible = !!good;
     if (good) {
       this.place(v.load, good, 0, 0);
