@@ -1,4 +1,4 @@
-import { BOARDING_RANGE, BUILDING_TYPES, GOOD_NAMES, GOOD_TYPES, TRANSPORT_CAPACITY, PROMOTION_COSTS, RACE_SPELLS, SOLDIER_TYPES, SPELL_RANGE, SPELL_STATS, TOOL_TYPES, WAR_MACHINE_STATS, WEAPON_TYPES, buildingCost, isBuildableBy, isSoldierType, isUnitType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
+import { BOARDING_RANGE, BUILDING_TYPES, GOOD_NAMES, GOOD_TYPES, TRANSPORT_CAPACITY, PROMOTION_COSTS, RACE_SPELLS, SOLDIER_TYPES, SPELL_RANGE, SPELL_STATS, TOOL_TYPES, WAR_MACHINE_STATS, WEAPON_TYPES, buildingCost, isBuildableBy, isShipType, isSoldierType, isUnitType, isWarMachineType, mapSizeTypeOf } from './definitions.ts';
 import type { BuildingTypeId, GoodType, MapSizeType, SettlerType, SpellType, ToolType } from './definitions.ts';
 import { DEFAULT_MAX_CREW_PERCENT } from './world.ts';
 import type { Command } from './commands.ts';
@@ -472,7 +472,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const isAtHome = (s: ObservedSoldier) => !isIslands || spots.canReach(Math.round(s.x), Math.round(s.y));
   let free = onField.filter(isAtHome);
   const landed = onField.filter((s) => !isAtHome(s));
-  const intruders = obs.enemySoldiers.filter((s) => isOnOwnLand(obs, s.x, s.y));
+  // Ships at sea are out of a soldier's reach: only enemies on foot are worth sending soldiers against.
+  const intruders = obs.enemySoldiers.filter((s) => !isShipType(s.settlerType) && isOnOwnLand(obs, s.x, s.y));
   if (intruders.length > 0 && free.length > 0) {
     const target = intruders[0];
     const defenders = nearest(free, target.x, target.y, Math.max(3, intruders.length * 2));
@@ -545,6 +546,14 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     machineTargets.sort((a, b) => (b.garrisonCount * 8 - Math.hypot(b.doorX - mx, b.doorY - my)) - (a.garrisonCount * 8 - Math.hypot(a.doorX - mx, a.doorY - my)) || a.id - b.id);
     commands.push({ type: 'attackBuilding', playerId: me, soldierIds: idleMachines.map((m) => m.id), buildingId: machineTargets[0].id });
     note(`machines: ${idleMachines.length} against ${machineTargets[0].typeId} #${machineTargets[0].id}`);
+  }
+  // On islands, towers taken across the sea keep one soldier each and send the rest out, so the army there goes on.
+  if (isIslands && mayAttack && landed.length === 0) {
+    for (const b of obs.ownBuildings) {
+      if (b.typeId === 'castle' || b.garrisonWanted <= 1 || b.garrisonCount <= 1 || spots.canReach(b.doorX, b.doorY)) continue;
+      commands.push({ type: 'setGarrisonWanted', playerId: me, buildingId: b.id, count: 1 });
+      note(`send out the garrison of ${b.typeId} #${b.id}`);
+    }
   }
   commands.push(...decideFerry(obs, spots, waiting, mayAttack, toward, turn, note));
   return commands;

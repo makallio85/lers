@@ -1036,8 +1036,7 @@ document.addEventListener('click', (e) => {
     case 'garrison': {
       const b = buildingById(world, Number(target.dataset.id));
       if (!b || !isMilitaryBuilding(b)) break;
-      const min = b.typeId === 'castle' ? 0 : 1;
-      const count = Math.max(min, Math.min(BUILDING_TYPES[b.typeId].garrisonCapacity, b.garrisonWanted + delta));
+      const count = Math.max(1, Math.min(BUILDING_TYPES[b.typeId].garrisonCapacity, b.garrisonWanted + delta));
       submit({ type: 'setGarrisonWanted', playerId: PLAYER, buildingId: b.id, count });
       break;
     }

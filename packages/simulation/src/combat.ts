@@ -25,6 +25,8 @@ export const THIEF_SPOT_RANGE = 3;
 export const THIEF_WATCH_RANGE = DEFEND_RADIUS;
 /** A castle warns its owner at most this often while under attack. */
 const CASTLE_WARNING_TICKS = 600;
+/** A player hears at most this often that the tower it attacks is covered by another. */
+const COVER_WARNING_TICKS = 600;
 
 /**
  * The treasure that sets a player's soldiers' strength outside its own land, counted in gold bars: gold in
@@ -251,8 +253,14 @@ function updateToGarrison(world: World, s: Settler): void {
 }
 
 function updateAttacking(world: World, s: Settler): void {
-  const target = buildingById(world, s.attackId);
-  if (!target || !isEnemy(world, s.owner, target.owner)) { s.phase = 'idle'; s.attackId = null; s.path = []; return; }
+  let target = buildingById(world, s.attackId);
+  if (!target || !isEnemy(world, s.owner, target.owner)) {
+    // The cover has fallen: back to the tower it covered.
+    const after = buildingById(world, s.attackAfterId);
+    s.attackAfterId = null; s.path = [];
+    if (!after || !isEnemy(world, s.owner, after.owner)) { s.phase = 'idle'; s.attackId = null; return; }
+    s.attackId = after.id; target = after;
+  }
   const door = doorTile(world, target);
   if (tileOf(world, s) !== door) {
     if ((s.path.length === 0 || world.tick % (REPATH_TICKS * 5) === 0) && !walkTo(world, s, door)) { s.phase = 'idle'; s.attackId = null; return; }
@@ -263,8 +271,20 @@ function updateAttacking(world: World, s: Settler): void {
   if (target.garrison.length > 0 || defendersOut(world, target).length > 0) return;
   const cover = coveringBuilding(world, target);
   if (!cover) { capture(world, target, s); return; }
-  // Emptied but covered: take the building that covers it first, as the rule says.
+  // Emptied but covered: take the building that covers it first, as the rule says, then come back for this one.
+  if (s.attackAfterId === null) {
+    s.attackAfterId = target.id;
+    warnCovered(world, s.owner, target, cover);
+  }
   s.attackId = cover.id; s.path = [];
+}
+
+/** Tells the attacker, once a minute at most, why its soldiers turned to another building. */
+function warnCovered(world: World, owner: number, target: Building, cover: Building): void {
+  const text = `${BUILDING_TYPES[target.typeId].label} is covered`;
+  const last = [...world.messages].reverse().find((m) => m.owner === owner && m.text === text);
+  if (last && world.tick - last.tick < COVER_WARNING_TICKS) return;
+  pushMessage(world, owner, text, `It cannot be taken while the ${BUILDING_TYPES[cover.typeId].label.toLowerCase()} next to it holds soldiers. Your soldiers attack that first, then come back.`, false, cover.id);
 }
 
 /** Removes a building without refund; its people go free and its garrison steps outside. */

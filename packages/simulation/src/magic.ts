@@ -146,7 +146,7 @@ export function castSpell(world: World, priest: Settler, spell: SpellType, x: nu
       const won = world.settlers.filter(enemy).sort((a, b) => distance(a.x, a.y, x, y) - distance(b.x, b.y, x, y)).slice(0, 3);
       for (const s of won) {
         pushMessage(world, s.owner, 'Your soldiers changed sides', 'An enemy priest persuaded them.', true, null);
-        s.owner = priest.owner; s.phase = 'idle'; s.homeId = null; s.attackId = null; s.enemyId = null; s.path = []; s.waypoints = [];
+        s.owner = priest.owner; s.phase = 'idle'; s.homeId = null; s.attackId = null; s.attackAfterId = null; s.enemyId = null; s.path = []; s.waypoints = [];
       }
       detail = `${won.length} enemy soldiers joined you.`;
       break;

@@ -135,6 +135,28 @@ test('taking an undefended tower changes its owner and destroys the loser\'s bui
   assert.equal(world.players[0].stats.towersTaken, 1);
 });
 
+test('soldiers turned to the tower covering their target come back for the target once the cover falls', () => {
+  const world = createMatch(4);
+  const enemyCastle = castleOf(world, 1)!;
+  // Two manned enemy towers side by side, far from the castle: each covers the other.
+  const target = finished(world, 'guard_tower_small', 1, enemyCastle.x - 22, enemyCastle.y);
+  const cover = finished(world, 'guard_tower_small', 1, enemyCastle.x - 22, enemyCastle.y + 10);
+  for (const b of [target, cover]) {
+    const guard = newSettler(world, 1, 'swordsman', b.doorX, b.doorY);
+    guard.isInside = true; guard.phase = 'inside'; guard.homeId = b.id;
+    b.garrison = [guard.id]; b.isOccupied = true; b.garrisonWanted = 1;
+  }
+  recomputeTerritory(world);
+  for (const i of [0, 1, 2, 3, 4]) {
+    const s = newSettler(world, 0, 'swordsman', target.doorX - 8, target.doorY + i);
+    s.isInside = false; s.phase = 'attacking'; s.attackId = target.id;
+  }
+  // The target falls either way: taken, or destroyed with the land it stood on.
+  runUntil(world, () => target.owner === 0 || !world.buildings.includes(target), 3000);
+  assert.equal(cover.owner, 0);
+  assert.ok(world.messages.some((m) => m.owner === 0 && m.text === 'Small tower is covered'), 'the attacker is told why');
+});
+
 test('observations hide what a player cannot see', () => {
   const world = createMatch(4);
   run(world, 10);
