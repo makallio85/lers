@@ -143,6 +143,8 @@ const PILE_SIZE = 8;
 /** Where the items of a pile sit, in screen pixels from its foot: two layers of four. */
 const PILE_OFFSETS = [[0, 0], [7, -3], [-7, -3], [0, -6], [0, -6], [7, -9], [-7, -9], [0, -12]];
 /** Building materials are drawn larger than other goods, on the ground and in a carrier's arms, so they read at a glance. */
+/** How far back goods are sorted among upright things, in tiles of depth. */
+const GOODS_DEPTH_BACK = 1.9;
 const LARGE_GOODS: ReadonlySet<string> = new Set(['log', 'plank', 'stone']);
 const LARGE_GOODS_SCALE = 2.2;
 /** Planks' art is already a wide stack, so they grow less. */
@@ -207,7 +209,6 @@ export class MapView {
   /** Sites being levelled: bare earth on the ground, under the diggers working on it. */
   private readonly siteGround = new Graphics();
   /** Goods piled on the ground, under everything upright. */
-  private readonly goodsLayer = new Container();
   /** Fish swimming in the water: shadows where a water holds fish, more where it holds many. */
   private readonly fishLayer = new Graphics();
   private readonly fog = new Sprite();
@@ -249,8 +250,7 @@ export class MapView {
     this.ghostSprite.visible = false;
     this.upright.addChild(this.ghostSprite);
     // Goods lie flat on the ground, as in the original: settlers, trees and buildings are always drawn over them.
-    this.goodsLayer.sortableChildren = true;
-    this.camera.addChild(this.groundBase, this.goodsLayer, this.upright, this.groundTop, this.bars);
+    this.camera.addChild(this.groundBase, this.upright, this.groundTop, this.bars);
     app.stage.addChild(this.camera, this.screenOverlay);
   }
 
@@ -615,7 +615,7 @@ export class MapView {
     } else if (b.isComplete) add(b.stock);
     let k = 0;
     const want = piles.reduce((n, p) => n + p.count, 0);
-    while (v.piles.length < want) { const sprite = new Sprite(); v.piles.push(sprite); this.goodsLayer.addChild(sprite); }
+    while (v.piles.length < want) { const sprite = new Sprite(); v.piles.push(sprite); this.upright.addChild(sprite); }
     // Slots along the front edge of the yard: inputs from the left, made goods from the right; storage fills rows;
     // the castle's stockpile lies around it on the ground, nearest its door first.
     const heaps = isCastle ? this.castleHeaps(b) : [];
@@ -641,12 +641,14 @@ export class MapView {
       const foot = iso(at.x, at.y);
       for (let n = 0; n < p.count; n++) {
         const sprite = v.piles[k++];
-        // Among the goods, the nearer ones in front.
-        sprite.zIndex = at.x + at.y + n * 0.01;
+        // Goods lie low: sorted almost two tiles back, so a settler on or near a pile is always drawn over it, while the
+        // pile still stands in front of the building wall behind it.
+        sprite.zIndex = at.x + at.y - GOODS_DEPTH_BACK + n * 0.01;
         if (!art) { sprite.visible = false; continue; }
         this.place(sprite, art, 0, 0);
+        // Stone, logs and planks are rendered at their larger size (art/blender/nature.py), so only the spacing grows.
         const size = p.good === 'stone' ? STONE_SCALE : p.good === 'plank' ? PLANK_SCALE : LARGE_GOODS.has(p.good) ? LARGE_GOODS_SCALE : 1;
-        sprite.scale.set(this.bank.scale * 0.75 * size);
+        sprite.scale.set(this.bank.scale * 0.75);
         sprite.position.set(foot.x + PILE_OFFSETS[n][0] * size, foot.y + PILE_OFFSETS[n][1] * size);
         sprite.visible = true;
       }
@@ -1062,7 +1064,7 @@ export class MapView {
     if (good) {
       this.place(v.load, good, 0, 0);
       // Large enough to tell what is carried at normal zoom.
-      v.load.scale.set(this.bank.scale * (s.settlerType === 'donkey' ? 1.3 : 1.5) * (s.carrying === 'stone' ? 2 : s.carrying && LARGE_GOODS.has(s.carrying) ? 1.8 : 1));
+      v.load.scale.set(this.bank.scale * (s.settlerType === 'donkey' ? 1.3 : 1.5) / (s.carrying === 'stone' ? 1.5 : s.carrying === 'plank' ? 0.83 : s.carrying === 'log' ? 1.22 : 1));
       const fx = Math.sin(v.dir * Math.PI / 4), fy = Math.cos(v.dir * Math.PI / 4);
       const front = iso(fx * 0.12, fy * 0.12);
       // A donkey's load sits on its back; a carrier's in its hands; others carry it above the head.

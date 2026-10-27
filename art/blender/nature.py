@@ -71,8 +71,16 @@ def decorations():
 
 def goods():
     """A small model for every good, carried by settlers and shown in menus."""
+    # Building materials are shown much larger than other goods: they are modelled at that size and rendered on a
+    # bigger canvas, so they stay sharp instead of being scaled up in the game.
+    BIG = {'stone': 3.0, 'log': 2.2, 'plank': 1.5}
     def one(name, build):
-        s = Scene(); build(s); shoot(s, out('goods', name), (72, 72), 0.12, samples=24)
+        s = Scene(); before = set(bpy.data.objects); build(s)
+        k = BIG.get(name, 1.0)
+        for o in bpy.data.objects:
+            if o in before or o.parent is not None or o.type not in ('MESH', 'EMPTY'): continue
+            o.location = o.location * k; o.scale = o.scale * k
+        shoot(s, out('goods', name), (round(72 * k), round(72 * k)), 0.12 * k, samples=24)
     sack = lambda c: (lambda s: (s.sphere(0, 0, 0.13, 0.15, s.mat('sack' + c, c, noise=20), 1.1), s.sphere(0, 0, 0.29, 0.05, s.mat('tie', '6a4a2a'))))
     lumps = lambda c: (lambda s: [s.sphere(x, y, z, 0.07, s.mat('lump' + c, c, rough=0.6)) for (x, y, z) in
                                   [(-0.06, 0, 0.06), (0.07, 0.03, 0.06), (0, -0.07, 0.06), (0, 0, 0.15)]])
