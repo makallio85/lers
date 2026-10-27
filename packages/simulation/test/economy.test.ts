@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BUILDING_TYPES, FIELD_RIPE, FISH_REGROW_TICKS, GOOD_TYPES, NO_TREE, TREE_MATURE, castleOf, createWorld, cropQuality, loadGame, placementProblem,
+  BUILDING_TYPES, FIELD_RIPE, FISH_REGROW_TICKS, GOOD_TYPES, NO_TREE, TREE_MATURE, castleOf, createWorld, cropQuality, loadGame, newBuilding, placementProblem,
   saveGame, step, tileIndex
 } from '../src/index.ts';
 import type { BuildingTypeId, Command, World } from '../src/index.ts';
@@ -361,4 +361,18 @@ test('a gatherer whose target is no longer on its owner\'s land turns back', () 
   assert.equal(worker.targetTile, -1, 'it lets the rock go');
   assert.equal(world.claim[target], 0);
   assert.equal(worker.phase, 'returning', 'and walks home');
+});
+
+test('the last builder keeps its hammer when a smith waits for one; a toolsmith may still take it', () => {
+  const world = createWorld({ seed: 11 });
+  const castle = castleOf(world, 0)!;
+  castle.stock.hammer = 0;
+  // One builder left, holding the only hammer.
+  const builders = world.settlers.filter((s) => s.settlerType === 'builder');
+  for (const s of builders.slice(1)) s.settlerType = 'carrier';
+  const smith = newBuilding(world, 'weaponsmith', 0, castle.x + 8, castle.y + 8);
+  smith.isComplete = true; smith.levelProgress = 1; smith.buildProgress = 1;
+  run(world, 300);
+  assert.equal(world.settlers.filter((s) => s.settlerType === 'builder').length, 1, 'the builder stays');
+  assert.equal(smith.workerId, null);
 });

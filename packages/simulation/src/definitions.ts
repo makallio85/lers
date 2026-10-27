@@ -423,7 +423,7 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
     { worker: 'breeder', inputLimits: { grain: 4, water: 4 } }),
 
   guard_tower_small: building('guard_tower_small', 'Small tower', 'military', 2, 2, 3, 'Up to 3 soldiers', 'Soldiers', 'Territory (small)',
-    { territoryRadius: 9, garrisonCapacity: 3 }),
+    { territoryRadius: 11, garrisonCapacity: 3 }),
   guard_tower_large: building('guard_tower_large', 'Large tower', 'military', 3, 5, 5, 'Up to 6 soldiers', 'Soldiers', 'Territory (large)',
     { territoryRadius: 16, garrisonCapacity: 6 }),
   castle: building('castle', 'Castle', 'military', 4, 8, 12, 'Up to 10 soldiers', 'Any goods', 'Territory, storage',
