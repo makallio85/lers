@@ -421,6 +421,12 @@ function crewSpot(world: World, site: Building, k: number): number {
   return spots[Math.floor(((k % crew) * spots.length) / crew + Math.floor(k / crew)) % spots.length].i;
 }
 
+/** Carriers a player always keeps: workplaces and crews take none of these. */
+const MIN_CARRIERS = 3;
+
+/** The crew that works with a tool, which hands it in when a workplace needs it more. */
+const CREW_OF_TOOL: Partial<Record<GoodType, SettlerType>> = { hammer: 'builder', shovel: 'digger' };
+
 function assignWorkers(world: World): void {
   for (const b of world.buildings) {
     const type = BUILDING_TYPES[b.typeId];
@@ -437,9 +443,22 @@ function assignWorkers(world: World): void {
         const d = distance(other.doorX, other.doorY, b.doorX, b.doorY);
         if (d < bestDistance) { bestDistance = d; store = other; }
       }
-      if (!store) { setBlocked(world, b, `Missing tool: ${GOOD_NAMES[type.tool][0]}`); continue; }
+      if (!store) {
+        setBlocked(world, b, `Missing tool: ${GOOD_NAMES[type.tool][0]}`);
+        // Workers come before crews: an idle builder or digger hands in the hammer or shovel a workplace waits for,
+        // or a toolsmith with no hammer could never start making them.
+        const crewType = CREW_OF_TOOL[type.tool];
+        const idle = crewType ? nearestIdle(world, crewType, b.owner, b.doorX, b.doorY) : null;
+        if (idle) {
+          const home = storageFor(world, b.owner, type.tool, idle.x, idle.y, false);
+          if (home) { home.stock[type.tool]++; idle.settlerType = 'carrier'; }
+        }
+        continue;
+      }
     }
     const meetAt = store ?? b;
+    // The last few carriers stay carriers: with none, nothing moves, not even a residence's materials.
+    if (world.settlers.filter((s) => s.owner === b.owner && s.settlerType === 'carrier').length <= MIN_CARRIERS) { setBlocked(world, b, 'Waiting for a free settler'); continue; }
     const carrier = nearestIdle(world, 'carrier', b.owner, meetAt.doorX, meetAt.doorY);
     if (!carrier || !walkTo(world, carrier, doorTile(world, meetAt))) { setBlocked(world, b, 'Waiting for a free settler'); continue; }
     carrier.settlerType = type.worker;
@@ -1135,6 +1154,8 @@ function applyOccupations(world: World, player: PlayerState): void {
   // Diggers first, as levelling comes first; but with no shovel left, a builder for a site that is ready.
   const hasTool = (t: SettlerType) => {
     const tool = t === 'digger' ? 'shovel' : 'hammer';
+    // A finished workplace waiting for this tool gets it first.
+    if (world.buildings.some((b) => b.owner === player.id && b.isComplete && b.blockedReason === `Missing tool: ${GOOD_NAMES[tool][0]}`)) return false;
     return world.buildings.some((b) => b.owner === player.id && isSupplyBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
   };
   const candidates = ([needsDigger ? 'digger' : null, needsBuilder ? 'builder' : null] as (SettlerType | null)[]).filter((t): t is SettlerType => t !== null);
@@ -1144,6 +1165,7 @@ function applyOccupations(world: World, player: PlayerState): void {
   const isFirst = countOf(needed) === 0 && player.maxCrewPercent > 0;
   if (!isFirst && (crew + 1) * 100 > own.length * player.maxCrewPercent) return;
   if ((carriers - 1) * 100 < own.length * player.minCarrierPercent && !isFirst) return;
+  if (carriers <= MIN_CARRIERS) return;
   const tool = needed === 'digger' ? 'shovel' : 'hammer';
   const store = world.buildings.find((b) => b.owner === player.id && isSupplyBuilding(b) && b.stock[tool] - b.reserved[tool] > 0);
   const carrier = nearestIdle(world, 'carrier', player.id, castle.doorX, castle.doorY);
