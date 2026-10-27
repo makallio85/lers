@@ -232,7 +232,7 @@ test('soldiers sent against an enemy tower still being built tear it down', () =
   soldier.isInside = false; soldier.phase = 'idle';
   run(world, 5);
   const [result] = stepMatch(world, [{ type: 'attackBuilding', playerId: 0, soldierIds: [soldier.id], buildingId: site.id }]);
-  assert.equal(result.isAccepted, true, result.reason);
+  assert.equal(result.isAccepted, true);
   runUntil(world, () => !world.buildings.includes(site), 600);
   assert.ok(world.messages.some((m) => m.owner === 1 && m.text === 'Small tower site destroyed'));
 });
