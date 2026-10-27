@@ -52,6 +52,10 @@ export class SoundBoard {
     const unlock = () => { this.unlock(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
+    // Browsers suspend sound in a background tab; coming back wakes it again.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && this.isOn && this.context && this.context.state !== 'running') void this.context.resume().catch(() => {});
+    });
   }
 
   setOn(isOn: boolean): void {

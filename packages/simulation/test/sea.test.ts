@@ -166,7 +166,7 @@ test('a second colony: pioneers sail out, claim land, become carriers, and a tra
   assert.equal(command(world, { type: 'unloadShip', playerId: 0, shipId: ship.id }).isAccepted, true);
   // The pioneers claim the land around where they landed, then turn into the colony's carriers.
   const at = { x: Math.round(pioneers[0].x), y: Math.round(pioneers[0].y) };
-  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers.map((s) => s.id), x: at.x, y: at.y }).isAccepted, true);
+  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers.map((s) => s.id), x: at.x, y: at.y, isWorking: true }).isAccepted, true);
   runUntil(world, () => world.territory.reduce((n, t, i) => n + (t === 1 && Math.hypot((i % world.width) - at.x, Math.floor(i / world.width) - at.y) < 8 ? 1 : 0), 0) >= 40, 6000);
   assert.equal(command(world, { type: 'releaseSpecialists', playerId: 0, settlerIds: pioneers.map((s) => s.id) }).isAccepted, true);
   assert.ok(pioneers.every((s) => s.settlerType === 'carrier'));

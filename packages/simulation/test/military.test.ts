@@ -140,7 +140,7 @@ test('a thief steals from an enemy store and carries the loot home; enemy soldie
   for (let x = enemy.doorX - 3; x <= enemy.doorX + 3; x++) world.vision[0][tileIndex(world, x, enemy.doorY)] = 1;
   assert.equal(command(world, { type: 'setSpecialists', playerId: 0, specialistType: 'thief', count: 1 }).isAccepted, true);
   const thief = world.settlers.find((s) => s.settlerType === 'thief')!;
-  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [thief.id], x: enemy.doorX, y: enemy.doorY }).isAccepted, true);
+  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [thief.id], x: enemy.doorX, y: enemy.doorY, isWorking: true }).isAccepted, true);
   runUntil(world, () => thief.carrying === 'gold', 4000);
   assert.equal(enemy.stock.gold, 2);
   const goldAtHome = castle.stock.gold;
@@ -149,7 +149,7 @@ test('a thief steals from an enemy store and carries the loot home; enemy soldie
 
   // A second raid with an enemy soldier waiting by the door, free to chase.
   soldierAt(world, 1, 'swordsman', enemy.doorX + 1, enemy.doorY + 1);
-  command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [thief.id], x: enemy.doorX, y: enemy.doorY });
+  command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [thief.id], x: enemy.doorX, y: enemy.doorY, isWorking: true });
   runUntil(world, () => !world.settlers.includes(thief), 6000);
 });
 
@@ -204,4 +204,21 @@ test('demolishing your own tower keeps the land it held', () => {
   const before = owned();
   assert.equal(command(world, { type: 'demolishBuilding', playerId: 0, buildingId: tower.id }).isAccepted, true);
   assert.equal(owned(), before, 'no land lost');
+});
+
+test('a manned tower or castle sees a thief near its door and sends a soldier out before anything is taken', () => {
+  const world = createMatch(4);
+  run(world, 10);
+  const enemy = castleOf(world, 1)!;
+  // Soldiers only inside the enemy castle: nobody stands outside to spot the thief up close.
+  world.settlers = world.settlers.filter((s) => s.owner !== 1 || !['swordsman', 'spearman', 'bowman'].includes(s.settlerType) || s.isInside);
+  assert.ok(enemy.garrison.length > 0);
+  enemy.stock.gold = 3;
+  for (let x = enemy.doorX - 3; x <= enemy.doorX + 3; x++) world.vision[0][tileIndex(world, x, enemy.doorY)] = 1;
+  command(world, { type: 'setSpecialists', playerId: 0, specialistType: 'thief', count: 1 });
+  const thief = world.settlers.find((s) => s.settlerType === 'thief')!;
+  command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [thief.id], x: enemy.doorX, y: enemy.doorY, isWorking: true });
+  runUntil(world, () => !world.settlers.includes(thief) || thief.carrying !== null, 6000);
+  assert.ok(!world.settlers.includes(thief), 'the guard caught the thief');
+  assert.equal(enemy.stock.gold, 3, 'before it took anything');
 });

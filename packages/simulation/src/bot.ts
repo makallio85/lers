@@ -434,7 +434,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   if (idleGeologists.length > 0 && turn % 5 === 0) {
     const tile = spots.prospectTile();
     if (tile) {
-      commands.push({ type: 'moveSpecialists', playerId: me, settlerIds: idleGeologists.map((s) => s.id), x: tile.x, y: tile.y });
+      commands.push({ type: 'moveSpecialists', playerId: me, settlerIds: idleGeologists.map((s) => s.id), x: tile.x, y: tile.y, isWorking: true });
       note(`prospect at ${tile.x},${tile.y} with ${idleGeologists.length}`);
     }
   }

@@ -1274,6 +1274,8 @@ function specialistTiles(world: World, s: Settler): number[] {
 
 /** A thief raids an enemy store near where it was sent, then carries the loot home at half speed. */
 const THIEF_SEARCH_RADIUS = 8;
+/** How long a thief needs at a store's door to take a good. */
+const STEAL_TICKS = 40;
 const LOOT_ORDER: readonly GoodType[] = ['gold', 'sword', 'spear', 'bow', 'iron', 'hammer', 'pick', 'axe', 'saw', 'shovel', 'scythe', 'rod'];
 
 function updateThief(world: World, s: Settler): void {
@@ -1303,9 +1305,12 @@ function updateThief(world: World, s: Settler): void {
     if (!target || (tileOf(world, s) !== doorTile(world, target) && !walkTo(world, s, doorTile(world, target)))) {
       s.phase = 'idle'; s.workCentre = -1; return;
     }
-    s.toId = target.id;
+    s.toId = target.id; s.timer = 0;
   }
   if (!advance(world, s)) return;
+  // Taking the goods takes a while at the door, long enough for a watching guard to come out.
+  if (s.timer < STEAL_TICKS) { s.timer++; return; }
+  s.timer = 0;
   const stock = target.stock;
   const loot = LOOT_ORDER.find((g) => stock[g] - target.reserved[g] > 0)
     ?? GOOD_TYPES.filter((g) => stock[g] - target.reserved[g] > 0).sort((a, b) => stock[b] - stock[a])[0];

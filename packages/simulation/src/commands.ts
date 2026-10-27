@@ -42,7 +42,10 @@ export type Command =
   | { type: 'setWorkArea'; playerId: number; buildingId: number; x: number; y: number }
   | { type: 'setOccupations'; playerId: number; minCarrierPercent: number; maxCrewPercent: number }
   | { type: 'setSpecialists'; playerId: number; specialistType: SpecialistType; count: number }
-  | { type: 'moveSpecialists'; playerId: number; settlerIds: number[]; x: number; y: number }
+  /** Sends specialists to a spot; they wait there, or with `isWorking` start their work on arrival. */
+  | { type: 'moveSpecialists'; playerId: number; settlerIds: number[]; x: number; y: number; isWorking?: boolean }
+  /** Geologists search for ore, pioneers claim land and thieves steal around where they stand, or where they are going. */
+  | { type: 'startSpecialistWork'; playerId: number; settlerIds: number[] }
   /** Chosen geologists, pioneers or thieves become carriers where they stand, as pioneers do to start a colony. */
   | { type: 'releaseSpecialists'; playerId: number; settlerIds: number[] }
   | { type: 'castSpell'; playerId: number; priestId: number; spell: SpellType; x: number; y: number }
@@ -504,8 +507,26 @@ export function applyCommand(world: World, command: Command): CommandResult {
       specialists.forEach((s, k) => {
         const path = findPath(world, tileIndex(world, Math.round(s.x), Math.round(s.y)), tiles[k % tiles.length]);
         if (!path) return;
-        s.path = path; s.phase = 'moving'; s.isInside = false; s.workCentre = centre; s.targetTile = -1; s.timer = 0;
+        // Priests are steered by their spells; the others only start work when told to.
+        const isWorking = command.isWorking === true && s.settlerType !== 'priest';
+        s.path = path; s.phase = 'moving'; s.isInside = false; s.workCentre = isWorking || s.settlerType === 'priest' ? centre : -1; s.targetTile = -1; s.timer = 0;
       });
+      return accept();
+    }
+    case 'startSpecialistWork': {
+      if (!Array.isArray(command.settlerIds) || command.settlerIds.length === 0 || command.settlerIds.length > MAX_SPECIALISTS) return refuse('Malformed command');
+      const ids = new Set(command.settlerIds);
+      if (ids.size !== command.settlerIds.length) return refuse('Malformed command');
+      const specialists = world.settlers.filter((s) => ids.has(s.id));
+      if (specialists.length !== ids.size || specialists.some((s) => s.owner !== command.playerId || !isSpecialistType(s.settlerType) || s.isInside)) {
+        return refuse('Choose your own geologists, pioneers or thieves outside buildings');
+      }
+      for (const s of specialists) {
+        // Around the spot it is walking to, or where it stands; the work starts on arrival.
+        s.workCentre = s.path.length > 0 ? s.path[s.path.length - 1] : tileIndex(world, Math.round(s.x), Math.round(s.y));
+        if (s.phase !== 'moving') { s.phase = 'moving'; s.path = []; }
+        s.targetTile = -1; s.timer = 0;
+      }
       return accept();
     }
     case 'releaseSpecialists': {
