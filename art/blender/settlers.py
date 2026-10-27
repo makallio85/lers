@@ -88,6 +88,44 @@ def hand_tool(s, tool, x, y, z):
     return [handle] + heads
 
 
+def soldier_gear(s, arm, look):
+    """What makes a soldier read as one beside the workers: a helmet with a crest, a breastplate and belt, a round
+    shield on the off arm for swordsmen and spearmen, and for bowmen a leather cap and jerkin with a quiver on the
+    back. Sizes follow the kit's blocky characters (head about 0.45 wide, top at 0.68; torso 0.18 to 0.34;
+    facing -Y)."""
+    steel = s.mat('armour', 'b4b9be', rough=0.32, metal=0.85)
+    leather = s.mat('leather', '6b4a2b', rough=0.75)
+    crest = s.mat('crest', 'b3261e', rough=0.6)
+    wood = s.mat('shield-wood', '6e4626', rough=0.7, wave=14, stretch=(1, 1, 1))
+    is_bow = look == 'bowman'
+    cap = leather if is_bow else steel
+    # Helmet: a square cap over the top of the kit's square head, cheek guards, and for the foot soldiers a nose
+    # guard and a crest running front to back.
+    head = [s.box(0, 0.0, 0.595, 0.49, 0.38, 0.115, cap),
+            s.box(0.238, -0.02, 0.47, 0.03, 0.2, 0.14, cap), s.box(-0.238, -0.02, 0.47, 0.03, 0.2, 0.14, cap)]
+    if is_bow:
+        head.append(s.box(0.2, 0.06, 0.70, 0.025, 0.04, 0.17, s.mat('feather', '4f9a3a', rough=0.6)))
+    else:
+        head.append(s.box(0, -0.195, 0.46, 0.05, 0.03, 0.14, steel))
+        head.append(s.box(0, 0.0, 0.715, 0.07, 0.34, 0.1, crest))
+    attach(s, head, arm, 'head')
+    # Body: a breastplate (a jerkin for bowmen) over the tunic, and a belt.
+    body = [s.box(0, 0.028, 0.185, 0.3, 0.32, 0.16, leather if is_bow else steel),
+            s.box(0, 0.028, 0.165, 0.31, 0.33, 0.04, s.mat('belt', '3a2a1a', rough=0.7))]
+    if is_bow:
+        quiver = s.cyl(0.08, 0.21, 0.12, 0.055, 0.32, leather, 12, rot=(math.radians(18), math.radians(-12), 0))
+        arrows = [s.box(0.08 + dx, 0.255, 0.43, 0.02, 0.02, 0.07, s.mat('fletch', 'e8e2d2', rough=0.6)) for dx in (-0.025, 0.0, 0.025)]
+        body += [quiver] + arrows
+    attach(s, body, arm, 'torso')
+    if not is_bow:
+        # A round shield on the left forearm, held forward: wood with a steel rim and a boss.
+        face = (math.radians(90), 0, 0)
+        sh = [s.cyl(0.2, -0.1, 0.0, 0.16, 0.022, steel, 28, rot=face), s.cyl(0.2, -0.113, 0.0, 0.142, 0.024, wood, 28, rot=face),
+              s.sphere(0.2, -0.13, 0.0, 0.04, steel)]
+        for o in sh: o.location.z = 0.21
+        attach(s, sh, arm, 'arm-left')
+
+
 def build(race, look):
     model, tool, anims = LOOKS[look]
     s = Scene(race)
@@ -114,9 +152,7 @@ def build(race, look):
     elif tool:
         props = hand_tool(s, tool, hx, hy, hz)
     if look in SOLDIERS:
-        head = arm.matrix_world @ arm.data.bones['head'].head_local
-        helm = s.sphere(head.x, head.y, head.z + 0.17, 0.13, s.mat('helmet', '8a8d90', rough=0.35, metal=0.7), 0.75)
-        attach(s, [helm], arm, 'head')
+        soldier_gear(s, arm, look)
     if props: attach(s, [o for o in props if o.parent is None], arm, 'arm-left' if tool == 'bow' else 'arm-right')
     arm.scale = (SCALE, SCALE, SCALE)
     actions = {a.name.split('_')[0]: a for a in bpy.data.actions}
