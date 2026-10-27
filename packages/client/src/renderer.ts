@@ -3,7 +3,7 @@ import { Application, Container, Graphics, Matrix, Sprite, Text, Texture } from 
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_SULFUR, FIELD_RIPE, ROCK_STONE, SOLDIER_STATS, TERRAIN_GRASS, TERRAIN_MOUNTAIN,
   GOOD_TYPES, isStorageBuilding, TERRAIN_WATER, TREE_MATURE, VISION_NONE, VISION_VISIBLE, canSee, isMilitaryBuilding, isSoldierType, isSpecialistType, isWarMachineType, isShipType, tileIndex,
-  BUILDING_STRUCTURE, WAR_MACHINE_STATS, buildingLabel, TOOL_TYPES, WEAPON_TYPES
+  BUILDING_STRUCTURE, WAR_MACHINE_STATS, buildingLabel, TOOL_TYPES, WEAPON_TYPES, GOODS_DEPTH_BACK, castleHeapSpots
 } from '../../simulation/src/index.ts';
 import type { Building, BuildingTypeId, GoodType, RaceType, Settler, World } from '../../simulation/src/index.ts';
 import { SpriteBank, TREE_VARIANTS, lookOf } from './sprites.ts';
@@ -192,15 +192,13 @@ const CASTLE_PILE_GROUPS: readonly (readonly GoodType[])[] = [
   ['grain', 'flour', 'water', 'bread', 'fish', 'pig', 'meat', 'wine', 'beer', 'rice', 'rice_wine', 'honey', 'mead'],
   [...TOOL_TYPES, ...WEAPON_TYPES]
 ];
-/** Distance between piles inside a heap, in tiles: close enough to read as one heap. */
-const HEAP_SPACING = 0.62;
 /** Goods drawn per pile: a pile of eight, as storage holds them. */
 const PILE_SIZE = 8;
 /** Where the items of a pile sit, in screen pixels from its foot: two layers of four. */
 const PILE_OFFSETS = [[0, 0], [7, -3], [-7, -3], [0, -6], [0, -6], [7, -9], [-7, -9], [0, -12]];
 /** Building materials are drawn larger than other goods, on the ground and in a carrier's arms, so they read at a glance. */
-/** How far back goods are sorted among upright things, in tiles of depth. */
-const GOODS_DEPTH_BACK = 1.9;
+/** A storage area's heaps lie in this many columns inside its fence (6 heaps of 8: three columns, two rows). */
+const STORE_HEAP_COLUMNS = 3;
 const LARGE_GOODS: ReadonlySet<string> = new Set(['log', 'plank', 'stone']);
 const LARGE_GOODS_SCALE = 2.2;
 /** Planks' art is already a wide stack, so they grow less. */
@@ -563,6 +561,7 @@ export class MapView {
     const { world } = this;
     const alive = new Set<number>();
     this.siteGround.clear();
+    this.pileDepth.clear();
     for (const b of world.buildings) {
       if (!this.isBuildingVisible(b)) continue;
       alive.add(b.id);
@@ -690,7 +689,12 @@ export class MapView {
         }
         return { x: b.doorX + 0.5, y: b.doorY + 1.5 };
       }
-      if (isStore) return { x: b.x + 0.5 + (index % b.size), y: b.y + b.size - 0.55 - Math.floor(index / b.size) * 0.8 };
+      // A storage area's heaps lie on the ground inside its fence, one good each, in a grid: the back row first.
+      if (isStore) {
+        const cols = STORE_HEAP_COLUMNS, rows = Math.ceil(limit / cols);
+        const col = index % cols, row = Math.floor(index / cols);
+        return { x: b.x + (col + 0.5) * (b.size - 0.5) / cols + 0.25, y: b.y + 0.55 + (row + 0.5) * (b.size - 1.1) / rows };
+      }
       // A construction site's materials wait in the open along its right front edge, clear of the crew on the site.
       if (!b.isComplete) return { x: b.x + b.size + 0.55, y: b.y + b.size - 0.5 - index * 0.75 };
       const along = isOutput ? b.x + b.size - 0.45 - (index - inputPiles) * 0.55 : b.x + 0.45 + index * 0.55;
@@ -706,6 +710,9 @@ export class MapView {
         // pile still stands in front of the building wall behind it.
         // Never behind the building they belong to, whatever the size of its art.
         sprite.zIndex = Math.max(at.x + at.y - GOODS_DEPTH_BACK, v.root.zIndex + 0.01) + n * 0.01;
+        // Remember the heap's depth on its tile, so a settler walking over it is lifted above it.
+        const tile = Math.floor(at.y) * this.world.width + Math.floor(at.x);
+        this.pileDepth.set(tile, Math.max(this.pileDepth.get(tile) ?? -Infinity, sprite.zIndex));
         if (!art) { sprite.visible = false; continue; }
         this.place(sprite, art, 0, 0);
         // Stone, logs and planks are rendered at their larger size (art/blender/nature.py), so only the spacing grows.
@@ -718,45 +725,11 @@ export class MapView {
     for (let j = k; j < v.piles.length; j++) v.piles[j].visible = false;
   }
 
-  private readonly heaps = new Map<number, { x: number; y: number }[][]>();
-  /**
-   * Spots for the castle's four heaps, each a tight cluster of piles on open ground in front of the castle: two in
-   * front of its door wall, either side of the way in, and two along its right-hand wall. Nearest the castle first.
-   */
+  /** The depth of the highest goods sprite on each tile, this frame: settlers on or beside a heap draw above it. */
+  private readonly pileDepth = new Map<number, number>();
+  /** The castle's heaps: the simulation keeps their spots, so buildings are never placed over them. */
   private castleHeaps(b: Building): { x: number; y: number }[][] {
-    const known = this.heaps.get(b.id);
-    if (known && this.world.tick % 50 !== 0) return known;
-    const w = this.world, s = b.size;
-    const isOpen = (x: number, y: number) => {
-      const tx = Math.floor(x), ty = Math.floor(y);
-      if (tx < 0 || ty < 0 || tx >= w.width || ty >= w.height) return false;
-      if (Math.abs(tx - b.doorX) <= 1 && ty >= b.y + s) return false;
-      // Only ground the castle's art cannot cover: far enough in front that the goods, sorted back as they are, still
-      // sort after the castle, and so does a settler walking over them.
-      if (x + y - GOODS_DEPTH_BACK < b.x + b.y + s + 0.1) return false;
-      const i = tileIndex(w, tx, ty);
-      return w.footprint[i] === 0 && w.door[i] === 0 && w.terrain[i] !== TERRAIN_WATER && w.rock[i] === 0 && w.tree[i] < 0;
-    };
-    // Each heap: a corner to grow from and the two directions it grows in (across, then away from the wall).
-    const front = b.y + s + 0.35, side = b.x + s + 0.35;
-    const regions: { x: number; y: number; ax: number; ay: number; bx: number; by: number }[] = [
-      { x: b.doorX - 1.35, y: front, ax: -1, ay: 0, bx: 0, by: 1 },
-      { x: b.doorX + 2.35, y: front, ax: 1, ay: 0, bx: 0, by: 1 },
-      { x: side, y: b.y + s - 0.4, ax: 0, ay: -1, bx: 1, by: 0 },
-      { x: side, y: b.y + s / 2 - 0.9, ax: 0, ay: -1, bx: 1, by: 0 }
-    ];
-    const heaps = regions.map((r) => {
-      const spots: { x: number; y: number }[] = [];
-      for (let depth = 0; depth < 8 && spots.length < 12; depth++) {
-        for (let across = 0; across < 4 && spots.length < 12; across++) {
-          const x = r.x + (r.ax * across + r.bx * depth) * HEAP_SPACING, y = r.y + (r.ay * across + r.by * depth) * HEAP_SPACING;
-          if (isOpen(x, y)) spots.push({ x, y });
-        }
-      }
-      return spots;
-    });
-    this.heaps.set(b.id, heaps);
-    return heaps;
+    return castleHeapSpots(this.world, b);
   }
 
   /** A finished mill's sails: turning a quarter in 8 steps while the miller grinds, at rest otherwise. */
@@ -1123,7 +1096,14 @@ export class MapView {
     this.placeTint(v, race, look, anim, v.dir, frame + s.id, s.owner);
     const p = iso(tx, ty);
     v.root.position.set(p.x, p.y);
-    v.root.zIndex = tx + ty;
+    // Goods are part of the ground: a settler on or beside a heap is always drawn over it, as in the original.
+    let z = tx + ty;
+    const fx = Math.floor(tx), fy = Math.floor(ty), w = this.world.width;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const depth = this.pileDepth.get((fy + dy) * w + fx + dx);
+      if (depth !== undefined && depth >= z) z = depth + 0.02;
+    }
+    v.root.zIndex = z;
     v.lastX = tx; v.lastY = ty;
     // A trade ship's cargo is in its hold.
     const carriedGood = pose ? pose.carrying : s.carrying;

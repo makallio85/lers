@@ -410,8 +410,7 @@ def recipe(b, typeId):
         b.body(2.8, 1.9, -0.2, 0.4, floors=2); b.body(1.1, 1.1, 1.3, -0.95)
         s.put(NAT + 'tree_oak.glb', -1.5, -1.4, 0, 0, 1.0); s.put(NAT + 'plant_bush.glb', 0.3, -1.5, 0, 0, 1.3)
     elif typeId == 'storage':
-        b.body(2.3, 1.6, -0.15, 0.4, roof='high', wood=True)
-        b.crates(0.4, -0.85, 3); b.barrels(-1.15, -0.9, 2); b.sacks(-0.4, -1.1, 3)
+        storage_yard(b)
     elif typeId == 'healer':
         b.body(1.4, 1.1, -0.15, 0.25); b.banner(0.75, -0.6, 1.2, s.mat('white', 'e8e2d2'))
         for (x, y) in [(-0.7, -0.75), (-0.45, -0.85), (0.3, -0.85)]: s.put(NAT + 'plant_bushSmall.glb', x, y, 0, 0, 1.2)
@@ -454,6 +453,59 @@ def recipe(b, typeId):
         b.crates(-0.6, -0.65, 2); b.barrels(0.55, -0.8, 1); b.sacks(-0.25, -0.95, 2)
     else:
         raise KeyError(typeId)
+
+
+def storage_yard(b):
+    """An open yard on bare earth, no roof: a low fence of short sections between posts, gaps at the corners and an
+    opening at the door, and a tall gate at the back. The goods are drawn by the game, in heaps inside the fence."""
+    s, R = b.s, b.race
+    h = 1.3
+    s.box(0, 0, 0, 2 * h + 0.3, 2 * h + 0.3, 0.025, s.mat('earth', '6e5236', noise=14, c2='806040'))
+    post = {'romans': b.DARKWOOD, 'egyptians': b.SANDDARK, 'asians': b.LACQUER, 'amazons': b.BARK}[R]
+    bamboo = s.mat('bamboo', 'b8a45a', rough=0.6, noise=8, c2='9a8a44')
+
+    def section(a, c, along_x, fixed):
+        """One fence section from a to c along a side; `fixed` is the side's other coordinate."""
+        mid, ln = (a + c) / 2, c - a
+        at = (lambda t: (t, fixed)) if along_x else (lambda t: (fixed, t))
+        dims = (lambda l, t: (l, t)) if along_x else (lambda l, t: (t, l))
+        if R == 'romans':
+            for z in (0.1, 0.24):
+                x, y = at(mid); sx, sy = dims(ln, 0.035); s.box(x, y, z, sx, sy, 0.07, b.WOOD)
+        elif R == 'egyptians':
+            x, y = at(mid); sx, sy = dims(ln, 0.12); s.box(x, y, 0, sx, sy, 0.28, b.SAND)
+            sx, sy = dims(ln + 0.02, 0.15); s.box(x, y, 0.28, sx, sy, 0.04, b.SANDDARK)
+        elif R == 'asians':
+            n = max(2, int(ln / 0.07))
+            for k in range(n):
+                x, y = at(a + (k + 0.5) * ln / n); s.cyl(x, y, 0, 0.022, 0.34, bamboo, 6)
+            x, y = at(mid); sx, sy = dims(ln, 0.03); s.box(x, y, 0.3, sx, sy, 0.03, post)
+        else:
+            for i, z in enumerate((0.06, 0.15, 0.24)):
+                x, y = at(mid); sx, sy = dims(ln, 0.05); s.box(x, y, z, sx, sy, 0.06, b.BARK if i % 2 == 0 else b.STRAW)
+
+    def side(along_x, fixed, opening=None):
+        """A side from corner to corner, leaving the corners open, and an opening (centre, width) if given."""
+        cuts = [(-h + 0.28, h - 0.28)]
+        if opening:
+            c, w = opening; cuts = [(-h + 0.28, c - w / 2), (c + w / 2, h - 0.28)]
+        for a, c in cuts:
+            n = max(1, round((c - a) / 0.5))
+            for k in range(n + 1):
+                t = a + k * (c - a) / n
+                x, y = (t, fixed) if along_x else (fixed, t)
+                s.box(x, y, 0, 0.07, 0.07, 0.38, post)
+            section(a, c, along_x, fixed)
+
+    side(True, -h, opening=(b.door_x, 0.7))   # the front, open at the door where carriers come in
+    side(True, h, opening=(0.0, 0.9))         # the back, with the gate
+    side(False, -h); side(False, h)
+    # The gate: two tall posts under a curved crossbeam, plank boards between them over a short stone wall.
+    for x in (-0.45, 0.45): s.box(x, h, 0, 0.1, 0.1, 1.25, b.DARKWOOD)
+    for k, z in enumerate((1.12, 1.18, 1.2, 1.18, 1.12)):
+        s.box(-0.4 + k * 0.2, h, z, 0.22, 0.09, 0.08, b.DARKWOOD)
+    s.box(0, h, 0, 0.82, 0.16, 0.18, b.STONE)
+    for k in range(5): s.box(-0.32 + k * 0.16, h + 0.01, 0.18, 0.14, 0.04, 0.72, b.WOOD)
 
 
 def castle(b):

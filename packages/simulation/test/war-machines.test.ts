@@ -55,9 +55,10 @@ function enemyTower(world: World): Building {
 test('each people has its own war machine hall', () => {
   const world = createMatch(4, 'calm', 'small', 'romans', 'asians');
   const castle = castleOf(world, 0)!;
-  clear(world, castle.x + 8, castle.y + 2, 4);
-  assert.equal(placementProblem(world, 0, 'cannon_hall', castle.x + 7, castle.y + 1), 'Only the Asians build this');
-  assert.equal(placementProblem(world, 0, 'catapult_hall', castle.x + 7, castle.y + 1), null);
+  // Clear of the castle's goods yard, where nothing may be built.
+  clear(world, castle.x + 11, castle.y + 2, 4);
+  assert.equal(placementProblem(world, 0, 'cannon_hall', castle.x + 10, castle.y + 1), 'Only the Asians build this');
+  assert.equal(placementProblem(world, 0, 'catapult_hall', castle.x + 10, castle.y + 1), null);
   for (const stats of Object.values(WAR_MACHINE_STATS)) assert.ok(stats.shots > 0 && stats.range > 0 && stats.accuracy <= 1);
 });
 
