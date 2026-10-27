@@ -98,6 +98,8 @@ const CASTLE_AFTER_FIRST_ATTACK_MINUTES = 15;
 const CHOSEN_START_ARMY = 2;
 /** ... and goes for the castle with this many. */
 const CHOSEN_START_CASTLE_ARMY = 8;
+/** A bot that can make no more soldiers starts giving up covered towers for their soldiers after this long. */
+const OUT_OF_SOLDIERS_MINUTES = 60;
 
 /** One line of what a bot decided and why; collected for tests and for tuning. */
 export interface BotLogEntry {
@@ -188,6 +190,8 @@ function isUseful(typeId: BuildingTypeId, count: (t: BuildingTypeId) => number):
     case 'sawmill': return count('woodcutter') >= count('sawmill') + 1;
     case 'mill': case 'pig_farm': return count('farm') > count('mill') + count('pig_farm') - 1;
     case 'bakery': return count('mill') > count('bakery') && count('waterworks') > 0;
+    // One waterworks to start with, then one per two buildings that use water.
+    case 'waterworks': return count('waterworks') === 0 || count('waterworks') < Math.ceil(['bakery', 'pig_farm', 'brewery', 'distillery', 'mead_maker', 'donkey_ranch'].reduce((n, t) => n + count(t as BuildingTypeId), 0) / 2);
     case 'slaughterhouse': return count('pig_farm') > count('slaughterhouse');
     case 'iron_mine': return count('coal_mine') > count('iron_mine');
     case 'smelter': return count('iron_mine') > count('smelter') && count('coal_mine') > 0;
@@ -593,6 +597,21 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   if (mayAttack && isChosenStart && free.length < attackArmy && castle && castle.garrisonWanted > 1) {
     commands.push({ type: 'setGarrisonWanted', playerId: me, buildingId: castle.id, count: 1 });
     note('send the castle garrison out to attack');
+  }
+  // Out of soldiers for good: no free soldier, no weapon, no iron and no iron mine left (the ore is used up). Rather
+  // than stand still for the rest of the match, the bot gives up a tower whose land another of its military buildings
+  // mostly covers, one every couple of minutes, and its soldier joins the attack.
+  const isOutOfSoldiers = mayAttack && obs.tick > OUT_OF_SOLDIERS_MINUTES * TICKS_PER_MINUTE && free.length === 0 && landed.length === 0 && attacking === 0
+    && WEAPON_TYPES.every((w) => storedGood(w) === 0) && storedGood('iron') === 0 && storedGood('iron_ore') === 0 && count('iron_mine') === 0;
+  if (isOutOfSoldiers && turn % 20 === 0) {
+    const military = obs.ownBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].territoryRadius > 0);
+    const centre = (b: OwnBuilding) => ({ x: b.x + b.size / 2, y: b.y + b.size / 2 });
+    const spare = military.find((b) => b.typeId !== 'castle' && b.garrisonCount === 1 && military.some((o) => o.id !== b.id
+      && Math.hypot(centre(o).x - centre(b).x, centre(o).y - centre(b).y) <= BUILDING_TYPES[o.typeId].territoryRadius * 0.5));
+    if (spare) {
+      commands.push({ type: 'demolishBuilding', playerId: me, buildingId: spare.id });
+      note(`out of soldiers: give up ${spare.typeId} #${spare.id} for its soldier`);
+    }
   }
   // Enough soldiers for the castle, but sitting in towers: every tower keeps one and sends the rest out.
   if (mayAttack && isGatheringForCastle) {
