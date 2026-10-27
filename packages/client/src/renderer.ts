@@ -640,6 +640,19 @@ export class MapView {
     // Owner flag by the door, as settlers mark their buildings.
     g.rect(door.x - 0.8, door.y - 22, 1.6, 22).fill(0x3b2f22);
     g.poly([door.x + 0.8, door.y - 22, door.x + 11, door.y - 19, door.x + 0.8, door.y - 15]).fill(OWNER_COLORS[b.owner]).stroke({ width: 1, color: 0x1b2420 });
+    // A workplace's worker: a settler in a disc beside the door once moved in, an empty ring while it waits for one.
+    if (b.isComplete && BUILDING_TYPES[b.typeId].worker !== null && (isMine || canSee(this.world, this.viewer, b.doorX, b.doorY))) {
+      const worker = b.workerId === null ? undefined : this.world.settlers.find((s) => s.id === b.workerId);
+      const hasMovedIn = !!worker && worker.phase !== 'toTool' && worker.phase !== 'toWork';
+      const bx = door.x - 13, by = door.y - 33;
+      if (hasMovedIn) {
+        g.circle(bx, by, 9).fill(0xece6d6).stroke({ width: 2, color: 0x1b2420 });
+        g.circle(bx, by - 3, 2.8).fill(0x1b2420);
+        g.roundRect(bx - 4.4, by + 0.8, 8.8, 5.4, 2.7).fill(0x1b2420);
+      } else {
+        g.circle(bx, by, 8.5).fill({ color: 0x1b2420, alpha: 0.55 }).stroke({ width: 2, color: 0xece6d6, alpha: 0.85 });
+      }
+    }
     if (b.isComplete && isMilitaryBuilding(b)) {
       const n = Math.min(b.garrison.length, 6);
       for (let k = 0; k < n; k++) {
