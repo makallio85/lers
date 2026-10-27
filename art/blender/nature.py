@@ -90,11 +90,11 @@ def goods():
     barrel = lambda c: (lambda s: s.put(SURV + 'barrel.glb', 0, 0, 0, 0, 0.55))
     tool = lambda t, rot=90: (lambda s: s.put(SURV + t + '.glb', 0, 0, 0.02, rot, 0.75))
     def log(s):
-        # Three brown logs, two below and one on top, with their pale cut ends toward the viewer.
+        # One brown log, thick enough to read at a glance, with its pale cut end toward the viewer.
         bark = s.mat('logbark', '7a4a26', noise=16); cut = s.mat('logcut', 'd8b07a')
-        for (y, z) in [(-0.07, 0.0), (0.07, 0.0), (0.0, 0.11)]:
-            s.cyl(0, y, z + 0.06 - 0.15, 0.06, 0.30, bark, 14, rot=(0, math.pi / 2, 0))
-            s.cyl(0.151, y, z + 0.06 - 0.004, 0.052, 0.008, cut, 14, rot=(0, math.pi / 2, 0))
+        r = 0.085
+        s.cyl(0, 0, r - 0.16, r, 0.32, bark, 16, rot=(0, math.pi / 2, 0))
+        s.cyl(0.161, 0, r - 0.004, r * 0.88, 0.008, cut, 16, rot=(0, math.pi / 2, 0))
     def plank(s):
         # A stack of light, almost beige boards, crossed a little so they read as planks.
         wood = s.mat('plankwood', 'cfae78', noise=10)
