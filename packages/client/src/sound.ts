@@ -50,9 +50,10 @@ export class SoundBoard {
     let kept: string | null = null;
     try { kept = localStorage.getItem(SOUND_KEY); } catch { /* storage blocked: sound on */ }
     this.isOn = kept !== 'off';
-    const unlock = () => { this.unlock(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
-    window.addEventListener('pointerdown', unlock);
-    window.addEventListener('keydown', unlock);
+    // Every tap, click or key may wake the sound: some browsers suspend it in a background tab and let it resume
+    // only on the player's next touch, so listening once at the start is not enough.
+    window.addEventListener('pointerdown', () => this.unlock(), { capture: true });
+    window.addEventListener('keydown', () => this.unlock(), { capture: true });
     // Browsers suspend sound in a background tab; coming back wakes it again.
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && this.isOn && this.context && this.context.state !== 'running') void this.context.resume().catch(() => {});
@@ -74,7 +75,8 @@ export class SoundBoard {
   play(id: SoundId, volume = 1, pan = 0): void {
     const ctx = this.context;
     // Nothing while the tab is hidden: the browser may hold such sounds back, and they would never end.
-    if (!this.isOn || !ctx || ctx.state !== 'running' || document.hidden || volume * this.level / 100 <= 0.02) return;
+    if (!this.isOn || !ctx || document.hidden || volume * this.level / 100 <= 0.02) return;
+    if (ctx.state !== 'running') { this.wake(); return; }
     const now = performance.now();
     this.endsAt = this.endsAt.filter((t) => t > now);
     if (this.endsAt.length >= MAX_PLAYING) return;
@@ -107,6 +109,15 @@ export class SoundBoard {
     this.play(id, (1 - edge * 0.6) * Math.min(1, 0.45 + zoom * 0.45), dx * 0.7);
   }
 
+  private lastWake = 0;
+  /** Asks a suspended sound engine to go on, at most once a second. */
+  private wake(): void {
+    const now = performance.now();
+    if (!this.context || this.context.state === 'running' || now - this.lastWake < 1000) return;
+    this.lastWake = now;
+    void this.context.resume().catch(() => {});
+  }
+
   private unlock(): void {
     if (!this.isOn) return;
     if (!this.context) {
@@ -115,7 +126,7 @@ export class SoundBoard {
       this.context = new Context();
       void this.load();
     }
-    if (this.context.state === 'suspended') void this.context.resume().catch(() => {});
+    if (this.context.state !== 'running') void this.context.resume().catch(() => {});
   }
 
   private async load(): Promise<void> {
