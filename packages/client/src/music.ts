@@ -50,11 +50,21 @@ export class MusicPlayer {
     const start = () => { this.start(); window.removeEventListener('pointerdown', start); window.removeEventListener('keydown', start); };
     window.addEventListener('pointerdown', start);
     window.addEventListener('keydown', start);
+    for (const audio of this.players) audio.addEventListener('playing', () => this.onPlaying?.());
+    // Straight away on the title, where the browser allows it (a site often played, or sound allowed for it);
+    // otherwise on the first tap, click or key.
+    this.start();
     // The match goes on in a background tab, and so does its music; coming back resumes it if the browser paused it.
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && this.isOn && !this.isPaused && this.hasStarted && this.audio.paused) void this.audio.play().catch(() => {});
     });
   }
+
+  /** Called when the music starts playing, so the title can drop its hint. */
+  onPlaying: (() => void) | null = null;
+
+  /** Whether music is on but the browser still holds it back until the first tap, click or key. */
+  get isWaitingForGesture(): boolean { return this.isOn && !this.isPaused && this.audio.paused; }
 
   /** The player now heard. */
   get audio(): HTMLAudioElement { return this.players[this.current]; }
