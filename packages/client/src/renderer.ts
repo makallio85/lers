@@ -647,7 +647,8 @@ export class MapView {
         const sprite = v.piles[k++];
         // Goods lie low: sorted almost two tiles back, so a settler on or near a pile is always drawn over it, while the
         // pile still stands in front of the building wall behind it.
-        sprite.zIndex = at.x + at.y - GOODS_DEPTH_BACK + n * 0.01;
+        // Never behind the building they belong to, whatever the size of its art.
+        sprite.zIndex = Math.max(at.x + at.y - GOODS_DEPTH_BACK, v.root.zIndex + 0.01) + n * 0.01;
         if (!art) { sprite.visible = false; continue; }
         this.place(sprite, art, 0, 0);
         // Stone, logs and planks are rendered at their larger size (art/blender/nature.py), so only the spacing grows.
@@ -673,6 +674,9 @@ export class MapView {
       const tx = Math.floor(x), ty = Math.floor(y);
       if (tx < 0 || ty < 0 || tx >= w.width || ty >= w.height) return false;
       if (Math.abs(tx - b.doorX) <= 1 && ty >= b.y + s) return false;
+      // Only ground the castle's art cannot cover: far enough in front that the goods, sorted back as they are, still
+      // sort after the castle, and so does a settler walking over them.
+      if (x + y - GOODS_DEPTH_BACK < b.x + b.y + s + 0.1) return false;
       const i = tileIndex(w, tx, ty);
       return w.footprint[i] === 0 && w.door[i] === 0 && w.terrain[i] !== TERRAIN_WATER && w.rock[i] === 0 && w.tree[i] < 0;
     };
@@ -686,7 +690,7 @@ export class MapView {
     ];
     const heaps = regions.map((r) => {
       const spots: { x: number; y: number }[] = [];
-      for (let depth = 0; depth < 4 && spots.length < 12; depth++) {
+      for (let depth = 0; depth < 8 && spots.length < 12; depth++) {
         for (let across = 0; across < 4 && spots.length < 12; across++) {
           const x = r.x + (r.ax * across + r.bx * depth) * HEAP_SPACING, y = r.y + (r.ay * across + r.by * depth) * HEAP_SPACING;
           if (isOpen(x, y)) spots.push({ x, y });
