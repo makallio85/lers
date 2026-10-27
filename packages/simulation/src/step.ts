@@ -1,3 +1,4 @@
+import { FISH_MAX, cropQuality, regrowFish, siteQuality } from './land.ts';
 import {
   BUILDING_TYPES, FAVOURITE_FOOD_MEALS, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OFFERING_TICKS, OTHER_FOOD_MEALS, PRIEST_TICKS, RACE_DRINKS,
   buildingLabel, TRADE_SURPLUS_RESERVE,
@@ -96,7 +97,7 @@ const GATHER_RULES: Record<GatherType, GatherRule> = {
   woodcutter: { radius: WORK_AREA_RADIUS.woodcutter, workTicks: 220, restTicks: 30, output: 'log', blockedText: 'No grown trees nearby' },
   stonecutter: { radius: WORK_AREA_RADIUS.stonecutter, workTicks: 200, restTicks: 30, output: 'stone', blockedText: 'No rocks nearby' },
   forester: { radius: WORK_AREA_RADIUS.forester, workTicks: 40, restTicks: 160, output: null, blockedText: 'No free land nearby' },
-  fisher: { radius: WORK_AREA_RADIUS.fisher, workTicks: 180, restTicks: 60, output: 'fish', blockedText: 'No water nearby' },
+  fisher: { radius: WORK_AREA_RADIUS.fisher, workTicks: 180, restTicks: 60, output: 'fish', blockedText: 'No fish nearby' },
   farmer: { radius: WORK_AREA_RADIUS.farm, workTicks: 90, restTicks: 60, output: 'grain', blockedText: 'No free land for fields' }
 };
 
@@ -110,6 +111,7 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   if (world.winner !== null) { world.tick++; return results; }
   for (const s of world.settlers) { s.prevX = s.x; s.prevY = s.y; }
   if (world.tick % GROWTH_TICKS === 0) grow(world);
+  regrowFish(world);
   if (world.tick % 10 === 0) updateVision(world);
   if (world.tick % RESIDENT_INTERVAL_TICKS === 0) releaseResidents(world);
   // Weapons waiting at a barracks get a free settler before transport takes them all.
@@ -153,11 +155,17 @@ function recordStats(world: World): void {
   }
 }
 
+/** A steady, repeatable chance for a tile at this tick: true about `share` of the time. */
+function landChance(world: World, i: number, share: number): boolean {
+  return share >= 1 || ((Math.imul(i, 2654435761) + Math.imul(world.tick, 40503)) >>> 0) % 1000 < share * 1000;
+}
+
 function grow(world: World): void {
   const { tree, field } = world;
   for (let i = 0; i < tree.length; i++) {
     if (tree[i] >= 0 && tree[i] < TREE_MATURE && ++tree[i] === TREE_MATURE) world.mapVersion++;
-    if (field[i] >= 0 && field[i] < FIELD_RIPE) {
+    // A field grows at its soil's pace: every step on good soil, now and then on poor soil or in a swamp.
+    if (field[i] >= 0 && field[i] < FIELD_RIPE && landChance(world, i, cropQuality(world, i, 'grain'))) {
       field[i]++;
       if (field[i] === FIELD_RIPE || field[i] % 30 === 0) world.mapVersion++;
     }
@@ -926,8 +934,12 @@ function decideWork(world: World, s: Settler, home: Building, type: SettlerType)
     if (recipe.outputChoices) takeOutputChoice(player, recipe.outputChoices, output);
     setBlocked(world, home, null);
     s.good = output;
-    // A blighted mine works at half speed.
-    s.phase = 'working'; s.timer = mine && home.blightUntil > world.tick ? recipe.ticks * 2 : recipe.ticks;
+    // The land sets the pace: a mine in thin ore, or vines, rice or bees in a poor spot, take longer.
+    // A blighted mine works at half speed besides.
+    const land = siteQuality(world, home.typeId, home.x, home.y, home.x + Math.floor(home.size / 2), home.y + Math.floor(home.size / 2));
+    const pace = land === null ? 1 : mine ? 0.35 + 0.65 * land : Math.max(0.2, land);
+    const ticks = Math.round(recipe.ticks / pace);
+    s.phase = 'working'; s.timer = mine && home.blightUntil > world.tick ? ticks * 2 : ticks;
     return;
   }
   if (!isGatherType(type)) return;
@@ -979,6 +991,17 @@ function isFreeLand(world: World, i: number): boolean {
     && world.field[i] === NO_FIELD && world.footprint[i] === 0 && world.door[i] === 0;
 }
 
+/** The water tile next to a shore tile with the most fish, or -1 when none there holds any. */
+function bestFishWater(world: World, x: number, y: number): number {
+  let best = -1;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    if (!inBounds(world, x + dx, y + dy)) continue;
+    const j = tileIndex(world, x + dx, y + dy);
+    if (world.terrain[j] === TERRAIN_WATER && world.fish[j] > 0 && (best < 0 || world.fish[j] > world.fish[best])) best = j;
+  }
+  return best;
+}
+
 /** Walkable grass next to water, where a fisher can stand. */
 function isShore(world: World, x: number, y: number): boolean {
   const i = tileIndex(world, x, y);
@@ -1025,7 +1048,8 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
         case 'woodcutter': if (world.tree[i] === TREE_MATURE) candidates.push({ index: i, d }); break;
         case 'stonecutter': if (world.rock[i] > 0) candidates.push({ index: i, d }); break;
         case 'forester': if (d >= 2 && isFreeLand(world, i)) candidates.push({ index: i, d }); break;
-        case 'fisher': if (isShore(world, x, y)) candidates.push({ index: i, d }); break;
+        // Only a shore by water that holds fish.
+        case 'fisher': if (isShore(world, x, y) && bestFishWater(world, x, y) >= 0) candidates.push({ index: i, d }); break;
         case 'farmer':
           if (world.field[i] >= FIELD_RIPE) ripe.push({ index: i, d });
           else if (fields < MAX_FIELDS_PER_FARM && d >= 1.5 && isFreeLand(world, i)) candidates.push({ index: i, d });
@@ -1091,7 +1115,11 @@ function finishWork(world: World, s: Settler, home: Building, type: SettlerType)
   if (type === 'woodcutter' && world.tree[i] === TREE_MATURE) { world.tree[i] = NO_TREE; s.carrying = 'log'; }
   else if (type === 'stonecutter' && world.rock[i] > 0) { world.rock[i]--; s.carrying = 'stone'; }
   else if (type === 'forester' && isFreeLand(world, i)) world.tree[i] = 0;
-  else if (type === 'fisher') s.carrying = 'fish';
+  else if (type === 'fisher') {
+    // The richer the water, the surer the catch; a poor one often sends the fisher home with nothing.
+    const water = bestFishWater(world, i % world.width, Math.floor(i / world.width));
+    if (water >= 0 && landChance(world, water, world.fish[water] / FISH_MAX + 0.15)) { world.fish[water]--; s.carrying = 'fish'; }
+  }
   else if (type === 'farmer') {
     if (world.field[i] >= FIELD_RIPE) { world.field[i] = NO_FIELD; s.carrying = 'grain'; }
     else if (isFreeLand(world, i)) world.field[i] = 0;

@@ -1,4 +1,5 @@
 import type { BotDifficultyType, BotType } from './bot.ts';
+import { stockFish } from './land.ts';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, buildingCost, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, DEPOSIT_SULFUR, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
   WAR_MACHINE_STATS, SHIP_HEALTH, STARTING_GOODS_SETTINGS, consumersOf, distributedGoods, emptyGoods, isShipType, isSoldierType, isWarMachineType
@@ -270,6 +271,8 @@ export interface World {
   prospect: Uint8Array[];
   /** Owner + 1 of land claimed by pioneers' posts. Military land takes precedence over it. */
   pioneerLand: Uint8Array;
+  /** Fish in each water tile (land.ts): some waters hold many, some none; fishing takes them, they come back slowly. */
+  fish: Uint8Array;
   /** Owner + 1 of land claimed by military buildings alone; worked out with the territory, not saved. */
   militaryLand: Uint8Array;
   players: PlayerState[];
@@ -557,7 +560,7 @@ export function createWorld({
     rock: new Uint8Array(n), deposit: new Uint8Array(n), depositAmount: new Uint8Array(n),
     footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
     claim: new Int32Array(n), vision: players.map(() => new Uint8Array(n)), prospect: players.map(() => new Uint8Array(n)),
-    pioneerLand: new Uint8Array(n), militaryLand: new Uint8Array(n), players, buildings: [], settlers: [], messages: [], farSights: [],
+    pioneerLand: new Uint8Array(n), militaryLand: new Uint8Array(n), fish: new Uint8Array(n), players, buildings: [], settlers: [], messages: [], farSights: [],
     nextId: 1, randomState: seed >>> 0, mapVersion: 0, territoryVersion: 0, winner: null, mapLayout,
     isMirrored: playerCount === 2 && isMirrored, startingGoodsType, victoryType: playerCount >= 2 ? victoryType : 'conquest'
   };
@@ -566,6 +569,7 @@ export function createWorld({
   if (playerCount > 2) {
     placeRingStarts(world, mapLayout);
     recomputeTerritory(world);
+    world.fish = stockFish(world);
     return world;
   }
   const start = playerCount === 2
@@ -582,10 +586,11 @@ export function createWorld({
   placeCastle(world, 0, start.x, start.y);
   if (second) placeCastle(world, 1, second.x, second.y);
   recomputeTerritory(world);
+  world.fish = stockFish(world);
   return world;
 }
 
-function valueNoise(seed: number, width: number, height: number, cell: number): Float32Array {
+export function valueNoise(seed: number, width: number, height: number, cell: number): Float32Array {
   const random = createRandom(seed);
   const gw = Math.ceil(width / cell) + 2;
   const gh = Math.ceil(height / cell) + 2;

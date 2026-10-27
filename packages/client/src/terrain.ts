@@ -1,5 +1,5 @@
 import { Container, Sprite, Texture } from 'pixi.js';
-import { TERRAIN_MOUNTAIN, TERRAIN_WATER, tileIndex } from '../../simulation/src/index.ts';
+import { TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, tileIndex, wetnessAt } from '../../simulation/src/index.ts';
 import type { World } from '../../simulation/src/index.ts';
 
 /** Ground texture pixels per tile; the ground layer is then tilted into the isometric view. */
@@ -81,6 +81,29 @@ export function buildTerrain(world: World, tile: number): Container {
       ctx.fillStyle = ctx.createPattern(p.grass, 'repeat')!;
       ctx.fillRect(cx * PX, cy * PX, w * PX, h * PX);
       ctx.restore();
+      // The soil shows in the grass: dry ground turns straw-coloured, the wet ground by the water marshy and dark.
+      {
+        const mask = document.createElement('canvas');
+        mask.width = w + 2; mask.height = h + 2;
+        const m = mask.getContext('2d')!;
+        const img = m.createImageData(w + 2, h + 2);
+        for (let y = -1; y <= h; y++) {
+          for (let x = -1; x <= w; x++) {
+            const tx = Math.max(0, Math.min(world.width - 1, cx + x)), ty = Math.max(0, Math.min(world.height - 1, cy + y));
+            const i = tileIndex(world, tx, ty);
+            if (world.terrain[i] !== TERRAIN_GRASS) continue;
+            const wet = wetnessAt(world, i), k = ((y + 1) * (w + 2) + x + 1) * 4;
+            if (wet < 0.32) { img.data[k] = 196; img.data[k + 1] = 170; img.data[k + 2] = 92; img.data[k + 3] = Math.round(255 * Math.min(0.42, (0.32 - wet) * 2.2)); }
+            else if (wet > 0.72) { img.data[k] = 24; img.data[k + 1] = 52; img.data[k + 2] = 40; img.data[k + 3] = Math.round(255 * Math.min(0.45, (wet - 0.72) * 2.4)); }
+          }
+        }
+        m.putImageData(img, 0, 0);
+        ctx.save();
+        ctx.filter = `blur(${PX * 0.6}px)`;
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(mask, -PX, -PX, (w + 2) * PX, (h + 2) * PX);
+        ctx.restore();
+      }
       const layerFor = (kind: number, pattern: HTMLCanvasElement, spread: number) => {
         // A one-pixel-per-tile mask (with a border of one tile), blurred and scaled up, gives soft edges.
         const mask = document.createElement('canvas');

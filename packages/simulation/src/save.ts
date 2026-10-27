@@ -4,6 +4,7 @@ import {
 } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, ShipType, SoldierType, StartingGoodsType, TradeModeType, VictoryType } from './definitions.ts';
 import { FIELD_RIPE, TREE_MATURE, recomputeTerritory, tileIndex } from './world.ts';
+import { FISH_MAX, stockFish } from './land.ts';
 import { BOT_DIFFICULTY_TYPES, BOT_TYPES } from './bot.ts';
 import type { BotDifficultyType, BotType } from './bot.ts';
 import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, StatsSample, SettlerPhase, TradeRoute, World } from './world.ts';
@@ -64,7 +65,7 @@ export function saveGame(world: World): Record<string, unknown> {
     terrain: Array.from(world.terrain), tree: Array.from(world.tree), field: Array.from(world.field),
     rock: Array.from(world.rock), deposit: Array.from(world.deposit), depositAmount: Array.from(world.depositAmount),
     claim: Array.from(world.claim), vision: world.vision.map((v) => Array.from(v)),
-    prospect: world.prospect.map((v) => Array.from(v)), pioneerLand: Array.from(world.pioneerLand),
+    prospect: world.prospect.map((v) => Array.from(v)), pioneerLand: Array.from(world.pioneerLand), fish: Array.from(world.fish),
     players: structuredClone(world.players),
     buildings: structuredClone(world.buildings),
     settlers: structuredClone(world.settlers),
@@ -334,6 +335,7 @@ export function loadGame(data: unknown): World {
     vision: data.vision.map((v: unknown) => Uint8Array.from(intArray(v, n, 0, 2, 'fog of war'))),
     prospect: data.prospect.map((v: unknown) => Uint8Array.from(intArray(v, n, 0, 1, 'geologist signs'))),
     pioneerLand: Uint8Array.from(intArray(data.pioneerLand, n, 0, players.length, 'pioneer land')), militaryLand: new Uint8Array(n),
+    fish: data.fish === undefined ? new Uint8Array(n) : Uint8Array.from(intArray(data.fish, n, 0, FISH_MAX, 'fish')),
     footprint: new Int32Array(n), door: new Int32Array(n), territory: new Uint8Array(n),
     players, buildings, settlers, messages, farSights, nextId,
     randomState: int(data.randomState, 0, 0xffffffff, 'random state'), mapVersion: 0, territoryVersion: 0,
@@ -371,5 +373,7 @@ export function loadGame(data: unknown): World {
   recomputeTerritory(world);
   players.forEach((p, k) => { p.stats.largestTerritory = stats[k]; });
   world.territoryVersion = 0;
+  // Saves from before fish were counted start with every water at its own stock.
+  if (data.fish === undefined) world.fish = stockFish(world);
   return world;
 }
