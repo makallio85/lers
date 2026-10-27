@@ -293,6 +293,7 @@ export function loadGame(data: unknown): World {
       targetTile: int(raw.targetTile, -1, n - 1, 'settler target tile'), isInside: bool(raw.isInside, 'settler inside'),
       health: num(raw.health, 0, 1000, 'health'), cooldown: int(raw.cooldown, 0, 1000, 'cooldown'),
       enemyId: nullableInt(raw.enemyId, 'enemy'), attackId: nullableInt(raw.attackId, 'attack target'),
+      attackAfterId: raw.attackAfterId === undefined ? null : nullableInt(raw.attackAfterId, 'attack target'),
       workCentre: int(raw.workCentre, -1, n - 1, 'specialist work area'),
       waypoints: intArray(raw.waypoints, Array.isArray(raw.waypoints) && raw.waypoints.length <= 20 ? raw.waypoints.length : -1, 0, n - 1, 'waypoints'),
       isPatrolling: bool(raw.isPatrolling, 'patrol'), isHolding: bool(raw.isHolding, 'hold position'),
