@@ -206,18 +206,18 @@ export function renderGoodsPanel(world: World, view: GoodsViewId, owner: number)
     // Workplaces standing idle for want of each tool.
     const short: Partial<Record<GoodType, number>> = toolShortage(world, owner);
     const shortLabel = (g: GoodType) => {
-      const n = short[g];
-      if (n === undefined) return '';
-      return ` <span class="${n > 0 ? 'short is-short' : 'short muted'}" title="${n} finished ${n === 1 ? 'building waits' : 'buildings wait'} for a worker with this tool">· ${n} short</span>`;
+      const n = short[g] ?? 0;
+      if (n === 0) return '';
+      return `<span class="short-badge" title="${n} finished ${n === 1 ? 'building waits' : 'buildings wait'} for a worker with this tool">${n} short</span>`;
     };
     const lines = (goods: readonly GoodType[]) => goods.map((g) => `
       <div class="made-row">
-        <span>${GOOD_LABELS[g]} <span class="muted">· ${counts[g].stored}</span>${shortLabel(g)}</span>
+        <span class="made-name">${GOOD_LABELS[g]} <span class="muted">· ${counts[g].stored}</span>${shortLabel(g)}</span>
         ${stepper('order', `data-good="${g}"`, player.productionOrders[g] ?? 0, `Order ${GOOD_LABELS[g]}`)}
         ${shareSlider(g, player.productionShares[g] ?? 0, `data-share-good="${g}"`, `Share of ${GOOD_LABELS[g]}`)}
       </div>`).join('');
     return `${tabs}<p class="empty">Orders are made first, top to bottom. After that the smiths follow the shares.</p>
-      <div class="made-head"><span>Tool · in stock · short</span><span>Order</span><span>Share</span></div>${lines(TOOL_TYPES)}
+      <div class="made-head"><span>Tool · in stock</span><span>Order</span><span>Share</span></div>${lines(TOOL_TYPES)}
       <h2 class="section-title">Weapons</h2>
       <div class="made-head"><span>Weapon · in stock</span><span>Order</span><span>Share</span></div>${lines(WEAPON_TYPES)}`;
   }
