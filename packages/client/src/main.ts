@@ -1,5 +1,5 @@
 import {
-  BOT_ATTACK_START_TYPES, BOT_DIFFICULTY_TYPES, BOT_TYPES, TICKS_PER_SECOND, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
+  BOT_ATTACK_START_TYPES, BOT_DIFFICULTY_TYPES, BOT_TYPES, GOOD_TYPES, TICKS_PER_SECOND, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
@@ -1150,6 +1150,18 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'dismiss': ui.dismissed.add(Number(target.dataset.id)); refreshLive(); break;
+    case 'toggle-storage-good': {
+      const b = buildingById(world, Number(target.dataset.id));
+      const good = target.dataset.good as GoodType;
+      if (!b || !(GOOD_TYPES as readonly string[]).includes(good)) break;
+      const refused = b.refusedGoods.includes(good) ? b.refusedGoods.filter((g) => g !== good) : [...b.refusedGoods, good];
+      submit({ type: 'setStorageGoods', playerId: PLAYER, buildingId: b.id, refusedGoods: refused });
+      break;
+    }
+    case 'storage-goods-all':
+    case 'storage-goods-none':
+      submit({ type: 'setStorageGoods', playerId: PLAYER, buildingId: Number(target.dataset.id), refusedGoods: action === 'storage-goods-all' ? [] : [...GOOD_TYPES] });
+      break;
     case 'show-next-of-type': {
       // Each click shows the next of the player's buildings of this type, oldest first, then starts over.
       const typeId = target.dataset.type;

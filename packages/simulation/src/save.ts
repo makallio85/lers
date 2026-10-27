@@ -267,6 +267,7 @@ export function loadGame(data: unknown): World {
       workerId: nullableInt(raw.workerId, 'worker'),
       garrison: raw.garrison.map((g: unknown) => id(g, 'garrison soldier')),
       garrisonWanted: int(raw.garrisonWanted, 0, type.garrisonCapacity, 'garrison size'),
+      refusedGoods: raw.refusedGoods === undefined ? [] : Array.isArray(raw.refusedGoods) ? raw.refusedGoods.map((g: unknown) => good(g, 'goods a store refuses')) : fail('goods a store refuses are invalid'),
       isOccupied: bool(raw.isOccupied, 'occupation'), meals: int(raw.meals, 0, 100, 'meals'),
       isPaused: bool(raw.isPaused, 'pause'), isPriority: bool(raw.isPriority, 'site priority'),
       workX: raw.workX === null ? null : int(raw.workX, 0, width - 1, 'work area'),
