@@ -29,7 +29,7 @@ export const PROSPECT_RADIUS = 6;
 export const CLAIM_RADIUS = 4;
 /** Pioneers go on pushing the border outward from their spot, claiming land next to the player's own, this far. */
 export const PIONEER_REACH = 12;
-const PROSPECT_TICKS = 40;
+const PROSPECT_TICKS = 50;
 const CLAIM_TICKS = 60;
 
 /** A producer stops once this many finished goods wait at its door. */
@@ -1172,9 +1172,8 @@ function updateSpecialist(world: World, s: Settler): void {
     if (s.timer < (s.phase === 'prospecting' ? PROSPECT_TICKS : CLAIM_TICKS)) { s.timer++; return; }
     const tx = s.targetTile % world.width, ty = Math.floor(s.targetTile / world.width);
     if (s.phase === 'prospecting') {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) if (inBounds(world, tx + dx, ty + dy)) world.prospect[s.owner][tileIndex(world, tx + dx, ty + dy)] = 1;
-      }
+      // One tile per check: the geologist knocks on the rock where he stands and puts up its sign.
+      world.prospect[s.owner][s.targetTile] = 1;
       world.mapVersion++;
     } else if (canClaim(world, s.owner, s.targetTile)) {
       for (let dy = -1; dy <= 1; dy++) {
@@ -1213,7 +1212,8 @@ function specialistTiles(world: World, s: Settler): number[] {
   const taken = new Set<number>();
   for (const o of world.settlers) {
     if (o !== s && o.owner === s.owner && o.settlerType === s.settlerType && o.targetTile >= 0) {
-      // A claim or a check covers the 3 × 3 tiles around it.
+      // A claim covers the 3 × 3 tiles around it, a geologist's check its own tile.
+      if (!isPioneer) { taken.add(o.targetTile); continue; }
       const ox = o.targetTile % world.width, oy = Math.floor(o.targetTile / world.width);
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(world, ox + dx, oy + dy)) taken.add(tileIndex(world, ox + dx, oy + dy));
     }
