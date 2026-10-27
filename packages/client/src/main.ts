@@ -14,7 +14,7 @@ import * as simulation from '../../simulation/src/index.ts';
 import {
   GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, buildingCounts, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
   renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs, machinesOf,
-  renderMatchSetup, renderSettings, renderTitle
+  renderLoading, renderMatchSetup, renderSettings, renderTitle
 } from './ui.ts';
 import { renderStatsScreen } from './stats.ts';
 import type { StatsGoodsGroupId, StatsViewId } from './stats.ts';
@@ -148,11 +148,15 @@ const ui = {
   front: (params.has('seed') || params.has('mode') ? null : 'title') as FrontId | null,
   frontReturn: null as FrontId | null
 };
-type FrontId = 'title' | 'setup' | 'settings';
+type FrontId = 'title' | 'setup' | 'settings' | 'loading';
 
 const queue: Command[] = [];
-const loadingBar = document.getElementById('loading-bar');
-const view = await MapView.create(els.map, world, (share) => { if (loadingBar) loadingBar.style.width = `${Math.round(share * 100)}%`; });
+/** Moves the loading screen's bar, whichever loading screen is up. */
+const showProgress = (share: number) => {
+  const bar = document.getElementById('loading-bar');
+  if (bar) bar.style.width = `${Math.round(share * 100)}%`;
+};
+const view = await MapView.create(els.map, world, showProgress);
 const sounds = new SoundBoard();
 const music = new MusicPlayer();
 view.onSound = (id, x, y) => sounds.playAt(id, x, y, els.map.clientWidth, els.map.clientHeight, view.scale);
@@ -256,10 +260,9 @@ function load(key: string): void {
   const raw = storageRead(key);
   if (!raw) { ui.menuNotice = 'There is no saved game in this browser.'; return; }
   try {
-    world = loadGame(JSON.parse(raw));
-    showWorld();
-    ui.isMenuOpen = false;
+    const next = loadGame(JSON.parse(raw));
     ui.menuNotice = null;
+    void enter(next, 'Loading the saved game…');
   } catch (error) {
     ui.menuNotice = error instanceof Error ? error.message : 'This save cannot be loaded.';
   }
@@ -296,7 +299,9 @@ function renderMenu(): void {
 /** The title, match setup or settings screen over the map, or none. */
 function renderFront(): void {
   els.front.hidden = ui.front === null;
-  els.front.classList.toggle('is-title', ui.front === 'title');
+  // The title and anything opened from it stand on the menu backdrop; from the game, the map shows dimmed behind.
+  els.front.classList.toggle('is-title', ui.front === 'title' || ui.front === 'loading' || ui.frontReturn === 'title');
+  if (ui.front === 'loading') return;
   if (ui.front === 'title') setHtml(els.front, renderTitle({ autosavedAt: savedLabel(AUTOSAVE_KEY), savedAt: savedLabel(SAVE_KEY) }));
   else if (ui.front === 'setup') {
     setHtml(els.front, renderMatchSetup({
@@ -839,7 +844,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (ui.front !== null) {
     // In the menus only Escape works: it goes back, but never past the title.
-    if (e.key === 'Escape' && ui.front !== 'title') closeFront();
+    if (e.key === 'Escape' && ui.front !== 'title' && ui.front !== 'loading') closeFront();
     return;
   }
   if (e.key === 'Escape') {
@@ -874,10 +879,25 @@ function selectFirstOfGroup(): void {
 }
 
 function startNew(next: World): void {
+  void enter(next, 'Preparing the land…');
+}
+
+/**
+ * Starts playing a world: a loading screen stays up while its art loads and its map is drawn, so the match never
+ * shows half made; then the game begins.
+ */
+async function enter(next: World, text: string): Promise<void> {
+  ui.front = 'loading'; ui.frontReturn = null;
+  ui.isMenuOpen = false; ui.isConfirmingSurrender = false;
+  renderMenu();
+  setHtml(els.front, renderLoading(text));
+  await view.prepare(next, showProgress);
   world = next;
   showWorld();
-  ui.isMenuOpen = false; ui.isConfirmingSurrender = false;
-  renderMenu(); renderPanel(); refreshLive();
+  renderPanel(); refreshLive();
+  // Two frames drawn behind the loading screen, then it lifts.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  closeFront(null);
 }
 
 // ---------------------------------------------------------------- button actions
@@ -1042,11 +1062,11 @@ document.addEventListener('click', (e) => {
     case 'save':
       ui.menuNotice = save(SAVE_KEY) ? `Saved at ${formatClock(world.tick)}.` : 'This browser does not allow saving here.';
       renderMenu(); break;
-    case 'load': load(SAVE_KEY); if (ui.front !== null) closeFront(null); else renderMenu(); renderPanel(); refreshLive(); break;
+    case 'load': load(SAVE_KEY); renderMenu(); break;
     case 'load-autosave': load(AUTOSAVE_KEY); renderMenu(); renderPanel(); refreshLive(); break;
     case 'start-match':
       startNew(createMatch(randomSeed(), lastBotType, lastMapSize, lastRace, undefined, lastMapLayout, nextSetup()));
-      closeFront(null); break;
+      break;
     case 'bot-type':
       if ((BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '')) { lastBotType = target.dataset.bot as BotType; remember(BOT_TYPE_KEY, lastBotType); }
       renderFront(); break;
@@ -1057,7 +1077,7 @@ document.addEventListener('click', (e) => {
     case 'open-settings': openFront('settings'); break;
     case 'open-title': openFront('title'); break;
     case 'close-front': closeFront(); break;
-    case 'continue': load(AUTOSAVE_KEY); closeFront(null); renderPanel(); refreshLive(); break;
+    case 'continue': load(AUTOSAVE_KEY); break;
     case 'race':
       if ((RACE_TYPES as readonly string[]).includes(target.dataset.race ?? '')) { lastRace = target.dataset.race as RaceType; remember(RACE_KEY, lastRace); }
       renderMenu(); break;
@@ -1129,7 +1149,7 @@ document.addEventListener('click', (e) => {
     case 'unload-ships':
       for (const ship of selectedSoldierList().filter((s) => passengersOf(world, s).length > 0)) submit({ type: 'unloadShip', playerId: PLAYER, shipId: ship.id });
       renderOrders(); break;
-    case 'new-sandbox': startNew(createWorld({ seed: randomSeed(), raceTypes: [lastRace] })); closeFront(null); break;
+    case 'new-sandbox': startNew(createWorld({ seed: randomSeed(), raceTypes: [lastRace] })); break;
     case 'play-again': startNew(isMatch() ? createMatch(world.seed, botType(), mapSize(), world.players[PLAYER].raceType, firstEnemyRace(), world.mapLayout,
       { isMirrored: world.isMirrored, startingGoodsType: world.startingGoodsType, victoryType: world.victoryType, ...teamsOf() }) : createWorld({ seed: world.seed, raceTypes: [world.players[PLAYER].raceType] })); break;
     case 'close-end': ui.isEndHidden = true; renderEnd(); break;
