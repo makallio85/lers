@@ -165,7 +165,7 @@ function sparableBuilding(obs: Observation, count: (t: BuildingTypeId) => number
   const idle = (b: OwnBuilding) => b.blockedReason === 'Output full: goods wait until needed';
   return done.find((b) => b.typeId === 'storage' && count('storage') > 1)
     ?? (obs.freeCarriers > 12 ? done.find((b) => BUILDING_TYPES[b.typeId].residents > 0 && b.residentsLeft === 0) : undefined)
-    ?? done.find((b) => idle(b) && count(b.typeId) > 1 && ['sawmill', 'stonecutter', 'woodcutter', 'fisher', 'farm', 'mill', 'bakery', 'coal_mine'].includes(b.typeId));
+    ?? done.find((b) => idle(b) && count(b.typeId) > 1 && ['sawmill', 'stonecutter', 'woodcutter', 'fisher', 'farm', 'mill', 'bakery', 'waterworks', 'coal_mine'].includes(b.typeId));
 }
 
 /** Buildings each tool must be saved for until they stand: without them the settlement cannot make more tools. */
@@ -304,6 +304,8 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const hasToolFor = (t: BuildingTypeId) => {
     const tool = BUILDING_TYPES[t].tool;
     if (!tool) return true;
+    // The first toolsmith may wait for its hammer: an idle builder hands his over. Without it no tool is ever made again.
+    if (t === 'toolsmith' && count('toolsmith') === 0) return true;
     const hasToolsmith = obs.ownBuildings.some((b) => b.typeId === 'toolsmith' && b.isComplete);
     return stored(tool) > reserveOf(tool, t) || hasToolsmith;
   };
