@@ -229,7 +229,7 @@ export type BuildingTypeId =
   | 'winery' | 'brewery' | 'rice_farm' | 'distillery' | 'beekeeper' | 'mead_maker'
   | 'guard_tower_small' | 'guard_tower_large' | 'castle' | 'lookout' | 'barracks' | 'weaponsmith' | 'gunpowder_maker'
   | 'catapult_hall' | 'ballista_hall' | 'cannon_hall' | 'gong_hall' | 'small_temple' | 'large_temple' | 'shipyard' | 'landing_dock'
-  | 'residence_small' | 'residence_medium' | 'residence_large' | 'storage' | 'healer' | 'marketplace';
+  | 'residence_small' | 'residence_medium' | 'residence_large' | 'storage' | 'healer' | 'marketplace' | 'goods_heap';
 
 /**
  * A workshop turns inputs into one output inside the building. A smith picks its output from
@@ -428,6 +428,8 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
     { territoryRadius: 16, garrisonCapacity: 6 }),
   castle: building('castle', 'Castle', 'military', 4, 8, 12, 'Up to 10 soldiers', 'Any goods', 'Territory, storage',
     { territoryRadius: 15, garrisonCapacity: 10, storageCapacity: Infinity, isAvailable: false }),
+  // Not built: what a demolished building leaves, its goods lying where it stood until carriers take them away.
+  goods_heap: building('goods_heap', 'Goods heap', 'misc', 2, 0, 0, 'None', 'Nothing', 'Goods left where a building stood', { isAvailable: false }),
   lookout: building('lookout', 'Lookout tower', 'military', 2, 2, 4, 'None', 'Nothing', 'A long view, no land', { visionRadius: 22 }),
   barracks: building('barracks', 'Barracks', 'military', 3, 4, 5, 'None', 'Weapons, free settlers', 'Soldiers',
     { inputLimits: { sword: 2, spear: 2, bow: 2 } }),
