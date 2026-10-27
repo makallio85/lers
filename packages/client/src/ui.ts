@@ -539,6 +539,17 @@ function frontCard(title: string, body: string, footer: string, className = ''):
   </div>`;
 }
 
+/** Shown while a match gets ready: its art loads and its map is drawn. */
+export function renderLoading(text: string): string {
+  return `<div class="front-card title-card" role="dialog" aria-modal="true" aria-labelledby="front-title">
+    <h1 class="front-brand" id="front-title">LERS</h1>
+    <div class="loading" role="progressbar" aria-label="Loading">
+      <div class="loading-track"><span class="loading-bar" id="loading-bar"></span></div>
+      <span class="muted">${escapeHtml(text)}</span>
+    </div>
+  </div>`;
+}
+
 /** The first screen: continue, a new game against the computer, multiplayer (later) and settings. */
 export function renderTitle(state: TitleState): string {
   return `<div class="front-card title-card" role="dialog" aria-modal="true" aria-labelledby="front-title">

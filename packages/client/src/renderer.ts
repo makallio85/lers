@@ -235,6 +235,13 @@ export class MapView {
   /** True when the rendered art loaded; otherwise the map is drawn with plain shapes. */
   get hasArt(): boolean { return this.bank.isReady; }
 
+  /** Loads the art a match needs before it is shown, so it never appears in plain shapes first. */
+  async prepare(world: World, onProgress?: (share: number) => void): Promise<void> {
+    const races = world.players.map((p) => p.raceType);
+    if (!this.bank.hasRaces(races)) await this.bank.load(races, onProgress);
+    onProgress?.(1);
+  }
+
   setWorld(world: World): void {
     this.world = world;
     const races = world.players.map((p) => p.raceType);
@@ -245,7 +252,7 @@ export class MapView {
     this.mapVersion = -1;
     this.territoryVersion = -1;
     this.fogKey = -1;
-    for (const v of this.buildingViews.values()) v.root.destroy({ children: true });
+    for (const v of this.buildingViews.values()) { for (const p of v.piles) p.destroy(); v.root.destroy({ children: true }); }
     this.buildingViews.clear();
     for (const v of this.settlerViews.values()) v.root.destroy({ children: true });
     this.settlerViews.clear();
