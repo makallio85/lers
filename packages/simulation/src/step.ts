@@ -35,7 +35,9 @@ const CLAIM_TICKS = 30;
 
 /** A producer stops once this many finished goods wait at its door. */
 export const OUTPUT_LIMIT = 8;
-export const WARN_AFTER_TICKS = 150;
+/** A building warns after waiting this long; for goods to come ("Waiting: no grain") longer, as deliveries take time. */
+export const WARN_AFTER_TICKS = 450;
+export const WARN_INPUT_AFTER_TICKS = 1200;
 export const RESIDENT_INTERVAL_TICKS = 20;
 /** How long a newcomer stands by its new house before going to wait for work, in ticks. */
 const NEWCOMER_LINGER_TICKS = 300;
@@ -459,7 +461,10 @@ function assignWorkers(world: World): void {
         // Workers come before crews: an idle builder or digger hands in the hammer or shovel a workplace waits for,
         // or a toolsmith with no hammer could never start making them.
         const crewType = CREW_OF_TOOL[type.tool];
-        const idle = crewType ? nearestIdle(world, crewType, b.owner, b.doorX, b.doorY) : null;
+        // The last builder or digger keeps its tool, or sites could never be built again; only a toolsmith, which
+        // makes new tools, may take even that one.
+        const crewLeft = crewType ? world.settlers.filter((o) => o.owner === b.owner && o.settlerType === crewType).length : 0;
+        const idle = crewType && (crewLeft > 1 || b.typeId === 'toolsmith') ? nearestIdle(world, crewType, b.owner, b.doorX, b.doorY) : null;
         if (idle) {
           const home = storageFor(world, b.owner, type.tool, idle.x, idle.y, false);
           if (home) { home.stock[type.tool]++; idle.settlerType = 'carrier'; }
@@ -1156,7 +1161,7 @@ function finishWork(world: World, s: Settler, home: Building, type: SettlerType)
 function warnAboutBlockedBuildings(world: World): void {
   for (const b of world.buildings) {
     if (b.blockedReason === null || b.hasWarned || b.blockedSince === null || b.blockedReason === 'Paused') continue;
-    if (world.tick - b.blockedSince < WARN_AFTER_TICKS) continue;
+    if (world.tick - b.blockedSince < (b.blockedReason.startsWith('Waiting: ') ? WARN_INPUT_AFTER_TICKS : WARN_AFTER_TICKS)) continue;
     b.hasWarned = true;
     const label = BUILDING_TYPES[b.typeId].label;
     pushMessage(world, b.owner, `${label} is waiting`, `${b.blockedReason}.`, true, b.id);
