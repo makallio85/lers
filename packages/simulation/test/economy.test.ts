@@ -162,15 +162,23 @@ test('a workplace without its tool waits, then takes the tool from storage', () 
   assert.equal(castle.stock.saw, 0);
 });
 
-test('demolishing returns half of the materials; the worker keeps trade and tool', () => {
+test('demolishing leaves its goods and half of the materials in a heap; carriers clear it; the worker keeps trade and tool', () => {
   const world = createWorld({ seed: 11 });
   const castle = castleOf(world, 0)!;
   const id = place(world, 'woodcutter');
   runUntil(world, () => world.settlers.some((s) => s.settlerType === 'woodcutter' && s.phase !== 'toTool'), 4000);
-  const planks = castle.stock.plank, stone = castle.stock.stone, axes = castle.stock.axe;
+  building(world, id).stock.log = 3;
+  const planks = castle.stock.plank, stone = castle.stock.stone, logs = castle.stock.log, axes = castle.stock.axe;
   assert.equal(command(world, { type: 'demolishBuilding', playerId: 0, buildingId: id }).isAccepted, true);
+  const heap = world.buildings.find((b) => b.typeId === 'goods_heap')!;
+  assert.ok(heap, 'a heap lies where it stood');
+  assert.deepEqual([heap.stock.plank, heap.stock.stone, heap.stock.log], [1, 1, 3]);
+  assert.equal(castle.stock.plank, planks, 'nothing reached the castle at once');
+  // With no storage area the carriers bring it to the castle, and the heap is gone.
+  runUntil(world, () => !world.buildings.includes(heap), 3000);
   assert.equal(castle.stock.plank, planks + 1);
   assert.equal(castle.stock.stone, stone + 1);
+  assert.equal(castle.stock.log, logs + 3);
   assert.equal(castle.stock.axe, axes, 'the axe stays with the woodcutter');
   assert.equal(world.settlers.some((s) => s.settlerType === 'woodcutter' && s.homeId === null), true, 'a jobless woodcutter waits for the next woodcutter hut');
   assert.equal(command(world, { type: 'demolishBuilding', playerId: 0, buildingId: castle.id }).isAccepted, false);
@@ -293,6 +301,9 @@ test('a new storage area takes the castle\'s stored goods when carriers are free
   runUntil(world, () => totalOf(building(world, storeId)) >= 20, 6000);
   assert.ok(castle.stock.plank < planks, 'planks left the castle');
   assert.equal(building(world, storeId).stock.bread, 0, 'bread is not stored');
+  // A mix, not only the first good in the priority list: at most a heap of each.
+  const store = building(world, storeId);
+  assert.ok(store.stock.plank <= 8 && store.stock.stone > 0, `planks ${store.stock.plank}, stone ${store.stock.stone}`);
 });
 
 test('no building goes over the ground where the castle\'s goods lie', () => {

@@ -17,7 +17,7 @@ import { decideShip, launchShip } from './sea.ts';
 import { expireSpells, maxHealth } from './magic.ts';
 import {
   FIELD_RIPE, NO_FIELD, NO_TREE, TERRAIN_GRASS, TERRAIN_MOUNTAIN, TERRAIN_WATER, TREE_MATURE,
-  WAIT_RADIUS, isGoodsYard, spreadSpots, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isSupplyBuilding, isWalkable, newSettler, playerOf, pushMessage,
+  WAIT_RADIUS, isGoodsYard, spreadSpots, buildingById, castleOf, inBounds, isMilitaryBuilding, isStorageBuilding, isSupplyBuilding, isWalkable, newSettler, playerOf, pushMessage, removeBuilding,
   recomputeTerritory, settlerById, siteCost, storedTotal, tileIndex, isEnemy, STATS_SAMPLE_TICKS
 } from './world.ts';
 import type { Building, PlayerState, Settler, World } from './world.ts';
@@ -123,6 +123,7 @@ export function step(world: World, commands: readonly Command[] = []): CommandRe
   trainPriests(world);
   expireSpells(world);
   if (world.tick % 5 === 0) runLogistics(world);
+  if (world.tick % 5 === 0) clearEmptyHeaps(world);
   if (world.tick % 5 === 0) { assignConstructionCrews(world); assignWorkers(world); }
   if (world.tick % OCCUPATION_TICKS === 0) for (const p of world.players) applyOccupations(world, p);
   if (world.tick % HEAL_TICKS === 0) healSoldiers(world);
@@ -278,10 +279,21 @@ function distributionShare(player: PlayerState | undefined, good: GoodType, type
  * the player's transport priority; a good several building types use is shared by the Distribution setting.
  * Surplus output goes to storage for goods the player stores.
  */
+/** A demolished building's heap goes once its last good is on its way. */
+function clearEmptyHeaps(world: World): void {
+  for (const b of world.buildings.filter((x) => x.typeId === 'goods_heap')) {
+    if (GOOD_TYPES.some((g) => b.stock[g] > 0 || b.incoming[g] > 0)) continue;
+    if (world.settlers.some((s) => s.fromId === b.id || s.toId === b.id)) continue;
+    removeBuilding(world, b);
+  }
+}
+
 /** Castle goods sent to storage areas per logistics run and player, when carriers are free. */
 const CASTLE_TO_STORAGE_PER_RUN = 2;
 /** The share of a storage area castle goods may fill. */
 const CASTLE_GOODS_STORE_SHARE = 0.5;
+/** ... and at most a heap of each good. */
+const CASTLE_GOODS_PER_GOOD = 8;
 
 function runLogistics(world: World): void {
   const carriers = world.settlers.filter((s) => isIdle(s, 'carrier'));
@@ -377,7 +389,8 @@ function runLogistics(world: World): void {
         if (b.owner !== player.id) continue;
         while (b.stock[good] - b.reserved[good] > 0) {
           if (carriers.length === 0) return;
-          const store = storageFor(world, b.owner, good, b.doorX, b.doorY, true);
+          // A demolished building's heap may go to the castle too: it must not lie there for good.
+          const store = storageFor(world, b.owner, good, b.doorX, b.doorY, b.typeId !== 'goods_heap');
           if (!store || !send(b, store, good)) break;
         }
       }
@@ -390,15 +403,16 @@ function runLogistics(world: World): void {
     const castle = castleOf(world, player.id);
     if (!castle) continue;
     let sent = 0;
+    // One of each good in turn, up to a heap of each per store, so a store gets a mix and not only the first good.
     for (const good of player.transportPriority) {
-      while (sent < CASTLE_TO_STORAGE_PER_RUN && castle.stock[good] - castle.reserved[good] > 0) {
-        if (carriers.length === 0) return;
-        const store = storageFor(world, player.id, good, castle.doorX, castle.doorY, true);
-        // Castle goods fill a store only halfway: the rest stays free for what the workplaces make.
-        if (!store || storedTotal(store) >= BUILDING_TYPES[store.typeId].storageCapacity * CASTLE_GOODS_STORE_SHARE) break;
-        if (!send(castle, store, good)) break;
-        sent++;
-      }
+      if (sent >= CASTLE_TO_STORAGE_PER_RUN) break;
+      if (castle.stock[good] - castle.reserved[good] <= 0) continue;
+      if (carriers.length === 0) return;
+      const store = storageFor(world, player.id, good, castle.doorX, castle.doorY, true);
+      // Castle goods fill a store only halfway: the rest stays free for what the workplaces make.
+      if (!store || storedTotal(store) >= BUILDING_TYPES[store.typeId].storageCapacity * CASTLE_GOODS_STORE_SHARE) continue;
+      if (store.stock[good] + store.incoming[good] >= CASTLE_GOODS_PER_GOOD) continue;
+      if (send(castle, store, good)) sent++;
     }
   }
 }

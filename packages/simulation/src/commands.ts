@@ -1,6 +1,6 @@
 import { isHeapGround } from './heaps.ts';
 import {
-  BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH,
+  BUILDING_TYPES, GOOD_TYPES, SPECIALIST_TOOLS, emptyGoods, SPECIALIST_TYPES, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH,
   RACE_SETTINGS, consumersOf, isBuildableBy, isSoldierType, isSpecialistType, isUnitType, isWarMachineType
 } from './definitions.ts';
 import type { BuildingTypeId, GoodType, ShipType, SoldierType, SpecialistType, SpellType, ToolType, TradeModeType } from './definitions.ts';
@@ -608,11 +608,12 @@ function releaseSpecialist(world: World, s: Settler): void {
 
 /** Removes a building, returning half its materials and everything it held to the castle. */
 function demolish(world: World, b: Building): void {
-  const castle = castleOf(world, b.owner)!;
   const type = BUILDING_TYPES[b.typeId];
+  // What it held, and half its building materials, stay where it stood as a heap for the carriers to take away.
+  const left = emptyGoods();
   for (const good of GOOD_TYPES) {
     const materials = b.isComplete ? (siteCost(world, b)[good] ?? 0) : b.delivered[good] + b.built[good];
-    castle.stock[good] += Math.floor(materials * DEMOLISH_REFUND) + b.stock[good] + b.input[good];
+    left[good] = Math.floor(materials * DEMOLISH_REFUND) + b.stock[good] + b.input[good];
   }
   const garrison = new Set(b.garrison);
   // A tower the player pulls down leaves its land the player's: the land it holds is kept, like land pioneers claimed,
@@ -635,8 +636,14 @@ function demolish(world: World, b: Building): void {
     }
     releaseFromBuilding(world, s.id, b.id, type.tool);
   }
+  if (GOOD_TYPES.some((g) => left[g] > 0)) {
+    // A heap of two by two just above the old door, so it keeps that door.
+    const heap = newBuilding(world, 'goods_heap', b.owner, b.doorX - 1, b.doorY - BUILDING_TYPES.goods_heap.size);
+    heap.isComplete = true; heap.levelProgress = 1; heap.buildProgress = 1;
+    heap.stock = left;
+  }
   recomputeTerritory(world);
-  pushMessage(world, b.owner, `${type.label} demolished`, 'Half of its materials went back to the castle.', false, null);
+  pushMessage(world, b.owner, `${type.label} demolished`, 'Its goods and half its materials lie where it stood, for the carriers to take away.', false, null);
 }
 
 /** Ends any job that depends on a building that no longer exists. */

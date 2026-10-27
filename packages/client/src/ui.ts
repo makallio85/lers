@@ -139,7 +139,7 @@ export function renderBuildPanel(groupType: BuildingGroupType, selected: Buildin
   counts: Partial<Record<BuildingTypeId, { built: number; building: number }>> = {}): string {
   const groups = pills(BUILDING_GROUP_TYPES.map((g) => ({ ...g, icon: BUILDING_GROUP_ICONS[g.id] })), groupType, 'group', 'Building groups', 'group');
   // Only the buildings this people can build; its own ones are marked.
-  const types = Object.values(BUILDING_TYPES).filter((t) => t.groupType === groupType && isBuildableBy(t.id, race));
+  const types = Object.values(BUILDING_TYPES).filter((t) => t.groupType === groupType && t.id !== 'goods_heap' && isBuildableBy(t.id, race));
   const cards = types.map((t) => `
     <button type="button" class="building-card ${t.races ? 'is-own' : ''}" data-action="select-type" data-type="${t.id}" aria-pressed="${t.id === selected}" ${t.isAvailable ? '' : 'disabled'}${t.races ? ` title="${t.races.map((r) => RACE_SETTINGS[r].label).join(' and ')} only"` : ''}>
       <img class="icon" src="${ART_BASE}buildings/${race}/${t.id}.webp" alt="" loading="lazy" decoding="async">
@@ -669,6 +669,7 @@ export function renderMessages(world: World, owner: number, dismissed: Set<numbe
 }
 
 function buildingStatus(world: World, b: Building): { text: string; isWarning: boolean } {
+  if (b.typeId === 'goods_heap') return { text: 'Left by a demolished building: carriers take it away', isWarning: false };
   if (!b.isComplete) {
     if (b.levelProgress < 1) {
       const pct = Math.floor(b.levelProgress * 100);
@@ -847,9 +848,9 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
   // Settable while the building still goes up, so its worker starts in the right place.
   const hasWorkArea = (WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId);
   const pauseLabel = b.isComplete ? (b.isPaused ? 'Resume' : 'Pause') : (b.isPaused ? 'Resume' : 'Suspend');
-  const actions = b.typeId === 'castle' ? '' : isConfirmingDemolish
+  const actions = b.typeId === 'castle' || b.typeId === 'goods_heap' ? '' : isConfirmingDemolish
     ? `<div class="actions"><button type="button" class="danger" data-action="confirm-demolish">Demolish now</button><button type="button" class="secondary" data-action="cancel-demolish">Keep it</button></div>
-       <span class="muted">Half of its materials go back to the castle.</span>`
+       <span class="muted">Its goods and half its materials stay where it stood, for the carriers to take away.</span>`
     : `<div class="actions">
         ${!b.isComplete ? `<button type="button" class="${b.isPriority ? 'primary' : 'secondary'}" data-action="toggle-priority" aria-pressed="${b.isPriority}">Build first</button>` : ''}
         ${hasWorkArea ? `<button type="button" class="secondary" data-action="work-area">Set work area</button>` : ''}
