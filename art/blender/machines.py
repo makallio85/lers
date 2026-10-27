@@ -9,6 +9,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import *
 
 CELL = (128, 120)
+# Room added around the cells for the long shadows to the right (left, top, right, bottom); pack.py crops it back.
+PAD = (16, 32, 176, 16)
+DONKEY_PAD = (16, 64, 240, 16)
+SHIP_PAD = (24, 24, 480, 24)
 FRAMES = {'walk': 4, 'attack': 6}
 # Each people's machine; the kit models point along +X, so they turn -90 degrees to face direction 0 (south).
 MACHINES = {'romans': 'catapult', 'egyptians': 'ballista', 'asians': 'cannon', 'amazons': 'war_gong'}
@@ -66,7 +70,7 @@ def pose(root, moving, machine, anim, d, k, n):
 def render(race, quick=False):
     machine = MACHINES[race]
     s, root, moving = build(race, machine)
-    s.camera(*CELL, target_z=0.3)
+    s.camera(*CELL, target_z=0.3, pad=PAD)
     base = os.path.join(RENDERS, 'settlers', race, machine)
     for anim, n in FRAMES.items():
         for d in range(8):
@@ -74,7 +78,7 @@ def render(race, quick=False):
             for k in range(1 if quick else n):
                 pose(root, moving, machine, anim, d, k, n)
                 s.render(os.path.join(base, f'{anim}_{d}_{k}.png'), 16)
-    if not quick: write_meta(base + '.json', {'anchor': s.anchor(), 'anims': FRAMES, 'cell': list(CELL)})
+    if not quick: write_meta(base + '.json', {'anchor': s.anchor(), 'anims': FRAMES, 'cell': [s.sc.render.resolution_x, s.sc.render.resolution_y]})
 
 
 def donkey():
@@ -93,7 +97,7 @@ def donkey():
     bpy.context.view_layer.update()
     for o in parts:
         mw = o.matrix_world.copy(); o.parent = root; o.matrix_world = mw
-    s.camera(*CELL, target_z=0.2)
+    s.camera(*CELL, target_z=0.2, pad=DONKEY_PAD)
     base = os.path.join(RENDERS, 'settlers', 'romans', 'donkey')
     n = DONKEY_FRAMES['walk']
     for d in range(8):
@@ -104,7 +108,7 @@ def donkey():
                 leg.rotation_euler = (0, 0.45 * math.sin(2 * math.pi * t + (math.pi if i in (1, 2) else 0)), 0)
             root.location = (0, 0, 0.01 * abs(math.sin(2 * math.pi * t)))
             s.render(os.path.join(base, f'walk_{d}_{k}.png'), 16)
-    write_meta(base + '.json', {'anchor': s.anchor(), 'anims': DONKEY_FRAMES, 'cell': list(CELL)})
+    write_meta(base + '.json', {'anchor': s.anchor(), 'anims': DONKEY_FRAMES, 'cell': [s.sc.render.resolution_x, s.sc.render.resolution_y]})
 
 
 SHIP_CELL = (352, 384)
@@ -122,7 +126,7 @@ def ship(kind, quick=False):
     bpy.context.view_layer.update()
     for o in parts:
         mw = o.matrix_world.copy(); o.parent = root; o.matrix_world = mw
-    s.camera(*SHIP_CELL, target_z=1.15)
+    s.camera(*SHIP_CELL, target_z=1.15, pad=SHIP_PAD)
     base = os.path.join(RENDERS, 'settlers', 'romans', kind)
     n = SHIP_FRAMES['walk']
     for d in range(8):
@@ -133,7 +137,7 @@ def ship(kind, quick=False):
             root.rotation_euler = (0.035 * math.sin(2 * math.pi * t), 0.02 * math.cos(2 * math.pi * t), math.radians(d * 45))
             root.location = (0, 0, 0.02 * math.sin(2 * math.pi * t))
             s.render(os.path.join(base, f'walk_{d}_{k}.png'), 16)
-    if not quick: write_meta(base + '.json', {'anchor': s.anchor(), 'anims': SHIP_FRAMES, 'cell': list(SHIP_CELL)})
+    if not quick: write_meta(base + '.json', {'anchor': s.anchor(), 'anims': SHIP_FRAMES, 'cell': [s.sc.render.resolution_x, s.sc.render.resolution_y]})
 
 
 args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []

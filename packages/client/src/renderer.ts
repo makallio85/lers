@@ -73,6 +73,27 @@ export interface ViewState {
   tradeRoute?: { from: { x: number; y: number }; points: { x: number; y: number }[] } | null;
 }
 
+/**
+ * One fish under the water, seen from above as a soft dark shape: a rounded body tapering to the tail, and a forked
+ * tail fin bent by `beat`. `at(u, v)` places a point `u` pixels along the fish (nose ahead) and `v` across it.
+ */
+function drawFishShape(g: Graphics, at: (u: number, v: number) => [number, number], beat: number): void {
+  g.moveTo(...at(6, 0))
+    .bezierCurveTo(...at(5.4, 2.1), ...at(1, 2.7), ...at(-2.5, 1.7))
+    .quadraticCurveTo(...at(-4.2, 0.9), ...at(-5, 0.45))
+    .lineTo(...at(-5, -0.45))
+    .quadraticCurveTo(...at(-4.2, -0.9), ...at(-2.5, -1.7))
+    .bezierCurveTo(...at(1, -2.7), ...at(5.4, -2.1), ...at(6, 0))
+    .closePath()
+    .fill({ color: 0x0b1f2a, alpha: 0.42 });
+  g.moveTo(...at(-4.6, 0.3))
+    .quadraticCurveTo(...at(-6.4, 0.6 + beat * 0.5), ...at(-8.6, 2.4 + beat))
+    .quadraticCurveTo(...at(-7.4, beat * 0.6), ...at(-8.6, -2.4 + beat))
+    .quadraticCurveTo(...at(-6.4, -0.6 + beat * 0.5), ...at(-4.6, -0.3))
+    .closePath()
+    .fill({ color: 0x0b1f2a, alpha: 0.36 });
+}
+
 function hash(i: number): number {
   let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b);
   h ^= h >>> 13;
@@ -529,10 +550,11 @@ export class MapView {
         const fx = (x + 0.5 + Math.cos(a) * 0.9) * TILE, fy = (y + 0.5 + Math.sin(a * 1.3) * 0.9) * TILE;
         const dir = Math.atan2(Math.cos(a * 1.3) * 1.3, -Math.sin(a));
         const dx = Math.cos(dir), dy = Math.sin(dir);
-        g.poly([fx + dx * 5, fy + dy * 5, fx - dy * 1.8, fy + dx * 1.8, fx - dx * 4, fy - dy * 4, fx + dy * 1.8, fy - dx * 1.8])
-          .fill({ color: 0x0b1f2a, alpha: 0.45 });
-        g.poly([fx - dx * 4, fy - dy * 4, fx - dx * 7 - dy * 2, fy - dy * 7 + dx * 2, fx - dx * 7 + dy * 2, fy - dy * 7 - dx * 2])
-          .fill({ color: 0x0b1f2a, alpha: 0.4 });
+        // A point `u` along the fish (nose ahead) and `v` across it, in map pixels.
+        const at = (u: number, v: number): [number, number] => [fx + dx * u - dy * v, fy + dy * u + dx * v];
+        // The tail beats from side to side as the fish swims.
+        const beat = Math.sin(t * 7 + seed) * 0.9;
+        drawFishShape(g, at, beat);
       }
     }
   }

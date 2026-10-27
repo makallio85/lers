@@ -249,25 +249,64 @@ class Scene:
         return o
 
     # ------------------------------------------------------------ camera and output
-    def camera(self, canvas_w, canvas_h, target_z=0.0):
-        """Fixed sprite camera. The map point (0, 0, 0) lands at the anchor written next to the image."""
+    def camera(self, canvas_w, canvas_h, target_z=0.0, pad=(0, 0, 0, 0)):
+        """Fixed sprite camera. The map point (0, 0, 0) lands at the anchor written next to the image.
+        `pad` (left, top, right, bottom, in render pixels) grows the canvas on those sides without moving what is
+        already on it, so a long shadow or a swung weapon fits."""
+        old = getattr(self, 'cam', None)
+        if old is not None:
+            data = old.data; bpy.data.objects.remove(old); bpy.data.cameras.remove(data)
+        self._framing = (canvas_w, canvas_h, target_z, tuple(pad))
+        left, top, right, bottom = pad
+        w, h = canvas_w + left + right, canvas_h + top + bottom
         cam = bpy.data.cameras.new('cam'); cam.type = 'ORTHO'; cam.clip_end = 500
-        cam.ortho_scale = max(canvas_w, canvas_h) / PX_PER_UNIT
+        cam.ortho_scale = max(w, h) / PX_PER_UNIT
         co = bpy.data.objects.new('cam', cam); self.sc.collection.objects.link(co); self.sc.camera = co
         co.rotation_euler = (math.radians(60), 0, math.radians(45))
-        co.location = Vector((0, 0, target_z)) + (co.rotation_euler.to_matrix() @ Vector((0, 0, 50)))
-        self.sc.render.resolution_x, self.sc.render.resolution_y = canvas_w, canvas_h
+        rot = co.rotation_euler.to_matrix()
+        # The canvas grows by `pad` on each side: shift the view by half of each difference so nothing moves.
+        shift = rot.col[0] * ((right - left) / 2 / PX_PER_UNIT) - rot.col[1] * ((bottom - top) / 2 / PX_PER_UNIT)
+        co.location = Vector((0, 0, target_z)) + (rot @ Vector((0, 0, 50))) + shift
+        self.sc.render.resolution_x, self.sc.render.resolution_y = w, h
         self.cam = co
 
     def anchor(self):
         p = world_to_camera_view(self.sc, self.cam, Vector((0, 0, 0)))
         return [p.x * self.sc.render.resolution_x, (1 - p.y) * self.sc.render.resolution_y]
 
-    def render(self, path, samples=32):
+    def render(self, path, samples=32, fit=False):
+        """Renders one image. With `fit`, a sprite whose picture or shadow reaches an edge of the canvas is rendered
+        again on a canvas grown on that side, until all of it fits."""
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self.sc.cycles.samples = samples
         self.sc.render.filepath = path
-        bpy.ops.render.render(write_still=True)
+        for _ in range(FIT_TRIES):
+            bpy.ops.render.render(write_still=True)
+            if not fit: return
+            sides = edges_reached(path)
+            if not sides: return
+            w, h, z, pad = self._framing
+            grow = {0: w, 1: h, 2: w, 3: h}
+            self.camera(w, h, z, tuple(p + (round(grow[i] * FIT_GROW) if i in sides else 0) for i, p in enumerate(pad)))
+        print(f'warning: {path} still reaches the canvas edge')
+
+
+# A picture reaching the canvas edge with this much opacity is cut off (the shadow catcher's faint haze is fainter).
+EDGE_ALPHA = 40 / 255
+FIT_TRIES = 5
+FIT_GROW = 0.5
+
+
+def edges_reached(path):
+    """The sides (0 left, 1 top, 2 right, 3 bottom) where a rendered image is opaque enough at the very edge."""
+    img = bpy.data.images.load(path, check_existing=False)
+    w, h = img.size
+    a = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)[:, :, 3]
+    bpy.data.images.remove(img)
+    # Blender stores rows bottom first.
+    edge = {0: a[:, 0], 1: a[-1, :], 2: a[:, -1], 3: a[0, :]}
+    # A lone bright pixel (the denoiser leaves one now and then in a corner) is not a cut-off picture.
+    return {side for side, values in edge.items() if (values > EDGE_ALPHA).sum() >= 3}
 
 
 def write_meta(path, data):
