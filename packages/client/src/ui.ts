@@ -745,6 +745,7 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
         : `<span class="muted">${isMilitaryBuilding(b) ? 'Still being built' : 'Not a military building'}</span>`}
       ${b.damage > 0 && BUILDING_STRUCTURE[b.typeId] ? structureBar(b) : ''}
       ${cover ? `<span class="status-warning">Covered by the ${BUILDING_TYPES[cover.typeId].label.toLowerCase()} behind it: it cannot be taken until that one falls. Attacking still fights its defenders.</span>` : ''}
+      ${canAttack && !cover && b.garrison.length === 0 ? '<span class="status-good">Empty: send soldiers to it (Attack) and it is yours.</span>' : ''}
       ${canAttack ? `<div class="actions"><button type="button" class="primary" data-action="attack-selected" ${selectedSoldiers > 0 ? '' : 'disabled'}>${selectedSoldiers > 0 ? `Attack with ${selectedSoldiers} selected` : 'Select soldiers or war machines to attack'}</button></div>` : ''}`;
   }
   const status = buildingStatus(world, b);

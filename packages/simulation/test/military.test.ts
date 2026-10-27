@@ -243,3 +243,35 @@ test('an emptied tower that another tower covers keeps its land until the cover 
   assert.equal(front.isOccupied, true, 'covered, it still holds');
   assert.equal(world.territory[footprint], 2, "and its land stays the enemy's");
 });
+
+test('a player\'s sites and buildings on land another player takes are destroyed; an empty uncovered tower stays to be taken', () => {
+  const world = createMatch(4);
+  run(world, 10);
+  const enemy = castleOf(world, 1)!;
+  // An enemy woodcutter's site and an empty enemy tower, far from the enemy castle's cover, on land the enemy holds by pioneers.
+  const spotFor = (typeId: BuildingTypeId, minR: number) => {
+    for (let r = minR; r < 30; r++) for (let dx = -r; dx <= r; dx++) {
+      const x = enemy.x - r, y = enemy.y + dx;
+      if (x < 2 || y < 2 || x > world.width - 6 || y > world.height - 6) continue;
+      let isFree = true;
+      for (let yy = y - 1; yy < y + 4 && isFree; yy++) for (let xx = x - 1; xx < x + 4 && isFree; xx++) {
+        const i = tileIndex(world, xx, yy); if (world.footprint[i] !== 0 || world.terrain[i] !== 0 || world.rock[i] !== 0) isFree = false;
+      }
+      if (isFree && Math.hypot(x - enemy.x, y - enemy.y) > 20) return { x, y };
+    }
+    return null;
+  };
+  const a = spotFor('woodcutter', 22)!;
+  const site = newBuilding(world, 'woodcutter', 1, a.x, a.y);
+  const b = spotFor('guard_tower_small', 26)!;
+  const tower = finished(world, 'guard_tower_small', 1, b.x, b.y);
+  // Player 0's pioneers take that land.
+  for (let y = 0; y < world.height; y++) for (let x = 0; x < world.width; x++) {
+    if (Math.hypot(x - a.x, y - a.y) < 4 || Math.hypot(x - b.x, y - b.y) < 4) world.pioneerLand[tileIndex(world, x, y)] = 1;
+  }
+  recomputeTerritory(world);
+  run(world, 2);
+  assert.ok(!world.buildings.includes(site), 'the site on lost land is gone');
+  assert.ok(world.buildings.includes(tower), 'the empty tower without cover stays, to be taken');
+  assert.ok(world.messages.some((m) => m.owner === 1 && m.text === 'Woodcutter site lost'));
+});
