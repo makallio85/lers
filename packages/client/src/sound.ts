@@ -4,17 +4,17 @@
  * first such gesture. Map sounds play only for what is on screen, quieter toward its edges and panned to their side.
  */
 export type SoundId =
-  | 'chop' | 'hammer' | 'pick' | 'dig' | 'clash' | 'bow' | 'fall' | 'collapse' | 'siege'
+  | 'chop' | 'hammer' | 'pick' | 'dig' | 'clash' | 'thrust' | 'bow' | 'fall' | 'collapse' | 'siege'
   | 'built' | 'place' | 'click' | 'error' | 'alert' | 'victory' | 'defeat';
 
 /** How many variants each sound has on disk (`<sound>_<n>.mp3`); one is picked at random each time. */
 const VARIANTS: Record<SoundId, number> = {
-  chop: 3, hammer: 3, pick: 3, dig: 3, clash: 3, bow: 2, fall: 2, collapse: 3, siege: 2,
+  chop: 3, hammer: 3, pick: 3, dig: 3, clash: 3, thrust: 3, bow: 2, fall: 2, collapse: 3, siege: 2,
   built: 1, place: 1, click: 1, error: 1, alert: 1, victory: 1, defeat: 1
 };
 /** Loudness of each sound before distance: work quiet, battle louder, the interface in between. */
 const LOUDNESS: Record<SoundId, number> = {
-  chop: 0.35, hammer: 0.35, pick: 0.35, dig: 0.45, clash: 0.45, bow: 0.4, fall: 0.5, collapse: 0.8, siege: 0.7,
+  chop: 0.35, hammer: 0.35, pick: 0.35, dig: 0.65, clash: 0.45, thrust: 0.45, bow: 0.45, fall: 0.5, collapse: 0.9, siege: 0.7,
   built: 0.5, place: 0.5, click: 0.3, error: 0.45, alert: 0.6, victory: 0.7, defeat: 0.7
 };
 /** The same sound plays at most this often, in milliseconds, so a crowd at work does not become noise. */
@@ -102,11 +102,11 @@ export class SoundBoard {
    * A sound from the map at a point on the canvas: silent off screen, quieter toward the edges and when zoomed out,
    * panned toward its side.
    */
-  playAt(id: SoundId, x: number, y: number, width: number, height: number, zoom: number): void {
+  playAt(id: SoundId, x: number, y: number, width: number, height: number, zoom: number, volume = 1): void {
     if (x < -40 || y < -40 || x > width + 40 || y > height + 40) return;
     const dx = (x - width / 2) / (width / 2), dy = (y - height / 2) / (height / 2);
     const edge = Math.min(1, Math.hypot(dx, dy * 0.8));
-    this.play(id, (1 - edge * 0.6) * Math.min(1, 0.45 + zoom * 0.45), dx * 0.7);
+    this.play(id, volume * (1 - edge * 0.6) * Math.min(1, 0.45 + zoom * 0.45), dx * 0.7);
   }
 
   private lastWake = 0;

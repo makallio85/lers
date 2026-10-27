@@ -175,7 +175,7 @@ const sounds = new SoundBoard();
 const music = new MusicPlayer();
 // Once the music plays, the title's hint to tap for it goes.
 music.onPlaying = () => { if (ui.front === 'title') renderFront(); };
-view.onSound = (id, x, y) => sounds.playAt(id, x, y, els.map.clientWidth, els.map.clientHeight, view.scale);
+view.onSound = (id, x, y, volume) => sounds.playAt(id, x, y, els.map.clientWidth, els.map.clientHeight, view.scale, volume);
 /** What the player has already heard about: messages, finished buildings and the match result. */
 const heard = { messageId: Number.MAX_SAFE_INTEGER, built: new Set<number>(), isOver: false };
 /** Sounds for what changed since the last look: a warning, a building finished, the match won or lost. */
