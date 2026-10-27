@@ -21,6 +21,8 @@ export const DEFEND_RADIUS = 5;
 const REPATH_TICKS = 6;
 /** Soldiers see through a thief's disguise this close. */
 export const THIEF_SPOT_RANGE = 3;
+/** A manned tower or castle watches this far around its door: a thief there is seen, and a soldier comes out. */
+export const THIEF_WATCH_RANGE = DEFEND_RADIUS;
 /** A castle warns its owner at most this often while under attack. */
 const CASTLE_WARNING_TICKS = 600;
 
@@ -51,7 +53,13 @@ function isFoe(world: World, s: Settler, other: Settler): boolean {
   // Ships at sea are out of a soldier's reach.
   if (isShipType(other.settlerType)) return false;
   if (isUnitType(other.settlerType)) return true;
-  return other.settlerType === 'thief' && distance(other.x, other.y, s.x, s.y) <= THIEF_SPOT_RANGE;
+  return other.settlerType === 'thief' && (distance(other.x, other.y, s.x, s.y) <= THIEF_SPOT_RANGE || isWatched(world, other, s.owner));
+}
+
+/** Whether a manned military building of this player has the thief in view near its door. */
+function isWatched(world: World, thief: Settler, owner: number): boolean {
+  return world.buildings.some((b) => b.owner === owner && b.isComplete && isMilitaryBuilding(b) && (b.garrison.length > 0 || defendersOut(world, b).length > 0)
+    && distance(b.doorX, b.doorY, thief.x, thief.y) <= THIEF_WATCH_RANGE);
 }
 
 function isAliveSoldier(s: Settler): boolean {
@@ -62,8 +70,9 @@ function isAliveUnit(s: Settler): boolean {
   return isUnitType(s.settlerType) && !isShipType(s.settlerType) && s.health > 0;
 }
 
+/** Enemy units near a military building's door, and thieves there, whom its watch sees through. */
 function enemiesNear(world: World, owner: number, x: number, y: number, radius: number): Settler[] {
-  return world.settlers.filter((s) => isEnemy(world, s.owner, owner) && isAliveUnit(s) && !s.isInside
+  return world.settlers.filter((s) => isEnemy(world, s.owner, owner) && (isAliveUnit(s) || (s.settlerType === 'thief' && s.health > 0)) && !s.isInside
     && distance(s.x, s.y, x, y) <= radius);
 }
 

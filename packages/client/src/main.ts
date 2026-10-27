@@ -1140,6 +1140,11 @@ document.addEventListener('click', (e) => {
       if (taken.size === 0) showProblem(`Nobody waits within ${BOARDING_RANGE} tiles of the ship`);
       renderOrders(); break;
     }
+    case 'start-specialist-work': {
+      const ids = selectedSoldierList().filter((s) => isSpecialistType(s.settlerType)).map((s) => s.id);
+      if (ids.length) submit({ type: 'startSpecialistWork', playerId: PLAYER, settlerIds: ids });
+      renderOrders(); break;
+    }
     case 'release-specialists': {
       const ids = selectedSoldierList().filter((s) => isSpecialistType(s.settlerType)).map((s) => s.id);
       if (ids.length) submit({ type: 'releaseSpecialists', playerId: PLAYER, settlerIds: ids });

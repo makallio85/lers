@@ -176,7 +176,7 @@ test('a carrier becomes a geologist with no tool, marks the ore on a mountain, a
   assert.equal(world.prospect[0][tileIndex(world, m.x + 1, m.y + 1)], 0);
   // The bot's spot finder knows nothing about this gold yet.
   assert.equal(spotFinder(world, 0).findSpot('gold_mine', 'deposit_gold', { x: 0, y: 0 }), null);
-  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [geologist.id], x: m.x + 1, y: m.y + 1 }).isAccepted, true);
+  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [geologist.id], x: m.x + 1, y: m.y + 1, isWorking: true }).isAccepted, true);
   runUntil(world, () => world.prospect[0][tileIndex(world, m.x + 1, m.y + 1)] === 1, 2000);
   assert.equal(world.prospect[1]?.[0], undefined, 'a sandbox has one player');
   assert.equal(command(world, { type: 'setSpecialists', playerId: 0, specialistType: 'geologist', count: 0 }).isAccepted, true);
@@ -198,13 +198,13 @@ test('pioneers claim neutral land with posts, but never land an enemy tower hold
   assert.equal(command(world, { type: 'setSpecialists', playerId: 0, specialistType: 'pioneer', count: 2 }).isAccepted, true);
   const pioneers = world.settlers.filter((s) => s.settlerType === 'pioneer').map((s) => s.id);
   const tx = target % world.width, ty = Math.floor(target / world.width);
-  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers, x: tx, y: ty }).isAccepted, true);
+  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers, x: tx, y: ty, isWorking: true }).isAccepted, true);
   runUntil(world, () => world.territory[target] === 1, 3000);
   assert.equal(world.pioneerLand[target], 1);
   // The enemy castle's land stays the enemy's whatever pioneers do.
   const enemyLand = tileIndex(world, enemy.doorX, enemy.doorY + 2);
   // Pioneers may be sent anywhere, unexplored land included, but they claim nothing an enemy tower holds.
-  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers, x: enemy.doorX, y: enemy.doorY + 2 }).isAccepted, true);
+  assert.equal(command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers, x: enemy.doorX, y: enemy.doorY + 2, isWorking: true }).isAccepted, true);
   for (let t = 0; t < 3000; t++) step(world);
   assert.equal(world.territory[enemyLand], 2);
 });
@@ -277,11 +277,32 @@ test('pioneers go on pushing the border outward from their spot, each on its own
   run(world, 50);
   const pioneers = world.settlers.filter((s) => s.owner === 0 && s.settlerType === 'pioneer');
   assert.equal(pioneers.length, 2);
-  command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers.map((s) => s.id), x: bx, y: castle.y });
+  command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: pioneers.map((s) => s.id), x: bx, y: castle.y, isWorking: true });
   const own = () => world.territory.reduce((n, t) => n + (t === 1 ? 1 : 0), 0);
   const before = own();
   run(world, 2400);
   assert.ok(own() - before > 120, `four minutes of two pioneers claim well beyond the first few tiles (${own() - before})`);
   assert.ok(pioneers.every((s) => s.phase === 'claiming' || s.phase === 'moving'), 'and they are still at it');
   assert.notEqual(pioneers[0].targetTile, pioneers[1].targetTile);
+});
+
+test('specialists sent somewhere wait there; they start work only when told', () => {
+  const world = createMatch(7, 'calm', 'medium', 'romans');
+  world.players[1].isBot = false;
+  const castle = castleOf(world, 0)!;
+  let bx = castle.x;
+  while (world.territory[tileIndex(world, bx + 1, castle.y)] === 1) bx++;
+  command(world, { type: 'setSpecialists', playerId: 0, specialistType: 'pioneer', count: 1 });
+  run(world, 50);
+  const pioneer = world.settlers.find((s) => s.owner === 0 && s.settlerType === 'pioneer')!;
+  const own = () => world.territory.reduce((n, t) => n + (t === 1 ? 1 : 0), 0);
+  const before = own();
+  command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [pioneer.id], x: bx, y: castle.y });
+  run(world, 600);
+  assert.equal(pioneer.phase, 'idle', 'it walked there and waits');
+  assert.equal(own(), before, 'and claimed nothing');
+  assert.equal(command(world, { type: 'startSpecialistWork', playerId: 0, settlerIds: [pioneer.id] }).isAccepted, true);
+  run(world, 600);
+  assert.ok(own() > before, 'told to, it claims land where it stands');
+  assert.equal(command(world, { type: 'startSpecialistWork', playerId: 0, settlerIds: [castle.id] }).isAccepted, false);
 });

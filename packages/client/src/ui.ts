@@ -875,6 +875,19 @@ function renderShipBar(world: World, ships: Settler[], mode: OrderMode, isTouch:
     <span class="order-hint muted">${hint}</span>`;
 }
 
+/** The work button of selected specialists: what they do when told to start. */
+function workLabel(units: Settler[]): string {
+  const types = new Set(units.map((s) => s.settlerType));
+  if (types.size > 1) return 'Start work';
+  return types.has('geologist') ? 'Search for ore' : types.has('pioneer') ? 'Claim land' : 'Steal';
+}
+function workTitle(units: Settler[]): string {
+  const types = new Set(units.map((s) => s.settlerType));
+  const parts = [types.has('geologist') && 'geologists look for ore on the mountain around them', types.has('pioneer') && 'pioneers claim land outward from where they are',
+    types.has('thief') && 'thieves take goods from the nearest enemy store'].filter(Boolean);
+  return `Here, or where they are walking to: ${parts.join('; ')}`;
+}
+
 export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boolean, strength: number, magic?: PriestBarState, world?: World): string {
   if (world && units.length > 0 && units.every((s) => isShipType(s.settlerType))) return renderShipBar(world, units, mode, isTouch);
   const priests = units.filter((s) => s.settlerType === 'priest');
@@ -905,7 +918,7 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
     : mode === 'waypoint' ? 'Tap or click each spot in turn, then press Done'
     : mode === 'patrol' ? 'Tap or click the far end of the patrol'
     : mode === 'free' ? 'Tap or click where they should go; they will not stop to fight'
-    : isSpecialistsOnly ? `${isTouch ? 'Move, then tap' : 'Right-click'} where they should work: pioneers claim land there, geologists look for ore`
+    : isSpecialistsOnly ? `${isTouch ? 'Move, then tap' : 'Right-click'} where they should go; they wait there until you press ${workLabel(units)}`
     : isTouch ? (machines.length > 0 ? 'War machines need open ground: no forest, rocks or mountains' : '')
     : machines.length > 0 ? 'Right-click an enemy tower or castle: fire at it · right-click ground: move · Shift: waypoint. War machines need open ground: no forest, rocks or mountains.'
     : 'Right-click: move or attack (also on the minimap) · Shift: waypoint · Alt: patrol · H: hold';
@@ -917,7 +930,8 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
       ${modeButton('select', 'Select')}
       <button type="button" class="order-mode" data-action="select-in-view">All in view</button>
       ${modeButton('move', 'Move', units.length === 0)}
-      ${isSpecialistsOnly ? `<button type="button" class="order-mode" data-action="release-specialists" title="They carry goods where they stand, as a new colony's first settlers">Become carriers</button>` : `
+      ${isSpecialistsOnly ? `<button type="button" class="order-mode is-work" data-action="start-specialist-work" title="${workTitle(units)}">${workLabel(units)}</button>
+      <button type="button" class="order-mode" data-action="release-specialists" title="They carry goods where they stand, as a new colony's first settlers">Become carriers</button>` : `
       ${modeButton('attack', soldiers.length === 0 && machines.length > 0 ? 'Fire at' : 'Attack', fighters.length === 0)}
       ${mode === 'waypoint' ? `<button type="button" class="order-mode" data-action="order-mode" data-mode="waypoint" aria-pressed="true">Done</button>` : modeButton('waypoint', 'Waypoint', fighters.length === 0)}
       ${modeButton('patrol', 'Patrol', fighters.length === 0)}
