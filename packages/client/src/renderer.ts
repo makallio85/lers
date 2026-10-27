@@ -17,6 +17,8 @@ export const TILE = 20;
 /** On screen at zoom 1, a tile is a diamond this wide and half as tall. */
 export const ISO_W = 64;
 export const ISO_H = 32;
+/** Side of a placement marker's square, in screen pixels at zoom 1. */
+const MARKER_SIDE = 7;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 3;
 
@@ -213,6 +215,8 @@ export class MapView {
   private readonly fishLayer = new Graphics();
   private readonly fog = new Sprite();
   private readonly overlay = new Graphics();
+  /** Placement markers, drawn upright on screen so they show as squares. */
+  private readonly markerLayer = new Graphics();
   /** Upright things (buildings, trees, settlers) sorted front to back. */
   private readonly upright = new Container();
   private readonly bars = new Graphics();
@@ -250,7 +254,7 @@ export class MapView {
     this.ghostSprite.visible = false;
     this.upright.addChild(this.ghostSprite);
     // Goods lie flat on the ground, as in the original: settlers, trees and buildings are always drawn over them.
-    this.camera.addChild(this.groundBase, this.upright, this.groundTop, this.bars);
+    this.camera.addChild(this.groundBase, this.upright, this.groundTop, this.markerLayer, this.bars);
     app.stage.addChild(this.camera, this.screenOverlay);
   }
 
@@ -1172,13 +1176,14 @@ export class MapView {
   private drawOverlay(state: ViewState): void {
     const g = this.overlay.clear();
     const { ghost, markers, markerSize } = state;
-    // Placement markers: a small diamond at the centre of every spot where the building fits.
-    const half = (markerSize * TILE) / 2;
+    // Placement markers: a small square on screen at the centre of every spot where the building fits.
+    const marks = this.markerLayer.clear();
+    const half = markerSize / 2, side = MARKER_SIDE;
     for (const i of markers) {
-      const cx = (i % this.world.width) * TILE + half, cy = Math.floor(i / this.world.width) * TILE + half;
-      g.moveTo(cx, cy - 4).lineTo(cx + 4, cy).lineTo(cx, cy + 4).lineTo(cx - 4, cy).closePath();
+      const tx = (i % this.world.width) + half, ty = Math.floor(i / this.world.width) + half;
+      marks.rect((tx - ty) * ISO_W / 2 - side / 2, (tx + ty) * ISO_H / 2 - side / 2, side, side);
     }
-    if (markers.length > 0) g.fill({ color: 0x8fdc7a, alpha: 0.85 });
+    if (markers.length > 0) marks.fill({ color: 0x8fdc7a, alpha: 0.9 });
     if (ghost) {
       const size = BUILDING_TYPES[ghost.typeId].size;
       const color = ghost.isValid ? 0x8fdc7a : 0xe8763a;
