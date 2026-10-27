@@ -20,6 +20,8 @@ const LOUDNESS: Record<SoundId, number> = {
 /** The same sound plays at most this often, in milliseconds, so a crowd at work does not become noise. */
 const MIN_GAP_MS = 70;
 const MAX_PLAYING = 12;
+/** Sounds that always play, even when the busy work sounds have taken every slot: a collapse, and the game's own signals. */
+const ALWAYS_HEARD: ReadonlySet<SoundId> = new Set(['collapse', 'built', 'place', 'click', 'error', 'alert', 'victory', 'defeat']);
 const SOUND_KEY = 'lers.sound';
 const SOUND_LEVEL_KEY = 'lers.soundLevel';
 
@@ -79,7 +81,7 @@ export class SoundBoard {
     if (ctx.state !== 'running') { this.wake(); return; }
     const now = performance.now();
     this.endsAt = this.endsAt.filter((t) => t > now);
-    if (this.endsAt.length >= MAX_PLAYING) return;
+    if (this.endsAt.length >= MAX_PLAYING && !ALWAYS_HEARD.has(id)) return;
     if (now - (this.lastPlayed.get(id) ?? -Infinity) < MIN_GAP_MS) return;
     const buffer = this.buffers.get(`${id}_${Math.floor(Math.random() * VARIANTS[id])}`) ?? this.buffers.get(`${id}_0`);
     if (!buffer) return;
