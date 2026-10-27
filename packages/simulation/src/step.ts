@@ -3,9 +3,9 @@ import {
   BUILDING_TYPES, FAVOURITE_FOOD_MEALS, GOOD_NAMES, GOOD_TYPES, HEAL_PER_ROUND, HEAL_RADIUS, OFFERING_TICKS, OTHER_FOOD_MEALS, PRIEST_TICKS, RACE_DRINKS,
   buildingLabel, TRADE_SURPLUS_RESERVE,
   SETTLER_LABELS, SOLDIER_STATS, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WEAPON_SOLDIERS, WORK_AREA_RADIUS, WEAPON_TYPES, costTotal, goodCount, isSoldierType, isUnitType,
-  favouriteFoodOf, isSpecialistType, totalGoods
+  TOOL_TYPES, favouriteFoodOf, isSpecialistType, isWorkplaceWorkerType, totalGoods, workerToolOf
 } from './definitions.ts';
-import type { BuildingTypeId, GoodType, SettlerType, WarMachineType } from './definitions.ts';
+import type { BuildingTypeId, GoodType, SettlerType, ToolType, WarMachineType } from './definitions.ts';
 import { applyCommand } from './commands.ts';
 import type { Command, CommandResult } from './commands.ts';
 import { checkVictory, destroyBuildingsOnForeignLand, releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
@@ -434,6 +434,41 @@ function crewSpot(world: World, site: Building, k: number): number {
   return spots[Math.floor(((k % crew) * spots.length) / crew + Math.floor(k / crew)) % spots.length].i;
 }
 
+/**
+ * How many of a player's finished workplaces wait for a worker for want of each tool: those that need it, less the
+ * tools already free for them in storage or in the hands of jobless workers of the trade.
+ */
+export function toolShortage(world: World, owner: number): Record<ToolType, number> {
+  const short = Object.fromEntries(TOOL_TYPES.map((t) => [t, 0])) as Record<ToolType, number>;
+  for (const b of world.buildings) {
+    const type = BUILDING_TYPES[b.typeId];
+    if (b.owner === owner && b.isComplete && b.workerId === null && type.worker !== null && type.tool) short[type.tool]++;
+  }
+  for (const b of world.buildings) {
+    if (b.owner !== owner || !isSupplyBuilding(b)) continue;
+    for (const t of TOOL_TYPES) short[t] -= Math.max(0, b.stock[t] - b.reserved[t]);
+  }
+  for (const s of world.settlers) {
+    const tool = s.owner === owner && s.phase === 'idle' && isWorkplaceWorkerType(s.settlerType) ? workerToolOf(s.settlerType) : null;
+    if (tool) short[tool]--;
+  }
+  for (const t of TOOL_TYPES) short[t] = Math.max(0, short[t]);
+  return short;
+}
+
+/** The nearest idle, jobless workplace worker whose trade's tool is this one. */
+function joblessHolding(world: World, tool: GoodType, owner: number, x: number, y: number): Settler | null {
+  const region = landRegion(world, x, y);
+  let best: Settler | null = null, bestDistance = Infinity;
+  for (const s of world.settlers) {
+    if (s.owner !== owner || s.phase !== 'idle' || s.carrying !== null || !isWorkplaceWorkerType(s.settlerType) || workerToolOf(s.settlerType) !== tool) continue;
+    if (region !== 0 && landRegion(world, s.x, s.y) !== region) continue;
+    const d = distance(s.x, s.y, x, y);
+    if (d < bestDistance) { bestDistance = d; best = s; }
+  }
+  return best;
+}
+
 /** Carriers a player always keeps: workplaces and crews take none of these. */
 const MIN_CARRIERS = 3;
 
@@ -444,6 +479,14 @@ function assignWorkers(world: World): void {
   for (const b of world.buildings) {
     const type = BUILDING_TYPES[b.typeId];
     if (!b.isComplete || b.workerId !== null || type.worker === null) continue;
+    // A jobless worker of the trade, tool in hand, comes first.
+    const jobless = nearestIdle(world, type.worker, b.owner, b.doorX, b.doorY);
+    if (jobless && walkTo(world, jobless, doorTile(world, b))) {
+      jobless.homeId = b.id; jobless.phase = 'toWork'; jobless.timer = 0;
+      b.workerId = jobless.id;
+      setBlocked(world, b, null);
+      continue;
+    }
     let store: Building | null = null;
     if (type.tool) {
       let bestDistance = Infinity;
@@ -464,7 +507,9 @@ function assignWorkers(world: World): void {
         // The last builder or digger keeps its tool, or sites could never be built again; only a toolsmith, which
         // makes new tools, may take even that one.
         const crewLeft = crewType ? world.settlers.filter((o) => o.owner === b.owner && o.settlerType === crewType).length : 0;
-        const idle = crewType && (crewLeft > 1 || b.typeId === 'toolsmith') ? nearestIdle(world, crewType, b.owner, b.doorX, b.doorY) : null;
+        // A jobless worker of another trade holding the tool hands it in first.
+        const idle = joblessHolding(world, type.tool, b.owner, b.doorX, b.doorY)
+          ?? (crewType && (crewLeft > 1 || b.typeId === 'toolsmith') ? nearestIdle(world, crewType, b.owner, b.doorX, b.doorY) : null);
         if (idle) {
           const home = storageFor(world, b.owner, type.tool, idle.x, idle.y, false);
           if (home) { home.stock[type.tool]++; idle.settlerType = 'carrier'; }
@@ -644,7 +689,10 @@ function updateIdle(world: World, s: Settler): void {
   const here = tileOf(world, s);
   if (world.door[here] === 0 && isWalkable(world, here) && world.territory[here] === s.owner + 1 && !isGoodsYard(world, here)) return;
   const spot = nearbyWaitingTile(world, s);
-  if (spot < 0 || !walkTo(world, s, spot)) s.timer = 50;
+  if (spot >= 0 && walkTo(world, s, spot)) return;
+  // Far off its own land (it was lost): back toward the castle.
+  const castle = world.territory[here] !== s.owner + 1 ? castleOf(world, s.owner) : null;
+  if (!castle || !walkTo(world, s, doorTile(world, castle))) s.timer = 50;
 }
 
 

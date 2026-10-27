@@ -1,7 +1,7 @@
 import {
   BOT_DIFFICULTY_SETTINGS, BOT_DIFFICULTY_TYPES, BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
   GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
-  costTotal, distributedGoods, goodCount, heldGood, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
+  costTotal, distributedGoods, goodCount, heldGood, toolShortage, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
   BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES,
   OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
   DONKEYS_PER_MARKETPLACE, DONKEY_LOAD, TRADE_MODE_LABELS, TRADE_MODE_TYPES, TRADE_SURPLUS_RESERVE, TRADE_UNLIMITED, donkeysOf,
@@ -203,9 +203,16 @@ export function renderGoodsPanel(world: World, view: GoodsViewId, owner: number)
   if (view === 'inventory') return `${tabs}<ul class="list">${GOOD_TYPES.filter((g) => !made.includes(g)).map(row).join('')}</ul>`;
   const player = world.players[owner];
   if (view === 'tools') {
+    // Workplaces standing idle for want of each tool.
+    const short: Partial<Record<GoodType, number>> = toolShortage(world, owner);
+    const shortLabel = (g: GoodType) => {
+      const n = short[g] ?? 0;
+      if (n === 0) return '';
+      return `<span class="short-badge" title="${n} finished ${n === 1 ? 'building waits' : 'buildings wait'} for a worker with this tool">${n} short</span>`;
+    };
     const lines = (goods: readonly GoodType[]) => goods.map((g) => `
       <div class="made-row">
-        <span>${GOOD_LABELS[g]} <span class="muted">· ${counts[g].stored}</span></span>
+        <span class="made-name">${GOOD_LABELS[g]} <span class="muted">· ${counts[g].stored}</span>${shortLabel(g)}</span>
         ${stepper('order', `data-good="${g}"`, player.productionOrders[g] ?? 0, `Order ${GOOD_LABELS[g]}`)}
         ${shareSlider(g, player.productionShares[g] ?? 0, `data-share-good="${g}"`, `Share of ${GOOD_LABELS[g]}`)}
       </div>`).join('');

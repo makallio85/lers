@@ -177,6 +177,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .made-head, .made-row { display: grid; grid-template-columns: 1fr auto 92px; gap: 8px; align-items: center; font-size: 13px; }
 .made-head { color: var(--muted); font-size: 12px; }
 .made-row { padding: 4px 0; }
+.made-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; min-width: 0; }
+.short-badge { white-space: nowrap; color: var(--warning-text); font-size: 12px; font-weight: 600; }
 .made-row.team-row { display: flex; justify-content: space-between; font-size: 14px; }
 .ship-order { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 4px 0; font-size: 13px; }
 .ship-order .grow { display: flex; flex-direction: column; gap: 2px; }

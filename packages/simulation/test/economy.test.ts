@@ -157,7 +157,7 @@ test('a workplace without its tool waits, then takes the tool from storage', () 
   assert.equal(castle.stock.saw, 0);
 });
 
-test('demolishing returns half of the materials; the worker hands in the tool', () => {
+test('demolishing returns half of the materials; the worker keeps trade and tool', () => {
   const world = createWorld({ seed: 11 });
   const castle = castleOf(world, 0)!;
   const id = place(world, 'woodcutter');
@@ -166,8 +166,8 @@ test('demolishing returns half of the materials; the worker hands in the tool', 
   assert.equal(command(world, { type: 'demolishBuilding', playerId: 0, buildingId: id }).isAccepted, true);
   assert.equal(castle.stock.plank, planks + 1);
   assert.equal(castle.stock.stone, stone + 1);
-  assert.equal(castle.stock.axe, axes + 1);
-  assert.equal(world.settlers.some((s) => s.settlerType === 'woodcutter'), false);
+  assert.equal(castle.stock.axe, axes, 'the axe stays with the woodcutter');
+  assert.equal(world.settlers.some((s) => s.settlerType === 'woodcutter' && s.homeId === null), true, 'a jobless woodcutter waits for the next woodcutter hut');
   assert.equal(command(world, { type: 'demolishBuilding', playerId: 0, buildingId: castle.id }).isAccepted, false);
   run(world, 600);
   for (const b of world.buildings) for (const g of GOOD_TYPES) assert.equal(b.reserved[g], 0);
