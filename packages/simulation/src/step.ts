@@ -36,7 +36,7 @@ const CLAIM_TICKS = 50;
 /** A producer stops once this many finished goods wait at its door. */
 export const OUTPUT_LIMIT = 8;
 export const WARN_AFTER_TICKS = 150;
-export const RESIDENT_INTERVAL_TICKS = 60;
+export const RESIDENT_INTERVAL_TICKS = 20;
 /** How long a newcomer stands by its new house before going to wait for work, in ticks. */
 const NEWCOMER_LINGER_TICKS = 300;
 export const MAX_FIELDS_PER_FARM = 12;
