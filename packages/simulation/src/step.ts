@@ -31,7 +31,7 @@ export const CLAIM_RADIUS = 4;
 /** Pioneers go on pushing the border outward from their spot, claiming land next to the player's own, this far. */
 export const PIONEER_REACH = 12;
 const PROSPECT_TICKS = 50;
-const CLAIM_TICKS = 60;
+const CLAIM_TICKS = 50;
 
 /** A producer stops once this many finished goods wait at its door. */
 export const OUTPUT_LIMIT = 8;
@@ -615,8 +615,8 @@ function updateSettler(world: World, s: Settler): void {
 
 
 /**
- * Idle settlers stay in the world: they wait outside, near the nearest storage area on their land, each on a tile of
- * its own (see spreadStanding), until a job comes. Only a building's workers and garrison go inside.
+ * Idle settlers stay in the world: they wait outside where their last job left them, each on a tile of its own
+ * (see spreadStanding), until a job comes. Only a building's workers and garrison go inside.
  */
 function updateIdle(world: World, s: Settler): void {
   // Geologists and pioneers wait where they are for their next order.
@@ -631,10 +631,26 @@ function updateIdle(world: World, s: Settler): void {
   // Finish the step first, so nobody rests in a doorway, then wait out the rest.
   if (s.path.length > 0) { advance(world, s); return; }
   if (s.timer > 0) { s.timer--; return; }
-  const home = storageFor(world, s.owner, 'log', s.x, s.y, false);
-  if (!home || distance(s.x, s.y, home.x + home.size / 2 - 0.5, home.y + home.size / 2 - 0.5) <= WAIT_RADIUS) return;
-  // Cut off from storage: wait a while before trying again.
-  if (!walkTo(world, s, waitingTile(world, s, home))) s.timer = 50;
+  // Idle settlers wait where they stopped; one in a doorway, on a building or off its own land steps aside.
+  const here = tileOf(world, s);
+  if (world.door[here] === 0 && isWalkable(world, here) && world.territory[here] === s.owner + 1) return;
+  const spot = nearbyWaitingTile(world, s);
+  if (spot < 0 || !walkTo(world, s, spot)) s.timer = 50;
+}
+
+/** The nearest tile of the settler's own land, out of doorways, to wait on; -1 within 6 tiles. */
+function nearbyWaitingTile(world: World, s: Settler): number {
+  const cx = Math.round(s.x), cy = Math.round(s.y);
+  let best = -1, bestDistance = Infinity;
+  for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
+    const x = cx + dx, y = cy + dy;
+    if (!inBounds(world, x, y)) continue;
+    const i = tileIndex(world, x, y);
+    if (world.door[i] !== 0 || !isWalkable(world, i) || world.territory[i] !== s.owner + 1) continue;
+    const d = Math.hypot(dx, dy) + ((i * 7 + s.id * 13) % 17) * 0.02;
+    if (d < bestDistance) { bestDistance = d; best = i; }
+  }
+  return best;
 }
 
 /**
@@ -651,22 +667,6 @@ function updateLeaving(world: World, s: Settler): void {
   s.phase = spot >= 0 && walkTo(world, s, spot) && isUnit ? 'moving' : 'idle';
 }
 
-/** A free spot of the settler's own land near a storage area, out of its doorway, to wait on. */
-function waitingTile(world: World, s: Settler, store: Building): number {
-  let best = doorTile(world, store), bestDistance = Infinity;
-  for (let dy = -4; dy <= 4; dy++) {
-    for (let dx = -4; dx <= 4; dx++) {
-      const x = store.doorX + dx, y = store.doorY + dy;
-      if (!inBounds(world, x, y)) continue;
-      const i = tileIndex(world, x, y);
-      if (world.door[i] !== 0 || !isWalkable(world, i) || world.territory[i] !== s.owner + 1) continue;
-      // Spread out by id, so a crowd heads for different spots.
-      const d = Math.hypot(dx, dy - 1.5) + ((i * 7 + s.id * 13) % 17) * 0.05;
-      if (d < bestDistance) { bestDistance = d; best = i; }
-    }
-  }
-  return best;
-}
 
 function updateToStore(world: World, s: Settler): void {
   if (s.path.length === 0) {
@@ -1226,13 +1226,8 @@ function updateSpecialist(world: World, s: Settler): void {
       world.prospect[s.owner][s.targetTile] = 1;
       world.mapVersion++;
     } else if (canClaim(world, s.owner, s.targetTile)) {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (!inBounds(world, tx + dx, ty + dy)) continue;
-          const i = tileIndex(world, tx + dx, ty + dy);
-          if (canClaim(world, s.owner, i)) world.pioneerLand[i] = s.owner + 1;
-        }
-      }
+      // One tile per post, as a geologist checks one tile at a time.
+      world.pioneerLand[s.targetTile] = s.owner + 1;
       recomputeTerritory(world);
     }
     s.targetTile = -1; s.timer = 0;
@@ -1262,10 +1257,8 @@ function specialistTiles(world: World, s: Settler): number[] {
   const taken = new Set<number>();
   for (const o of world.settlers) {
     if (o !== s && o.owner === s.owner && o.settlerType === s.settlerType && o.targetTile >= 0) {
-      // A claim covers the 3 × 3 tiles around it, a geologist's check its own tile.
-      if (!isPioneer) { taken.add(o.targetTile); continue; }
-      const ox = o.targetTile % world.width, oy = Math.floor(o.targetTile / world.width);
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(world, ox + dx, oy + dy)) taken.add(tileIndex(world, ox + dx, oy + dy));
+      // A post or a check covers its own tile.
+      taken.add(o.targetTile);
     }
   }
   // The first claim on land of its own (a new island) may stand anywhere near the spot; every later one touches
