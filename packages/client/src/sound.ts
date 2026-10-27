@@ -14,7 +14,7 @@ const VARIANTS: Record<SoundId, number> = {
 };
 /** Loudness of each sound before distance: work quiet, battle louder, the interface in between. */
 const LOUDNESS: Record<SoundId, number> = {
-  chop: 0.35, hammer: 0.35, pick: 0.35, dig: 0.3, clash: 0.45, bow: 0.4, fall: 0.5, collapse: 0.8, siege: 0.7,
+  chop: 0.35, hammer: 0.35, pick: 0.35, dig: 0.45, clash: 0.45, bow: 0.4, fall: 0.5, collapse: 0.8, siege: 0.7,
   built: 0.5, place: 0.5, click: 0.3, error: 0.45, alert: 0.6, victory: 0.7, defeat: 0.7
 };
 /** The same sound plays at most this often, in milliseconds, so a crowd at work does not become noise. */
@@ -38,7 +38,8 @@ export class SoundBoard {
   private context: AudioContext | null = null;
   private readonly buffers = new Map<string, AudioBuffer>();
   private readonly lastPlayed = new Map<SoundId, number>();
-  private playing = 0;
+  /** When each sound now playing ends (performance.now), so the limit counts only sounds still heard. */
+  private endsAt: number[] = [];
   /** Sounds started so far, by name; for tests and tuning. */
   readonly played = new Map<SoundId, number>();
   isOn: boolean;
@@ -72,8 +73,11 @@ export class SoundBoard {
   /** Plays a sound; `pan` from -1 (left) to 1 (right), `volume` from 0 to 1 on top of the sound's own loudness. */
   play(id: SoundId, volume = 1, pan = 0): void {
     const ctx = this.context;
-    if (!this.isOn || !ctx || ctx.state !== 'running' || volume * this.level / 100 <= 0.02 || this.playing >= MAX_PLAYING) return;
+    // Nothing while the tab is hidden: the browser may hold such sounds back, and they would never end.
+    if (!this.isOn || !ctx || ctx.state !== 'running' || document.hidden || volume * this.level / 100 <= 0.02) return;
     const now = performance.now();
+    this.endsAt = this.endsAt.filter((t) => t > now);
+    if (this.endsAt.length >= MAX_PLAYING) return;
     if (now - (this.lastPlayed.get(id) ?? -Infinity) < MIN_GAP_MS) return;
     const buffer = this.buffers.get(`${id}_${Math.floor(Math.random() * VARIANTS[id])}`) ?? this.buffers.get(`${id}_0`);
     if (!buffer) return;
@@ -87,9 +91,8 @@ export class SoundBoard {
     const panner = ctx.createStereoPanner();
     panner.pan.value = Math.max(-1, Math.min(1, pan));
     source.connect(gain).connect(panner).connect(ctx.destination);
-    this.playing++;
+    this.endsAt.push(now + (buffer.duration / source.playbackRate.value) * 1000 + 50);
     this.played.set(id, (this.played.get(id) ?? 0) + 1);
-    source.onended = () => { this.playing--; };
     source.start();
   }
 
