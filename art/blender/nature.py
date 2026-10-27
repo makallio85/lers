@@ -18,7 +18,7 @@ def out(kind, name):
 
 def shoot(s, path, canvas, target_z=0.0, samples=24, size=1):
     s.camera(canvas[0], canvas[1], target_z)
-    s.render(path, samples)
+    s.render(path, samples, fit=True)
     write_meta(path[:-4] + '.json', {'anchor': s.anchor(), 'size': size})
 
 

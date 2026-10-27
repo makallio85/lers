@@ -10,7 +10,8 @@ The map's sprites are rendered from free 3D model kits. Nothing is drawn by hand
   - `settlers.py`: every settler look for every people, in 8 directions, with walk, carry, work and attack movements.
   - `machines.py`: each people's war machine rolling and firing; with `donkey` the pack donkey, and with `ships` the transport and trade ships rocking on the water. Donkeys and ships are drawn once for every people.
 - **The camera:** every sprite uses the same orthographic camera, 30° down and turned 45°, with the same sun. On screen a tile is a 64 × 32 diamond, and sprites are rendered at twice that size.
-- **Packing:** `pack.py` (Python 3 with Pillow) crops the renders, packs settler frames into one sheet per people and look, and writes WebP files and `manifest.json` into `packages/client/public/art/`. The manifest gives each sprite's anchor, the point that stands on the map.
+- **Room for shadows:** the sun is low, so shadows fall long to the right. Buildings, nature and goods are rendered again on a larger canvas whenever the picture or its shadow reaches an edge; settlers, war machines and ships render with fixed room around their cells (`PAD` in `settlers.py` and `machines.py`). `pack.py` warns about any render still cut off at its edge.
+- **Packing:** `pack.py` (Python 3 with Pillow) crops the renders (each settler look to the area all its frames use), packs settler frames into one sheet per people and look, and writes WebP files and `manifest.json` into `packages/client/public/art/`. The manifest gives each sprite's anchor, the point that stands on the map.
 
 ## Rendering everything
 

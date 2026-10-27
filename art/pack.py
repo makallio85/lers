@@ -11,15 +11,28 @@ from PIL import Image
 ART = os.path.dirname(os.path.abspath(__file__))
 RENDERS = os.path.join(ART, '.renders')
 OUT = os.path.join(os.path.dirname(ART), 'packages/client/public/art')
-ALPHA = 10           # pixels fainter than this (the shadow catcher's haze) are cut away
+ALPHA = 24           # pixels fainter than this (the shadow catcher's haze) are cut away
 PAD = 2
+EDGE_ALPHA = 40      # a render this opaque at its canvas edge was cut off: the Blender script needs more room
+
+
+def reaches_edge(im):
+    a = im.getchannel('A')
+    w, h = im.size
+    edges = [a.crop((0, 0, 1, h)), a.crop((w - 1, 0, w, h)), a.crop((0, 0, w, 1)), a.crop((0, h - 1, w, h))]
+    # A lone bright pixel (the denoiser leaves one now and then in a corner) is not a cut-off picture.
+    return any(e.point(lambda v: 255 if v > EDGE_ALPHA else 0).histogram()[255] >= 3 for e in edges)
+
+
+def content_box(im):
+    return im.getchannel('A').point(lambda a: 255 if a > ALPHA else 0).getbbox()
 
 
 def crop(png):
     meta = json.load(open(png[:-4] + '.json'))
     im = Image.open(png).convert('RGBA')
-    mask = im.getchannel('A').point(lambda a: 255 if a > ALPHA else 0)
-    box = mask.getbbox() or (0, 0, 1, 1)
+    if reaches_edge(im): print(f'warning: {png} is cut off at its canvas edge')
+    box = content_box(im) or (0, 0, 1, 1)
     box = (max(0, box[0] - PAD), max(0, box[1] - PAD), min(im.width, box[2] + PAD), min(im.height, box[3] + PAD))
     im = im.crop(box)
     ax, ay = meta['anchor']
@@ -64,18 +77,25 @@ def main():
         race, look = meta_path.split('/')[-2], os.path.basename(meta_path)[:-5]
         if only and look not in only: continue
         meta = json.load(open(meta_path))
-        cw, ch = meta['cell']
-        frames = sum(meta['anims'].values())
-        sheet = Image.new('RGBA', (cw * frames, ch * 8))
+        frames = {(anim, d, k): Image.open(os.path.join(RENDERS, 'settlers', race, look, f'{anim}_{d}_{k}.png')).convert('RGBA')
+                  for anim, n in meta['anims'].items() for d in range(8) for k in range(n)}
+        # One cell for every frame of the look: the area all of them use, with a little room.
+        boxes = [b for b in (content_box(im) for im in frames.values()) if b]
+        rw, rh = next(iter(frames.values())).size
+        box = (max(0, min(b[0] for b in boxes) - PAD), max(0, min(b[1] for b in boxes) - PAD),
+               min(rw, max(b[2] for b in boxes) + PAD), min(rh, max(b[3] for b in boxes) + PAD))
+        if any(reaches_edge(im) for im in frames.values()): print(f'warning: settlers/{race}/{look} is cut off at its canvas edge')
+        cw, ch = box[2] - box[0], box[3] - box[1]
+        sheet = Image.new('RGBA', (cw * sum(meta['anims'].values()), ch * 8))
         anims, col = {}, 0
         for anim, n in meta['anims'].items():
             anims[anim] = {'col': col, 'frames': n}
             for d in range(8):
-                for k in range(n):
-                    sheet.paste(Image.open(os.path.join(RENDERS, 'settlers', race, look, f'{anim}_{d}_{k}.png')).convert('RGBA'), ((col + k) * cw, d * ch))
+                for k in range(n): sheet.paste(frames[anim, d, k].crop(box), ((col + k) * cw, d * ch))
             col += n
+        ax, ay = meta['anchor']
         manifest['settlers'][f'{race}/{look}'] = {
-            'file': save(sheet, f'settlers/{race}/{look}.webp'), 'cell': [cw, ch], 'anchor': [round(v, 1) for v in meta['anchor']], 'anims': anims}
+            'file': save(sheet, f'settlers/{race}/{look}.webp'), 'cell': [cw, ch], 'anchor': [round(ax - box[0], 1), round(ay - box[1], 1)], 'anims': anims}
     with open(os.path.join(OUT, 'manifest.json'), 'w') as f: json.dump(manifest, f, separators=(',', ':'))
     total = sum(os.path.getsize(p) for p in glob.glob(os.path.join(OUT, '**/*.webp'), recursive=True))
     print(f"{len(manifest['buildings'])} buildings, {len(manifest['nature'])} nature, {len(manifest['goods'])} goods, "

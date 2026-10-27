@@ -565,7 +565,7 @@ def render_one(race, typeId):
     out = os.path.join(RENDERS, 'buildings', race, typeId + '.png')
     sails = getattr(b, 'sails', [])
     for o in sails: o.hide_render = True
-    b.s.render(out, 32)
+    b.s.render(out, 32, fit=True)
     write_meta(out[:-4] + '.json', {'anchor': b.s.anchor(), 'size': n})
     if sails: render_sails(b, race, typeId, n, sails)
 
@@ -599,7 +599,7 @@ def main():
     if 'scaffold' in args or not only:
         for n in (2, 3, 4):
             s = scaffold(n); s.camera(CANVAS[n], int(CANVAS[n] * 1.25), target_z=0.9); out = os.path.join(RENDERS, 'buildings', 'scaffold', f'{n}.png')
-            s.render(out, 24); write_meta(out[:-4] + '.json', {'anchor': s.anchor(), 'size': n})
+            s.render(out, 24, fit=True); write_meta(out[:-4] + '.json', {'anchor': s.anchor(), 'size': n})
     for race in races:
         for typeId in SIZES:
             if only and typeId not in only: continue

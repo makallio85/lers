@@ -12,6 +12,10 @@ from nature import weapon_sword, weapon_spear, weapon_bow
 
 SCALE = 0.9
 CELL = (88, 96)
+# Room added around the cell (left, top, right, bottom, render pixels): the low sun throws a settler's shadow far to
+# the right, and soldiers swing weapons and fall wide. pack.py crops each look back to what its frames use.
+PAD = (12, 8, 72, 6)
+SOLDIER_PAD = (36, 28, 104, 22)
 FRAMES = {'walk': 8, 'carry': 8, 'work': 6, 'attack': 6, 'die': 6, 'kick': 6}
 # A carrier with nothing to do kicks a pebble now and then.
 SOURCE = {'walk': 'walk', 'work': 'interact-right', 'attack': 'attack-melee-right', 'die': 'die', 'kick': 'attack-kick-right'}
@@ -210,7 +214,7 @@ def rest_pose(arm):
 
 def render_look(race, look, only_anims=None):
     s, arm, root, actions, anims = build(race, look)
-    s.camera(*CELL, target_z=0.32)
+    s.camera(*CELL, target_z=0.32, pad=SOLDIER_PAD if look in SOLDIERS else PAD)
     base = os.path.join(RENDERS, 'settlers', race, look)
     arm.animation_data_create()
     for anim in anims:
@@ -226,7 +230,7 @@ def render_look(race, look, only_anims=None):
             for k in range(n):
                 s.sc.frame_set(int(round(f0 + (f1 - f0) * k / n)))
                 s.render(os.path.join(base, f'{anim}_{d}_{k}.png'), 12)
-    write_meta(base + '.json', {'anchor': s.anchor(), 'anims': {a: FRAMES[a] for a in anims}, 'cell': list(CELL)})
+    write_meta(base + '.json', {'anchor': s.anchor(), 'anims': {a: FRAMES[a] for a in anims}, 'cell': [s.sc.render.resolution_x, s.sc.render.resolution_y]})
     if look in SOLDIERS: render_tint(s, arm, root, actions, anims, race, look, only_anims)
 
 
@@ -260,13 +264,13 @@ def render_tint(s, arm, root, actions, anims, race, look, only_anims=None):
             for k in range(n):
                 s.sc.frame_set(int(round(f0 + (f1 - f0) * k / n)))
                 s.render(os.path.join(base, f'{anim}_{d}_{k}.png'), 8)
-    write_meta(base + '.json', {'anchor': s.anchor(), 'anims': {a: FRAMES[a] for a in anims}, 'cell': list(CELL)})
+    write_meta(base + '.json', {'anchor': s.anchor(), 'anims': {a: FRAMES[a] for a in anims}, 'cell': [s.sc.render.resolution_x, s.sc.render.resolution_y]})
 
 
 def quick(race, looks):
     for look in looks:
         s, arm, root, actions, anims = build(race, look)
-        s.camera(*CELL, target_z=0.32)
+        s.camera(*CELL, target_z=0.32, pad=SOLDIER_PAD if look in SOLDIERS else PAD)
         arm.animation_data_create(); arm.animation_data.action = actions[(SOURCE[anims[1]] if anims[1] != 'carry' else 'holding-both') if len(anims) > 1 else 'walk']
         root.rotation_euler = (0, 0, math.radians(45)); s.sc.frame_set(3)
         s.render(os.path.join(RENDERS, 'quick', race, look + '.png'), 12)
