@@ -55,18 +55,25 @@ CLOTHING = {'romans': ('9a3c32', 'd8cfb8'), 'egyptians': ('e2dccb', '2f5f7a'), '
 CLOTHING_SWATCHES = ('6794d9', 'cf534f', '61cb8b', 'a878e8', 'f378f0', 'ffc044', 'ff7e44')
 for _race, (_a, _b) in CLOTHING.items():
     RACE_PALETTE['characters', _race] = {k: (_a if i % 2 == 0 else _b) for i, k in enumerate(CLOTHING_SWATCHES)}
+# Outfits shared by every people: all civilians wear the same undyed clothes, so a worker reads as a worker by its
+# tool; soldiers wear dark gear unlike any civilian's. The kit's clothing swatches all take the outfit's colour.
+OUTFITS = {'civilian': 'b49f78', 'soldier': '3a404c'}
+# Dark cloth some models use for jackets and belts (on a few it is the hair, which then reads as a linen cap).
+OUTFIT_EXTRA_SWATCHES = ('38383d', '868ba1')
 
 _maps = {}
 
 
-def palette_map(kit, race=None):
-    """The kit's colour map repainted in the Lers palette (and the people's colours), as an image datablock."""
-    key = (kit, race)
+def palette_map(kit, race=None, outfit=None):
+    """The kit's colour map repainted in the Lers palette (and the people's colours, or a shared outfit), as an image datablock."""
+    key = (kit, race, outfit)
     if key in _maps: return _maps[key]
     src = bpy.data.images.load(os.path.join(KITS, kit, 'Models/GLB format/Textures/colormap.png'), check_existing=False)
     w, h = src.size
     px = np.array(src.pixels[:], dtype=np.float32).reshape(h, w, 4)
-    table = dict(BASE); table.update(KIT_PALETTE.get(kit, {})); table.update(RACE_PALETTE.get(key, {}))
+    table = dict(BASE); table.update(KIT_PALETTE.get(kit, {})); table.update(RACE_PALETTE.get((kit, race), {}))
+    if outfit and kit == 'characters':
+        table.update({k: OUTFITS[outfit] for k in CLOTHING_SWATCHES + OUTFIT_EXTRA_SWATCHES})
     cw, ch = w // 8, h // 4
     lum = lambda c: 0.299 * c[..., 0] + 0.587 * c[..., 1] + 0.114 * c[..., 2] + 1e-6
     for r in range(4):
@@ -79,7 +86,7 @@ def palette_map(kit, race=None):
             cell = px[y0:y1, c * cw:(c + 1) * cw]
             k = (lum(cell[..., :3]) / lum(centre))[..., None]
             cell[..., :3] = np.clip(target * k, 0, 1)
-    img = bpy.data.images.new(f'map-{kit}-{race}', w, h, alpha=True)
+    img = bpy.data.images.new(f'map-{kit}-{race}-{outfit}', w, h, alpha=True)
     img.pixels[:] = px.ravel()
     img.pack()
     bpy.data.images.remove(src)
@@ -104,10 +111,11 @@ NATURE = {'leafsGreen': (0.20, 0.33, 0.10), 'leafsDark': (0.12, 0.24, 0.08), 'le
 class Scene:
     """One sprite's scene. `race` picks the people's palette for town and castle pieces."""
 
-    def __init__(self, race=None, shadow=True):
+    def __init__(self, race=None, shadow=True, outfit=None):
         bpy.ops.wm.read_factory_settings(use_empty=True)
         _maps.clear()
         self.race = race
+        self.outfit = outfit
         sc = self.sc = bpy.context.scene
         sun = bpy.data.lights.new('sun', 'SUN'); sun.energy = 4.0; sun.angle = math.radians(6)
         so = bpy.data.objects.new('sun', sun); sc.collection.objects.link(so)
@@ -144,7 +152,7 @@ class Scene:
                 m.blend_method = 'OPAQUE'
                 for n in m.node_tree.nodes:
                     if n.type == 'TEX_IMAGE' and n.image and kit:
-                        n.image = palette_map(kit, self.race if kit in ('town', 'castle', 'characters') else None)
+                        n.image = palette_map(kit, self.race if kit in ('town', 'castle', 'characters') else None, self.outfit)
                 b = m.node_tree.nodes.get('Principled BSDF')
                 if not b: continue
                 b.inputs['Roughness'].default_value = 0.85
