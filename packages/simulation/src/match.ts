@@ -1,4 +1,4 @@
-import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, MAP_SIZE_SETTINGS, RACE_TYPES } from './definitions.ts';
+import { BUILDING_TYPES, isSoldierType, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, MAP_SIZE_SETTINGS, RACE_TYPES } from './definitions.ts';
 import type { BuildingTypeId, MapLayoutType, MapSizeType, RaceType, StartingGoodsType, VictoryType } from './definitions.ts';
 import { BOT_DECISION_TICKS, BOT_DIFFICULTY_SETTINGS, decideBot } from './bot.ts';
 import type { BotAttackStartType, BotDifficultyType, BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
@@ -87,10 +87,38 @@ export function stepMatch(world: World, commands: readonly Command[] = [], botLo
       // An easier bot skips some of its turns.
       if (Math.floor((world.tick + BOT_DECISION_TICKS - offset) / BOT_DECISION_TICKS) % BOT_DIFFICULTY_SETTINGS[player.difficultyType].decisionEvery !== 0) continue;
       const log = botLog && ((text: string) => { botLog.push({ tick: world.tick, playerId: player.id, text }); });
+      if (isGivingUp(world, player.id)) {
+        log?.('surrender: the match is lost');
+        botCommands.push({ type: 'surrender', playerId: player.id });
+        continue;
+      }
       botCommands.push(...decideBot(observe(world, player.id), spotFinder(world, player.id), log));
     }
   }
   return step(world, [...commands, ...botCommands]).slice(0, commands.length);
+}
+
+/** A computer player gives up once the match has looked lost for this long. */
+export const BOT_SURRENDER_TICKS = 10 * 600;
+/** Lost: below this share of the most land it ever held, with this few soldiers left. */
+const HOPELESS_LAND_SHARE = 0.25;
+const HOPELESS_SOLDIERS = 2;
+
+/**
+ * Whether a computer player surrenders now: for ten minutes it has held under a quarter of its largest land with at
+ * most two soldiers left, so a practice match does not drag on against a beaten opponent. Not in the economy mode,
+ * where land and soldiers do not decide the match.
+ */
+function isGivingUp(world: World, playerId: number): boolean {
+  const player = world.players[playerId];
+  if (world.victoryType === 'economy') return false;
+  let land = 0;
+  for (let i = 0; i < world.territory.length; i++) if (world.territory[i] === playerId + 1) land++;
+  const soldiers = world.settlers.filter((s) => s.owner === playerId && isSoldierType(s.settlerType) && s.health > 0).length;
+  const isHopeless = land < player.stats.largestTerritory * HOPELESS_LAND_SHARE && soldiers <= HOPELESS_SOLDIERS;
+  if (!isHopeless) { player.hopelessSince = null; return false; }
+  if (player.hopelessSince === null) player.hopelessSince = world.tick;
+  return world.tick - player.hopelessSince >= BOT_SURRENDER_TICKS;
 }
 
 /**

@@ -192,6 +192,22 @@ test('a chosen attack start: the computer attacks soon after it, and never when 
   assert.equal(attackMinute('never'), null);
 });
 
+test('a beaten computer player surrenders after ten minutes, and the match ends', () => {
+  const world = createMatch(4);
+  world.players[1].isBot = true;
+  // The computer once held far more land than it does now, and has no soldiers left.
+  world.players[1].stats.largestTerritory = 100_000;
+  world.settlers = world.settlers.filter((s) => s.owner !== 1 || !['swordsman', 'spearman', 'bowman'].includes(s.settlerType));
+  castleOf(world, 1)!.garrison = [];
+  world.players[1].isRecruitingAutomatic = false;
+  const log: BotLogEntry[] = [];
+  for (let t = 0; t < 9 * 600; t++) stepMatch(world, [], log);
+  assert.equal(world.winner, null, 'not before ten minutes');
+  for (let t = 0; t < 3 * 600 && world.winner === null; t++) stepMatch(world, [], log);
+  assert.equal(world.winner, 0);
+  assert.ok(world.messages.some((m) => m.owner === 0 && m.text.endsWith('surrendered')));
+});
+
 test('observations hide what a player cannot see', () => {
   const world = createMatch(4);
   run(world, 10);
