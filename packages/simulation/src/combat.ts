@@ -267,6 +267,8 @@ function updateAttacking(world: World, s: Settler): void {
     advance(world, s);
     return;
   }
+  // A tower still being built falls as soon as soldiers reach it.
+  if (!target.isComplete) { tearDownSite(world, target, s); return; }
   // At the door: the building falls once nobody defends it and no other tower of its owner covers it.
   if (target.garrison.length > 0 || defendersOut(world, target).length > 0) return;
   const cover = coveringBuilding(world, target);
@@ -277,6 +279,15 @@ function updateAttacking(world: World, s: Settler): void {
     warnCovered(world, s.owner, target, cover);
   }
   s.attackId = cover.id; s.path = [];
+}
+
+function tearDownSite(world: World, b: Building, s: Settler): void {
+  const label = BUILDING_TYPES[b.typeId].label;
+  s.phase = 'idle'; s.attackId = null; s.attackAfterId = null; s.path = [];
+  pushMessage(world, s.owner, `Enemy ${label.toLowerCase()} site torn down`, 'Your soldiers destroyed it before it was finished.', false, null);
+  pushMessage(world, b.owner, `${label} site destroyed`, 'Enemy soldiers tore it down.', true, null);
+  destroyBuilding(world, b);
+  recomputeTerritory(world);
 }
 
 /** Tells the attacker, once a minute at most, why its soldiers turned to another building. */

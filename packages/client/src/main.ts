@@ -686,7 +686,10 @@ function tapAt(clientX: number, clientY: number, isAdding: boolean, selectKind: 
 type OrderModeAt = 'move' | 'attack' | 'auto' | 'waypoint' | 'patrol' | 'free';
 
 function orderAt(clientX: number, clientY: number, mode: OrderModeAt): void {
-  orderAtTile(view.screenToTile(clientX, clientY), buildingAt(clientX, clientY), mode);
+  // An attack goes for the enemy tower or castle under the pointer, even where another building's picture overlaps it.
+  const enemyMilitary = mode === 'move' ? undefined : view.buildingsAtScreen(clientX, clientY)
+    .find((b) => view.isBuildingVisible(b) && isEnemy(world, PLAYER, b.owner) && isMilitaryBuilding(b));
+  orderAtTile(view.screenToTile(clientX, clientY), enemyMilitary ?? buildingAt(clientX, clientY), mode);
 }
 
 /** Orders the selected units to a tile (or against a building there), from the map or the minimap; anywhere, explored or not. */

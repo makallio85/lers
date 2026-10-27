@@ -372,7 +372,8 @@ export function applyCommand(world: World, command: Command): CommandResult {
       if (!target || !isEnemy(world, command.playerId, target.owner) || !hasExploredBuilding(world, command.playerId, target)) {
         return refuse('Choose an enemy building you can see');
       }
-      if (!isMilitaryBuilding(target) || !target.isComplete) return refuse('Only towers and castles can be attacked');
+      // A tower still being built has nobody to defend it: soldiers who reach it tear it down.
+      if (!isMilitaryBuilding(target)) return refuse('Only towers and castles can be attacked');
       if (soldiers.some((s) => isShipType(s.settlerType))) return refuse('Ships cannot attack: land the soldiers first');
       for (const s of soldiers) {
         s.phase = 'attacking'; s.attackId = target.id; s.attackAfterId = null; s.path = []; s.enemyId = null;

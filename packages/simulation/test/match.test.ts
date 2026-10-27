@@ -224,6 +224,19 @@ test('a jobless worker hands in its tool when another trade waits for it', () =>
   assert.notEqual(miner.settlerType, 'miner', 'the miner handed in the pick');
 });
 
+test('soldiers sent against an enemy tower still being built tear it down', () => {
+  const world = createMatch(4);
+  const enemyCastle = castleOf(world, 1)!;
+  const site = newBuilding(world, 'guard_tower_small', 1, enemyCastle.x - 8, enemyCastle.y + 4);
+  const soldier = newSettler(world, 0, 'swordsman', site.doorX - 4, site.doorY);
+  soldier.isInside = false; soldier.phase = 'idle';
+  run(world, 5);
+  const [result] = stepMatch(world, [{ type: 'attackBuilding', playerId: 0, soldierIds: [soldier.id], buildingId: site.id }]);
+  assert.equal(result.isAccepted, true, result.reason);
+  runUntil(world, () => !world.buildings.includes(site), 600);
+  assert.ok(world.messages.some((m) => m.owner === 1 && m.text === 'Small tower site destroyed'));
+});
+
 test('observations hide what a player cannot see', () => {
   const world = createMatch(4);
   run(world, 10);
