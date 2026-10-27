@@ -145,6 +145,8 @@ const PILE_OFFSETS = [[0, 0], [7, -3], [-7, -3], [0, -6], [0, -6], [7, -9], [-7,
 /** Building materials are drawn larger than other goods, on the ground and in a carrier's arms, so they read at a glance. */
 const LARGE_GOODS: ReadonlySet<string> = new Set(['log', 'plank', 'stone']);
 const LARGE_GOODS_SCALE = 1.45;
+/** A building stone is about the size of a settler's head: its art is a small block, so it is scaled up most. */
+const STONE_SCALE = 3;
 interface SettlerView {
   root: Container; body: Sprite; load: Sprite; dir: number; walked: number;
   /** A soldier's people and look, kept so it can fall when it dies; and when it died, once it has. */
@@ -625,7 +627,7 @@ export class MapView {
         sprite.zIndex = at.x + at.y - 0.4;
         if (!art) { sprite.visible = false; continue; }
         this.place(sprite, art, 0, 0);
-        const size = LARGE_GOODS.has(p.good) ? LARGE_GOODS_SCALE : 1;
+        const size = p.good === 'stone' ? STONE_SCALE : LARGE_GOODS.has(p.good) ? LARGE_GOODS_SCALE : 1;
         sprite.scale.set(this.bank.scale * 0.75 * size);
         sprite.position.set(foot.x + PILE_OFFSETS[n][0] * size, foot.y + PILE_OFFSETS[n][1] * size);
         sprite.visible = true;
@@ -1040,7 +1042,7 @@ export class MapView {
     if (good) {
       this.place(v.load, good, 0, 0);
       // Large enough to tell what is carried at normal zoom.
-      v.load.scale.set(this.bank.scale * (s.settlerType === 'donkey' ? 1.3 : 1.5) * (s.carrying && LARGE_GOODS.has(s.carrying) ? 1.3 : 1));
+      v.load.scale.set(this.bank.scale * (s.settlerType === 'donkey' ? 1.3 : 1.5) * (s.carrying === 'stone' ? 2 : s.carrying && LARGE_GOODS.has(s.carrying) ? 1.3 : 1));
       const fx = Math.sin(v.dir * Math.PI / 4), fy = Math.cos(v.dir * Math.PI / 4);
       const front = iso(fx * 0.12, fy * 0.12);
       // A donkey's load sits on its back; a carrier's in its hands; others carry it above the head.

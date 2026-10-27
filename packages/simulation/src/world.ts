@@ -868,6 +868,24 @@ export const LEAVE_GAP_TICKS = 5;
  * Spots spread evenly over a building's surroundings, nearest first: a sunflower spiral from just outside the
  * building to `WAIT_RADIUS` tiles from its middle, each spot a free walkable tile out of every doorway.
  */
+/**
+ * Ground where goods lie in the open, which idle settlers keep off (they may walk across it): the castle's heaps in
+ * front of it either side of the way in and along its right wall, and a construction site's materials along its right
+ * edge. Matches where the client draws them.
+ */
+export function isGoodsYard(world: World, i: number): boolean {
+  const x = i % world.width, y = Math.floor(i / world.width);
+  for (const b of world.buildings) {
+    const s = b.size;
+    if (b.typeId === 'castle') {
+      const inFront = y >= b.y + s && y <= b.y + s + 3 && x >= b.doorX - 4 && x <= b.doorX + 5 && Math.abs(x - b.doorX) > 1;
+      const bySide = x >= b.x + s && x <= b.x + s + 3 && y >= b.y - 1 && y <= b.y + s + 1;
+      if (inFront || bySide) return true;
+    } else if (!b.isComplete && x === b.x + s && y >= b.y - 1 && y <= b.y + s) return true;
+  }
+  return false;
+}
+
 export function spreadSpots(world: World, b: Building, count: number): number[] {
   const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
   const inner = b.size / 2 + 1.5, outer = WAIT_RADIUS - 0.5;
@@ -884,7 +902,7 @@ export function spreadSpots(world: World, b: Building, count: number): number[] 
         const x = tx + dx, y = ty + dy;
         if (!inBounds(world, x, y)) continue;
         const i = tileIndex(world, x, y);
-        if (taken.has(i) || world.door[i] !== 0 || !isWalkable(world, i)) continue;
+        if (taken.has(i) || world.door[i] !== 0 || !isWalkable(world, i) || isGoodsYard(world, i)) continue;
         const d = Math.hypot(dx, dy);
         if (d < bestDistance) { bestDistance = d; best = i; }
       }

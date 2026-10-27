@@ -2,7 +2,7 @@ import { SHIP_SPEED_SHARE, WAR_MACHINE_SPEED_SHARE, isShipType, isSpecialistType
 import { isSeaPassable } from './sea.ts';
 import type { SettlerType } from './definitions.ts';
 import { findPath } from './pathfinding.ts';
-import { TERRAIN_MOUNTAIN, isWalkable, tileIndex } from './world.ts';
+import { TERRAIN_MOUNTAIN, isGoodsYard, isWalkable, tileIndex } from './world.ts';
 import type { Building, Settler, World } from './world.ts';
 
 /** Tiles per tick: 2.2 tiles a second, as settlers walk in The Settlers III. */
@@ -71,7 +71,7 @@ export function distance(ax: number, ay: number, bx: number, by: number): number
 function nearestFreeTile(world: World, s: Settler, taken: ReadonlySet<number>): number {
   const { width, height } = world;
   const start = tileOf(world, s);
-  const canStep = (i: number) => isWalkable(world, i) && (!isCivilianType(s.settlerType) || world.territory[i] === s.owner + 1)
+  const canStep = (i: number) => isWalkable(world, i) && (!isCivilianType(s.settlerType) || (world.territory[i] === s.owner + 1 && !isGoodsYard(world, i)))
     && (!isWarMachineType(s.settlerType) || isMachinePassable(world, i));
   // Caught inside a footprint (a building put up where it stood): it may search through the building to get out.
   const isTrapped = !isWalkable(world, start);
