@@ -155,7 +155,7 @@ Issue #12, phase 4. The roles follow the manual; the names, numbers and effects 
 
 Issue #12, phase 5, following the manual.
 
-- **Carriers stay on their own land.** Civilians walk only on their own territory, and goods only move between buildings on the same connected stretch of it. Soldiers, specialists, priests, thieves and donkeys may leave it. A colony cut off by neutral or enemy land is supplied by caravans.
+- **Carriers stay on their own land.** Civilians walk only on their own territory (a gatherer whose tree, rock, shore or field ends up on another player's land when the border moves lets it go and walks home), and goods only move between buildings on the same connected stretch of it. Soldiers, specialists, priests, thieves and donkeys may leave it. A colony cut off by neutral or enemy land is supplied by caravans.
 - **Donkey ranch:** a breeder raises a donkey from one grain and one water every minute, while the ranch has fewer than four waiting.
 - **Marketplace:** one land route per marketplace. The route's end can be anywhere on the map, with up to three waypoints on explored land before it.
   - For each good the player sets an amount to send, in steps of a donkey's load (8), or "All".

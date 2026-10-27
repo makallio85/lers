@@ -833,9 +833,11 @@ function updateWorker(world: World, s: Settler): void {
       if (s.timer > 0) { s.timer--; return; }
       return decideWork(world, s, home, type);
     case 'toTarget':
+      if (isTargetLost(world, s)) return giveUpTarget(world, s, home);
       if (advance(world, s)) { s.phase = 'working'; s.timer = isGatherType(type) ? GATHER_RULES[type].workTicks : 0; }
       return;
     case 'working':
+      if (isTargetLost(world, s)) return giveUpTarget(world, s, home);
       if (s.timer > 0) { s.timer--; return; }
       return finishWork(world, s, home, type);
     case 'returning':
@@ -992,6 +994,20 @@ function decideWarMachine(world: World, s: Settler, home: Building, machine: War
 function isFreeLand(world: World, i: number): boolean {
   return world.terrain[i] === TERRAIN_GRASS && world.tree[i] === NO_TREE && world.rock[i] === 0
     && world.field[i] === NO_FIELD && world.footprint[i] === 0 && world.door[i] === 0;
+}
+
+/** A gatherer's tree, rock, shore or field that is no longer on its owner's land (the border moved): it stops there. */
+function isTargetLost(world: World, s: Settler): boolean {
+  return s.targetTile >= 0 && world.territory[s.targetTile] !== s.owner + 1;
+}
+
+/** Leaves a target on land that is no longer the owner's and walks home empty-handed. */
+function giveUpTarget(world: World, s: Settler, home: Building): void {
+  world.claim[s.targetTile] = 0;
+  s.targetTile = -1;
+  s.timer = 0;
+  if (!walkTo(world, s, doorTile(world, home))) { s.phase = 'inside'; s.isInside = true; s.timer = 20; return; }
+  s.phase = 'returning';
 }
 
 /** The water tile next to a shore tile with the most fish, or -1 when none there holds any. */

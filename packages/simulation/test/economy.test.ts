@@ -347,3 +347,18 @@ test('land quality: fields grow at their soil pace, fishers catch only where fis
   assert.equal(world.fish[water], before - 1, 'two came back');
   assert.ok(world.fish.some((f, i) => world.terrain[i] === 1 && f === 0), 'and some water holds none');
 });
+
+test('a gatherer whose target is no longer on its owner\'s land turns back', () => {
+  const world = createWorld({ seed: 11 });
+  const id = place(world, 'stonecutter');
+  runUntil(world, () => building(world, id).isComplete && world.settlers.some((s) => s.homeId === id && s.phase === 'toTarget'), 8000);
+  const worker = world.settlers.find((s) => s.homeId === id && s.phase === 'toTarget')!;
+  const target = worker.targetTile;
+  assert.ok(target >= 0);
+  // The border moves under the rock: another player's land now.
+  world.territory[target] = 2;
+  step(world);
+  assert.equal(worker.targetTile, -1, 'it lets the rock go');
+  assert.equal(world.claim[target], 0);
+  assert.equal(worker.phase, 'returning', 'and walks home');
+});
