@@ -932,10 +932,11 @@ export function renderOrderBar(units: Settler[], mode: OrderMode, isTouch: boole
     : mode === 'waypoint' ? 'Tap or click each spot in turn, then press Done'
     : mode === 'patrol' ? 'Tap or click the far end of the patrol'
     : mode === 'free' ? 'Tap or click where they should go; they will not stop to fight'
-    : isSpecialistsOnly ? `${isTouch ? 'Move, then tap' : 'Right-click'} where they should go; they wait there until you press ${workLabel(units)}`
+    : isSpecialistsOnly ? (isTouch ? `Move, then tap where they should go; they wait there until you press ${workLabel(units)}. Double-tap one: all of its kind in view`
+      : `Right-click where they should go; they wait there until you press ${workLabel(units)} · Alt+right-click: go and start work · Alt+click one: all of its kind in view`)
     : isTouch ? (machines.length > 0 ? 'War machines need open ground: no forest, rocks or mountains' : '')
     : machines.length > 0 ? 'Right-click an enemy tower or castle: fire at it · right-click ground: move · Shift: waypoint. War machines need open ground: no forest, rocks or mountains.'
-    : 'Right-click: move or attack (also on the minimap) · Shift: waypoint · Alt: patrol · H: hold';
+    : 'Right-click: move or attack (also on the minimap) · Shift: waypoint · Alt: patrol · H: hold · Alt+click a unit: all of its kind in view · Ctrl+click: all in view';
   const modeButton = (id: Exclude<OrderMode, null>, label: string, isDisabled = false) =>
     `<button type="button" class="order-mode" data-action="order-mode" data-mode="${id}" aria-pressed="${mode === id}" ${isDisabled ? 'disabled' : ''}>${label}</button>`;
   return `

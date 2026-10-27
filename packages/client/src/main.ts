@@ -143,6 +143,8 @@ const ui = {
   menuNotice: null as string | null,
   isEndHidden: false,
   dismissed: new Set<number>(),
+  /** The last unit tapped and when, so a second tap on it soon after selects all of its kind in view. */
+  lastTap: null as { id: number; at: number } | null,
   /**
    * The full-screen menu over the map: the title, the match setup or the settings; null while playing. The game
    * stands still while one is open. `frontReturn` is where Back goes: the title, or (null) back to the game.
@@ -634,7 +636,17 @@ function soldierAt(clientX: number, clientY: number): Settler | undefined {
   return best;
 }
 
-function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
+/** The player's units on screen now. */
+function unitsInView(): Settler[] {
+  const rect = view.app.canvas.getBoundingClientRect();
+  return world.settlers.filter((s) => {
+    if (!isOwnUnit(s)) return false;
+    const p = view.tileToCanvas(s.x, s.y);
+    return p.x >= 0 && p.y >= 0 && p.x <= rect.width && p.y <= rect.height;
+  });
+}
+
+function tapAt(clientX: number, clientY: number, isAdding: boolean, selectKind: 'one' | 'same' | 'all' = 'one'): void {
   ui.isConfirmingDemolish = false;
   if (ui.routeFor !== null) {
     const tile = view.screenToTile(clientX, clientY);
@@ -653,6 +665,13 @@ function tapAt(clientX: number, clientY: number, isAdding: boolean): void {
   const soldier = soldierAt(clientX, clientY);
   if (soldier) {
     if (!isAdding) ui.selectedSoldiers.clear();
+    // As in the original: Alt + click (or a double tap) takes all of that kind in view, Ctrl + click all units in view.
+    const now = performance.now();
+    const isDoubleTap = ui.lastTap !== null && ui.lastTap.id === soldier.id && now - ui.lastTap.at < 400;
+    ui.lastTap = { id: soldier.id, at: now };
+    if (selectKind === 'same' || selectKind === 'all' || isDoubleTap) {
+      for (const s of unitsInView()) if (selectKind === 'all' || s.settlerType === soldier.settlerType) ui.selectedSoldiers.add(s.id);
+    }
     ui.selectedSoldiers.add(soldier.id);
     ui.selectedId = null;
     renderSelectionCard(); renderOrders();
@@ -678,7 +697,8 @@ function orderAtTile(tile: { x: number; y: number }, b: ReturnType<typeof buildi
   if (units.length === 0) return;
   // Specialists only ever walk to a spot and work there; soldiers may attack.
   if (specialistIds.length > 0 && mode !== 'attack') {
-    submit({ type: 'moveSpecialists', playerId: PLAYER, settlerIds: specialistIds, x: tile.x, y: tile.y });
+    // As in the original, Alt + right-click sends them and starts their work there (patrol is for soldiers).
+    submit({ type: 'moveSpecialists', playerId: PLAYER, settlerIds: specialistIds, x: tile.x, y: tile.y, isWorking: mode === 'patrol' });
   }
   if (soldierIds.length > 0) {
     if (b && isEnemy(world, PLAYER, b.owner) && mode !== 'move') {
@@ -836,7 +856,7 @@ function endPointer(e: PointerEvent): void {
   if (isRight) { orderAt(e.clientX, e.clientY, e.shiftKey ? 'waypoint' : e.altKey ? 'patrol' : 'auto'); return; }
   if (ui.orderMode === 'spell') { castAt(e.clientX, e.clientY); return; }
   if (ui.orderMode && ui.orderMode !== 'select') { orderAt(e.clientX, e.clientY, ui.orderMode); return; }
-  tapAt(e.clientX, e.clientY, e.shiftKey);
+  tapAt(e.clientX, e.clientY, e.shiftKey, e.altKey ? 'same' : e.ctrlKey || e.metaKey ? 'all' : 'one');
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
