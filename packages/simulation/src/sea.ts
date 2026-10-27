@@ -109,7 +109,7 @@ export function boardingProblem(world: World, ship: Settler, units: readonly Set
 export function board(world: World, ship: Settler, units: readonly Settler[]): void {
   for (const u of units) {
     u.shipId = ship.id; u.isInside = true; u.phase = 'inside'; u.path = []; u.waypoints = [];
-    u.homeId = null; u.attackId = null; u.attackAfterId = null; u.enemyId = null; u.isPatrolling = false; u.isHolding = false;
+    u.homeId = null; u.attackId = null; u.enemyId = null; u.isPatrolling = false; u.isHolding = false;
     u.x = ship.x; u.y = ship.y; u.prevX = u.x; u.prevY = u.y;
   }
 }

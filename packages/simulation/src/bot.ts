@@ -494,12 +494,11 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   const mayAttack = obs.victoryType !== 'economy' && obs.tick >= (settings.firstAttackMinutes[mapSize] * level.attackFactor + level.attackExtraMinutes) * TICKS_PER_MINUTE;
   const attacking = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && s.phase === 'attacking').length;
   const army = free.length + attacking;
-  const mayTakeCastle = army >= settings.castleArmy && obs.tick >= (settings.castleMinutes[mapSize] * level.attackFactor + level.attackExtraMinutes) * TICKS_PER_MINUTE;
-  // A building another visible tower of its owner covers cannot be taken yet; attacking it still thins out
-  // its defenders, so it is a target, but a later one.
-  const isCovered = (t: ObservedBuilding) => obs.enemyBuildings.some((o) => o.id !== t.id && o.owner === t.owner && o.isComplete
-    && (o.typeId === 'castle' || o.garrisonCount > 0) && BUILDING_TYPES[o.typeId].territoryRadius > 0
-    && Math.hypot(o.x + o.size / 2 - (t.x + t.size / 2), o.y + o.size / 2 - (t.y + t.size / 2)) <= BUILDING_TYPES[o.typeId].territoryRadius);
+  // Soldiers beyond one in each tower count toward the castle attack: once there are enough, the towers send them out.
+  const spareInTowers = obs.ownBuildings.filter((b) => b.typeId !== 'castle').reduce((n, b) => n + Math.max(0, b.garrisonCount - 1), 0);
+  const isCastleTime = obs.tick >= (settings.castleMinutes[mapSize] * level.attackFactor + level.attackExtraMinutes) * TICKS_PER_MINUTE;
+  const mayTakeCastle = army >= settings.castleArmy && isCastleTime;
+  const isGatheringForCastle = !mayTakeCastle && isCastleTime && !isIslands && army + spareInTowers >= settings.castleArmy;
   const targets = obs.enemyBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0 && spots.canReach(b.doorX, b.doorY, from)
     && (b.typeId !== 'castle' || mayTakeCastle || obs.enemyBuildings.every((o) => o.typeId === 'castle' || BUILDING_TYPES[o.typeId].garrisonCapacity === 0)));
   // A landed army attacks whatever it has; it cannot wait for reinforcements the way a home army can.
@@ -507,7 +506,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     const cx = free.reduce((sum, s) => sum + s.x, 0) / free.length;
     const cy = free.reduce((sum, s) => sum + s.y, 0) / free.length;
     // Near and weakly held first; a large army goes for the castle to end the match.
-    const cost = (t: (typeof targets)[number]) => Math.hypot(t.doorX - cx, t.doorY - cy) + t.garrisonCount * 6 + (isCovered(t) ? 30 : 0)
+    const cost = (t: (typeof targets)[number]) => Math.hypot(t.doorX - cx, t.doorY - cy) + t.garrisonCount * 6
       - (t.typeId === 'castle' && mayTakeCastle ? 40 : 0);
     targets.sort((a, b) => cost(a) - cost(b) || a.id - b.id);
     const target = targets[0];
@@ -546,6 +545,14 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     machineTargets.sort((a, b) => (b.garrisonCount * 8 - Math.hypot(b.doorX - mx, b.doorY - my)) - (a.garrisonCount * 8 - Math.hypot(a.doorX - mx, a.doorY - my)) || a.id - b.id);
     commands.push({ type: 'attackBuilding', playerId: me, soldierIds: idleMachines.map((m) => m.id), buildingId: machineTargets[0].id });
     note(`machines: ${idleMachines.length} against ${machineTargets[0].typeId} #${machineTargets[0].id}`);
+  }
+  // Enough soldiers for the castle, but sitting in towers: every tower keeps one and sends the rest out.
+  if (mayAttack && isGatheringForCastle) {
+    for (const b of obs.ownBuildings) {
+      if (b.typeId === 'castle' || b.garrisonWanted <= 1 || b.garrisonCount <= 1) continue;
+      commands.push({ type: 'setGarrisonWanted', playerId: me, buildingId: b.id, count: 1 });
+      note(`gather for the castle: send out the garrison of ${b.typeId} #${b.id}`);
+    }
   }
   // On islands, towers taken across the sea keep one soldier each and send the rest out, so the army there goes on.
   if (isIslands && mayAttack && landed.length === 0) {
