@@ -1,6 +1,6 @@
 import { BUILDING_TYPES, SPELL_STATS, isSpecialistType, isUnitType } from './definitions.ts';
 import type { BuildingTypeId, GoodAmounts, MapLayoutType, SettlerType, VictoryType } from './definitions.ts';
-import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, isEnemy, siteCost, tileIndex } from './world.ts';
+import { VISION_EXPLORED, VISION_NONE, VISION_VISIBLE, inBounds, isEnemy, isMilitaryBuilding, siteCost, tileIndex } from './world.ts';
 import type { PlayerState, World } from './world.ts';
 
 const BUILDING_SIGHT = 7;
@@ -74,6 +74,8 @@ export interface ObservedBuilding {
   doorY: number;
   isComplete: boolean;
   garrisonCount: number;
+  /** Out of sight now: remembered from land explored earlier, its garrison unknown. */
+  isRemembered?: boolean;
 }
 
 export interface OwnBuilding extends ObservedBuilding {
@@ -153,6 +155,9 @@ export function observe(world: World, playerId: number): Observation {
       });
     } else if (canSee(world, playerId, b.doorX, b.doorY) || canSee(world, playerId, b.x + b.size / 2, b.y + b.size / 2)) {
       (isEnemy(world, playerId, b.owner) ? enemyBuildings : allyBuildings).push(seen);
+    } else if (isEnemy(world, playerId, b.owner) && isMilitaryBuilding(b) && hasExploredBuilding(world, playerId, b)) {
+      // An enemy tower or castle on explored land is remembered, as a player sees it on the map, but not who is inside.
+      enemyBuildings.push({ ...seen, garrisonCount: 0, isRemembered: true });
     }
   }
   const ownSoldiers: ObservedSoldier[] = [];

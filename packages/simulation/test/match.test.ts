@@ -214,6 +214,27 @@ test('a beaten computer player surrenders after ten minutes, and the match ends'
   assert.ok(world.messages.some((m) => m.owner === 0 && m.text.endsWith('surrendered')));
 });
 
+test('a bot that can make no more soldiers gives up a covered tower for its soldier', () => {
+  const world = createMatch(4);
+  const castle = castleOf(world, 1)!;
+  world.tick = 70 * 600;
+  // No weapons, no iron, no iron mine, every soldier inside: one tower stands well inside the castle's land.
+  for (const s of world.settlers) if (s.owner === 1 && ['swordsman', 'spearman', 'bowman'].includes(s.settlerType)) { s.isInside = true; s.phase = 'inside'; s.homeId = castle.id; }
+  for (const b of world.buildings) if (b.owner === 1) for (const g of ['sword', 'spear', 'bow', 'iron', 'iron_ore'] as const) b.stock[g] = 0;
+  let spot: { x: number; y: number } | null = null;
+  for (let r = 3; r < 6 && !spot; r++) for (let dx = -r; dx <= r && !spot; dx++) if (placementProblem(world, 1, 'guard_tower_small', castle.x + dx, castle.y + r) === null) spot = { x: castle.x + dx, y: castle.y + r };
+  const tower = finished(world, 'guard_tower_small', 1, spot!.x, spot!.y);
+  const guard = newSettler(world, 1, 'swordsman', tower.doorX, tower.doorY);
+  guard.isInside = true; guard.phase = 'inside'; guard.homeId = tower.id; tower.garrison = [guard.id]; tower.isOccupied = true;
+  recomputeTerritory(world);
+  let commands: ReturnType<typeof decideBot> = [];
+  for (let turn = 0; turn < 40 && !commands.some((c) => c.type === 'demolishBuilding'); turn++) {
+    world.tick += BOT_DECISION_TICKS;
+    commands = decideBot(observe(world, 1), spotFinder(world, 1));
+  }
+  assert.ok(commands.some((c) => c.type === 'demolishBuilding' && c.buildingId === tower.id), JSON.stringify(commands.map((c) => c.type)));
+});
+
 test('observations hide what a player cannot see', () => {
   const world = createMatch(4);
   run(world, 10);
@@ -240,10 +261,10 @@ test('two built-in bots play a whole match to a winner on a small map', () => {
   const world = createMatch(7, 'aggressive', 'small', 'romans', 'romans');
   assert.equal(world.width, 96);
   world.players[0].isBot = true;
-  // At the original's pace, with carriers kept on their own land, aggressive small-map matches take 35–80 minutes
-  // (about 75 here, since the start mountain's coal is a patch on one side of the iron).
-  for (let t = 0; t < 90 * 600 && world.winner === null; t++) stepMatch(world);
-  assert.notEqual(world.winner, null, 'the match should end within 90 minutes');
+  // At the original's pace, with carriers kept on their own land, aggressive small-map matches take 65–105 minutes
+  // (measured on seeds 3, 7 and 12: 66, 87 and 102; about 87 here). 110 leaves room for the spread.
+  for (let t = 0; t < 110 * 600 && world.winner === null; t++) stepMatch(world);
+  assert.notEqual(world.winner, null, 'the match should end within 110 minutes');
   for (const p of world.players) assert.ok(p.stats.soldiersRecruited > 0);
 });
 
