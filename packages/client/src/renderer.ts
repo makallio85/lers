@@ -941,9 +941,18 @@ export class MapView {
   private cueSound(s: Settler, v: SettlerView, look: SettlerLook, anim: SettlerAnim, frame: number, tx: number, ty: number): void {
     if (!this.onSound || (anim !== 'work' && anim !== 'attack') || s.settlerType === 'carrier') return;
     const isMachine = isWarMachineType(s.settlerType);
-    const cue = isMachine ? frame === 0 : ((frame % 6) + 6) % 6 === 3;
-    if (!cue || v.cuedFrame === frame) { if (!cue) v.cuedFrame = undefined; return; }
-    v.cuedFrame = frame;
+    if (isMachine) {
+      // A war machine sounds once, at the start of its firing movement.
+      if (frame !== 0 || v.cuedFrame === frame) { if (frame !== 0) v.cuedFrame = undefined; return; }
+      v.cuedFrame = frame;
+    } else {
+      // Once per stroke: the stroke counts as come once its frame has passed, even when a slow screen skipped it.
+      const stroke = Math.floor((frame - 3) / 6);
+      if (v.cuedFrame === stroke) return;
+      const isFirstLook = v.cuedFrame === undefined;
+      v.cuedFrame = stroke;
+      if (isFirstLook) return;
+    }
     const id: SoundId | null = isMachine ? 'siege'
       : anim === 'attack' ? (s.settlerType === 'bowman' ? 'bow' : 'clash')
       : look === 'woodcutter' ? 'chop' : look === 'builder' ? 'hammer' : look === 'stonecutter' || look === 'geologist' ? 'pick'
