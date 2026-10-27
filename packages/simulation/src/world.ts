@@ -137,8 +137,6 @@ export interface Settler {
   cooldown: number;
   enemyId: number | null;
   attackId: number | null;
-  /** While attacking the tower that covers another: the covered one, attacked again once the cover falls. */
-  attackAfterId: number | null;
   /** Specialists only: the tile they were sent to work around, or -1. Patrolling soldiers: where the patrol started. */
   workCentre: number;
   /** Soldiers only: tiles still to walk to after the current path, in order. */
@@ -431,7 +429,7 @@ export function newSettler(world: World, owner: number, settlerType: SettlerType
     health: isSoldierType(settlerType) ? SOLDIER_STATS[settlerType].health : isWarMachineType(settlerType) ? WAR_MACHINE_STATS[settlerType].health
       : isShipType(settlerType) ? SHIP_HEALTH
       : settlerType === 'thief' ? THIEF_HEALTH : 0,
-    cooldown: 0, enemyId: null, attackId: null, attackAfterId: null,
+    cooldown: 0, enemyId: null, attackId: null,
     workCentre: -1, waypoints: [], isPatrolling: false, isHolding: false, isIgnoringEnemies: false,
     ammo: isWarMachineType(settlerType) ? WAR_MACHINE_STATS[settlerType].shots : 0,
     rank: 0, shieldUntil: 0, furyUntil: 0, frozenUntil: 0, cargo: 0, shipId: null

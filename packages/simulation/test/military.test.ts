@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, castleOf, coveringBuilding, createMatch, loadGame, newBuilding, newSettler, placementProblem,
+  GOLD_FOR_FULL_STRENGTH, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, castleOf, createMatch, loadGame, newBuilding, newSettler, placementProblem,
   recomputeTerritory, saveGame, step, strengthOf, tileIndex
 } from '../src/index.ts';
 import type { Building, BuildingTypeId, Command, Settler, World } from '../src/index.ts';
@@ -108,10 +108,10 @@ test('patrolling soldiers walk back and forth until given another order', () => 
   assert.equal(s.isPatrolling, false);
 });
 
-test('a tower covered by another of its owner’s towers cannot be taken until that one falls', () => {
+test('an empty tower is taken at once, though a manned tower of its owner stands close behind it', () => {
   const world = createMatch(4);
   const enemyCastle = castleOf(world, 1)!;
-  // Two empty enemy towers far from the castle, close enough that the back one covers the front one.
+  // An empty enemy tower with a manned one six tiles behind it, far from the castle.
   const front = finished(world, 'guard_tower_small', 1, enemyCastle.x - 26, enemyCastle.y);
   const back = finished(world, 'guard_tower_small', 1, enemyCastle.x - 20, enemyCastle.y);
   const guard = newSettler(world, 1, 'swordsman', back.doorX, back.doorY);
@@ -123,10 +123,10 @@ test('a tower covered by another of its owner’s towers cannot be taken until t
   run(world, 10);
   const attacker = soldierAt(world, 0, 'swordsman', front.doorX, front.doorY);
   for (let x = front.doorX - 2; x <= front.doorX + 2; x++) world.vision[0][tileIndex(world, x, front.doorY)] = 1;
-  // The attack is allowed, but standing at its door does not take it while the back tower stands.
+  // Standing at its door takes it; the tower behind it makes no difference.
   assert.equal(command(world, { type: 'attackBuilding', playerId: 0, soldierIds: [attacker.id], buildingId: front.id }).isAccepted, true);
   run(world, 100);
-  assert.equal(front.owner, 1);
+  assert.equal(front.owner, 0);
 });
 
 test('a thief steals from an enemy store and carries the loot home; enemy soldiers who come close catch it', () => {
@@ -223,13 +223,13 @@ test('a manned tower or castle sees a thief near its door and sends a soldier ou
   assert.equal(enemy.stock.gold, 3, 'before it took anything');
 });
 
-test('an emptied tower that another tower covers keeps its land until the cover falls', () => {
+test('an emptied tower is taken even right next to its owner\'s manned castle', () => {
   const world = createMatch(4);
   run(world, 10);
   const enemy = castleOf(world, 1)!;
   // An enemy small tower in front of its castle, emptied in a fight.
   let spot: { x: number; y: number } | null = null;
-  for (let r = 4; r < 12 && !spot; r++) for (let dx = -r; dx <= r && !spot; dx++) {
+  for (let r = 6; r < 12 && !spot; r++) for (let dx = -r; dx <= r && !spot; dx++) {
     const x = enemy.x - r, y = enemy.y + dx;
     if (placementProblem(world, 1, 'guard_tower_small', x, y) === null) spot = { x, y };
   }
@@ -237,14 +237,14 @@ test('an emptied tower that another tower covers keeps its land until the cover 
   const front = finished(world, 'guard_tower_small', 1, spot!.x, spot!.y);
   front.isOccupied = true;
   recomputeTerritory(world);
-  const footprint = tileIndex(world, front.x, front.y);
-  run(world, 20);
-  assert.ok(coveringBuilding(world, front), 'the castle covers it');
-  assert.equal(front.isOccupied, true, 'covered, it still holds');
-  assert.equal(world.territory[footprint], 2, "and its land stays the enemy's");
+  assert.ok(enemy.garrison.length > 0, 'the castle is manned');
+  const attacker = newSettler(world, 0, 'swordsman', front.doorX, front.doorY);
+  attacker.isInside = false; attacker.phase = 'attacking'; attacker.attackId = front.id;
+  runUntil(world, () => front.owner === 0, 300);
+  assert.equal(front.garrison[0], attacker.id);
 });
 
-test('a player\'s sites and buildings on land another player takes are destroyed; an empty uncovered tower stays to be taken', () => {
+test('a player\'s sites and buildings on land another player takes are destroyed; an empty tower stays to be taken', () => {
   const world = createMatch(4);
   run(world, 10);
   const enemy = castleOf(world, 1)!;

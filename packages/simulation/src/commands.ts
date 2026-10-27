@@ -67,21 +67,6 @@ export const MAX_ORDER = 99;
 export const MAX_SPECIALISTS = 50;
 export const MAX_WAYPOINTS = 8;
 
-/**
- * Another military building of the same owner, with soldiers in it, whose land reaches this one. As in the original
- * game, a tower cannot be taken while another of its owner's towers (or the castle) covers it.
- */
-export function coveringBuilding(world: World, b: Building): Building | null {
-  const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
-  for (const other of world.buildings) {
-    if (other.id === b.id || other.owner !== b.owner || !claimsTerritory(other)) continue;
-    // Only a tower with soldiers in it (or at its door) shields another: empty ones do not cover each other.
-    if (other.garrison.length === 0 && !world.settlers.some((s) => s.homeId === other.id && s.phase === 'defending' && s.health > 0)) continue;
-    const r = BUILDING_TYPES[other.typeId].territoryRadius;
-    if (Math.hypot(other.x + other.size / 2 - cx, other.y + other.size / 2 - cy) <= r) return other;
-  }
-  return null;
-}
 const WATER_REACH = 4;
 
 const refuse = (reason: string): CommandResult => ({ isAccepted: false, reason });
@@ -330,7 +315,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
         const path = unitPath(world, s, tile);
         if (!path) return;
         const isFighting = s.enemyId !== null;
-        s.path = path; s.phase = 'moving'; s.attackId = null; s.attackAfterId = null; s.enemyId = null; s.waypoints = [];
+        s.path = path; s.phase = 'moving'; s.attackId = null; s.enemyId = null; s.waypoints = [];
         if (!isWarMachineType(s.settlerType)) s.homeId = null;
         // A soldier ordered away from a fight breaks off: it walks to the spot without turning back to the enemy.
         // Soldiers not fighting still fight whatever they meet on the way (unless ordered to move without fighting).
@@ -349,7 +334,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
         const path = unitPath(world, s, tiles[k % tiles.length]);
         if (!path) return;
         // Patrol between where each soldier stands now and its spot at the target, until another order.
-        s.path = path; s.phase = 'moving'; s.attackId = null; s.attackAfterId = null; s.enemyId = null; s.waypoints = [];
+        s.path = path; s.phase = 'moving'; s.attackId = null; s.enemyId = null; s.waypoints = [];
         if (!isWarMachineType(s.settlerType)) s.homeId = null;
         s.isPatrolling = true; s.isHolding = false; s.isIgnoringEnemies = false;
         s.workCentre = from; s.targetTile = tiles[k % tiles.length];
@@ -360,7 +345,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
       const soldiers = ownFieldSoldiers(world, command.playerId, command.soldierIds);
       if (!soldiers) return refuse('Choose your own soldiers outside buildings');
       for (const s of soldiers) {
-        s.path = []; s.phase = 'idle'; s.attackId = null; s.attackAfterId = null; s.waypoints = []; s.isPatrolling = false;
+        s.path = []; s.phase = 'idle'; s.attackId = null; s.waypoints = []; s.isPatrolling = false;
         s.isHolding = true; s.isIgnoringEnemies = false;
       }
       return accept();
@@ -376,7 +361,7 @@ export function applyCommand(world: World, command: Command): CommandResult {
       if (!isMilitaryBuilding(target)) return refuse('Only towers and castles can be attacked');
       if (soldiers.some((s) => isShipType(s.settlerType))) return refuse('Ships cannot attack: land the soldiers first');
       for (const s of soldiers) {
-        s.phase = 'attacking'; s.attackId = target.id; s.attackAfterId = null; s.path = []; s.enemyId = null;
+        s.phase = 'attacking'; s.attackId = target.id; s.path = []; s.enemyId = null;
         // A war machine keeps its hall, where it reloads.
         if (!isWarMachineType(s.settlerType)) s.homeId = null;
         s.waypoints = []; s.isPatrolling = false; s.isHolding = false; s.isIgnoringEnemies = false;
@@ -641,10 +626,6 @@ function demolish(world: World, b: Building): void {
 /** Ends any job that depends on a building that no longer exists. */
 export function releaseFromBuilding(world: World, settlerId: number, buildingId: number, tool: ToolType | null): void {
   const s = world.settlers.find((settler) => settler.id === settlerId)!;
-  // The covered tower an attacker means to come back for is gone: it just keeps on at the cover.
-  if (s.attackAfterId === buildingId) s.attackAfterId = null;
-  // The cover is gone: back to the tower it covered.
-  if (s.attackId === buildingId && s.attackAfterId !== null && s.phase === 'attacking') { s.attackId = s.attackAfterId; s.attackAfterId = null; s.path = []; return; }
   if (s.fromId !== buildingId && s.toId !== buildingId && s.homeId !== buildingId && s.attackId !== buildingId) return;
   const castle = castleOf(world, s.owner);
   if (isUnitType(s.settlerType)) {

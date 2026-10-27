@@ -1,6 +1,6 @@
 import {
   BOT_DIFFICULTY_SETTINGS, BOT_DIFFICULTY_TYPES, BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
-  GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, coveringBuilding, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
+  GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
   costTotal, distributedGoods, goodCount, heldGood, toolShortage, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
   BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES,
   OFFERING_TICKS, PRIEST_TICKS, PROMOTION_COSTS, RACE_DRINKS, RACE_SPELLS, RANK_BONUS, RANK_LABELS, SPELL_RANGE, SPELL_STATS, buildingLabel,
@@ -749,14 +749,12 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
   if (b.owner !== owner) {
     const isSite = isMilitaryBuilding(b) && !b.isComplete;
     const canAttack = isMilitaryBuilding(b) && b.isComplete;
-    const cover = canAttack ? coveringBuilding(world, b) : null;
     return `
       <div class="detail-head"><span class="detail-title">Enemy ${buildingLabel(b.typeId, world.players[b.owner].raceType).toLowerCase()}</span><button type="button" class="close" data-action="deselect" aria-label="Close">×</button></div>
       ${canAttack ? `<span>${b.garrison.length} ${b.garrison.length === 1 ? 'defender' : 'defenders'} inside</span>`
         : isSite ? '<span class="status-good">Still being built: send soldiers to it (Attack) and they tear it down.</span>' : '<span class="muted">Not a military building</span>'}
       ${b.damage > 0 && BUILDING_STRUCTURE[b.typeId] ? structureBar(b) : ''}
-      ${cover ? `<span class="status-warning">Covered by the ${BUILDING_TYPES[cover.typeId].label.toLowerCase()} behind it: it cannot be taken until that one falls. Attacking still fights its defenders.</span>` : ''}
-      ${canAttack && !cover && b.garrison.length === 0 ? '<span class="status-good">Empty: send soldiers to it (Attack) and it is yours.</span>' : ''}
+      ${canAttack && b.garrison.length === 0 ? '<span class="status-good">Empty: send soldiers to it (Attack) and it is yours.</span>' : ''}
       ${canAttack || isSite ? `<div class="actions"><button type="button" class="primary" data-action="attack-selected" ${selectedSoldiers > 0 ? '' : 'disabled'}>${selectedSoldiers > 0 ? `Attack with ${selectedSoldiers} selected` : 'Select soldiers or war machines to attack'}</button></div>` : ''}`;
   }
   const status = buildingStatus(world, b);

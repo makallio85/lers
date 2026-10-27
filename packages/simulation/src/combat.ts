@@ -4,7 +4,7 @@ import {
 } from './definitions.ts';
 import { updateShip } from './sea.ts';
 import type { GoodType, WarMachineType } from './definitions.ts';
-import { coveringBuilding, releaseFromBuilding } from './commands.ts';
+import { releaseFromBuilding } from './commands.ts';
 import { advance, distance, doorTile, isMachinePassable, tileOf, walkTo } from './movement.ts';
 import { reachableFrom } from './pathfinding.ts';
 import { damageFactor, damageTaken, isFrozen } from './magic.ts';
@@ -25,8 +25,6 @@ export const THIEF_SPOT_RANGE = 3;
 export const THIEF_WATCH_RANGE = DEFEND_RADIUS;
 /** A castle warns its owner at most this often while under attack. */
 const CASTLE_WARNING_TICKS = 600;
-/** A player hears at most this often that the tower it attacks is covered by another. */
-const COVER_WARNING_TICKS = 600;
 
 /**
  * The treasure that sets a player's soldiers' strength outside its own land, counted in gold bars: gold in
@@ -136,17 +134,13 @@ export function removeDead(world: World): void {
 }
 
 
-/**
- * A tower whose garrison and defenders are all gone stops claiming land (it can then be taken). One that another of
- * its owner's manned towers (or the castle, while soldiers are in it) covers cannot be taken, so it keeps its land until that cover is emptied or falls: otherwise
- * it would stand on the enemy's land, untakeable.
- */
+/** A tower whose garrison and defenders are all gone stops claiming land, and can then be taken. */
 export function releaseEmptyBuildings(world: World): void {
   let isChanged = false;
   for (const b of world.buildings) {
     if (!b.isOccupied || b.garrison.length > 0) continue;
     const isDefended = world.settlers.some((s) => s.homeId === b.id && s.phase === 'defending' && s.health > 0);
-    if (!isDefended && !coveringBuilding(world, b)) { b.isOccupied = false; isChanged = true; }
+    if (!isDefended) { b.isOccupied = false; isChanged = true; }
   }
   if (isChanged) recomputeTerritory(world);
 }
@@ -253,14 +247,8 @@ function updateToGarrison(world: World, s: Settler): void {
 }
 
 function updateAttacking(world: World, s: Settler): void {
-  let target = buildingById(world, s.attackId);
-  if (!target || !isEnemy(world, s.owner, target.owner)) {
-    // The cover has fallen: back to the tower it covered.
-    const after = buildingById(world, s.attackAfterId);
-    s.attackAfterId = null; s.path = [];
-    if (!after || !isEnemy(world, s.owner, after.owner)) { s.phase = 'idle'; s.attackId = null; return; }
-    s.attackId = after.id; target = after;
-  }
+  const target = buildingById(world, s.attackId);
+  if (!target || !isEnemy(world, s.owner, target.owner)) { s.phase = 'idle'; s.attackId = null; s.path = []; return; }
   const door = doorTile(world, target);
   if (tileOf(world, s) !== door) {
     if ((s.path.length === 0 || world.tick % (REPATH_TICKS * 5) === 0) && !walkTo(world, s, door)) { s.phase = 'idle'; s.attackId = null; return; }
@@ -269,33 +257,18 @@ function updateAttacking(world: World, s: Settler): void {
   }
   // A tower still being built falls as soon as soldiers reach it.
   if (!target.isComplete) { tearDownSite(world, target, s); return; }
-  // At the door: the building falls once nobody defends it and no other tower of its owner covers it.
+  // At the door: the building falls once nobody defends it, whatever other towers of its owner stand near.
   if (target.garrison.length > 0 || defendersOut(world, target).length > 0) return;
-  const cover = coveringBuilding(world, target);
-  if (!cover) { capture(world, target, s); return; }
-  // Emptied but covered: take the building that covers it first, as the rule says, then come back for this one.
-  if (s.attackAfterId === null) {
-    s.attackAfterId = target.id;
-    warnCovered(world, s.owner, target, cover);
-  }
-  s.attackId = cover.id; s.path = [];
+  capture(world, target, s);
 }
 
 function tearDownSite(world: World, b: Building, s: Settler): void {
   const label = BUILDING_TYPES[b.typeId].label;
-  s.phase = 'idle'; s.attackId = null; s.attackAfterId = null; s.path = [];
+  s.phase = 'idle'; s.attackId = null; s.path = [];
   pushMessage(world, s.owner, `Enemy ${label.toLowerCase()} site torn down`, 'Your soldiers destroyed it before it was finished.', false, null);
   pushMessage(world, b.owner, `${label} site destroyed`, 'Enemy soldiers tore it down.', true, null);
   destroyBuilding(world, b);
   recomputeTerritory(world);
-}
-
-/** Tells the attacker, once a minute at most, why its soldiers turned to another building. */
-function warnCovered(world: World, owner: number, target: Building, cover: Building): void {
-  const text = `${BUILDING_TYPES[target.typeId].label} is covered`;
-  const last = [...world.messages].reverse().find((m) => m.owner === owner && m.text === text);
-  if (last && world.tick - last.tick < COVER_WARNING_TICKS) return;
-  pushMessage(world, owner, text, `It cannot be taken while the ${BUILDING_TYPES[cover.typeId].label.toLowerCase()} next to it holds soldiers. Your soldiers attack that first, then come back.`, false, cover.id);
 }
 
 /** Removes a building without refund; its people go free and its garrison steps outside. */
@@ -364,8 +337,7 @@ const checkedTerritory = new WeakMap<World, number>();
 
 /**
  * Whenever the borders move (a tower manned or taken, pioneers' posts), a player's buildings standing on land another
- * player now holds are destroyed, as in the original: construction sites and civilian buildings, and towers that can
- * be neither held nor taken there (empty, but covered by another tower of their owner). An empty tower without cover
+ * player now holds are destroyed, as in the original: construction sites and civilian buildings. A finished tower
  * stays, for the new owner's soldiers to take.
  */
 export function destroyBuildingsOnForeignLand(world: World): void {
@@ -382,7 +354,7 @@ export function destroyBuildingsOnForeignLand(world: World): void {
       }
     }
     if (foreign === 0) continue;
-    if (b.isComplete && isMilitaryBuilding(b) && (b.isOccupied || !coveringBuilding(world, b))) continue;
+    if (b.isComplete && isMilitaryBuilding(b)) continue;
     const label = BUILDING_TYPES[b.typeId].label;
     destroyBuilding(world, b);
     pushMessage(world, b.owner, b.isComplete ? `${label} lost` : `${label} site lost`, 'Another player took the land it stood on.', true, null);
