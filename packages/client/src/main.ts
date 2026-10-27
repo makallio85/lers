@@ -147,6 +147,8 @@ const ui = {
   menuNotice: null as string | null,
   isEndHidden: false,
   dismissed: new Set<number>(),
+  /** Whether a storage area's goods list is open on its card. */
+  isStorageGoodsOpen: false,
   /** The practice tip on screen, the tick it appeared, and the tips this match has shown. */
   tip: null as Tip | null,
   tipSince: 0,
@@ -395,7 +397,7 @@ function renderSelectionCard(): void {
   if (!b || !view.isBuildingVisible(b)) { ui.selectedId = null; ui.isConfirmingDemolish = false; els.selection.hidden = true; return; }
   if (ui.workAreaFor !== null || ui.routeFor !== null) { els.selection.hidden = true; return; }
   els.selection.hidden = false;
-  setHtml(els.selection, renderSelection(world, b, PLAYER, ui.isConfirmingDemolish, ui.selectedSoldiers.size));
+  setHtml(els.selection, renderSelection(world, b, PLAYER, ui.isConfirmingDemolish, ui.selectedSoldiers.size, ui.isStorageGoodsOpen));
 }
 
 function renderOrders(): void {
@@ -1158,6 +1160,7 @@ document.addEventListener('click', (e) => {
       submit({ type: 'setStorageGoods', playerId: PLAYER, buildingId: b.id, refusedGoods: refused });
       break;
     }
+    case 'storage-goods-toggle': ui.isStorageGoodsOpen = !ui.isStorageGoodsOpen; renderSelectionCard(); break;
     case 'storage-goods-all':
     case 'storage-goods-none':
       submit({ type: 'setStorageGoods', playerId: PLAYER, buildingId: Number(target.dataset.id), refusedGoods: action === 'storage-goods-all' ? [] : [...GOOD_TYPES] });
