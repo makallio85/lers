@@ -1,4 +1,4 @@
-import type { BotDifficultyType, BotType } from './bot.ts';
+import type { BotAttackStartType, BotDifficultyType, BotType } from './bot.ts';
 import { stockFish } from './land.ts';
 import {
   BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GEMS, buildingCost, DEPOSIT_GOLD, DEPOSIT_IRON, DEPOSIT_NONE, DEPOSIT_SULFUR, GOOD_TYPES, SOLDIER_STATS, THIEF_HEALTH, TOOL_TYPES, WEAPON_TYPES,
@@ -197,6 +197,8 @@ export interface PlayerState {
   botType: BotType;
   /** How well this player's built-in bot plays; unused for human players. */
   difficultyType: BotDifficultyType;
+  /** Computer players: when they start attacking. */
+  attackStartType: BotAttackStartType;
   /** The player's people: their building costs and the buildings only they have. */
   raceType: RaceType;
   isEliminated: boolean;
@@ -487,7 +489,7 @@ export const DEFAULT_MIN_CARRIER_PERCENT = 30;
 export const DEFAULT_MAX_CREW_PERCENT = 35;
 
 export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'aggressive', raceType: RaceType = 'romans', teamId = id,
-  difficultyType: BotDifficultyType = 'normal'): PlayerState {
+  difficultyType: BotDifficultyType = 'normal', attackStartType: BotAttackStartType = 'by_style'): PlayerState {
   const isStored = {} as Record<GoodType, boolean>;
   for (const good of GOOD_TYPES) isStored[good] = true;
   const productionShares: Partial<Record<GoodType, number>> = {};
@@ -500,7 +502,7 @@ export function defaultPlayer(id: number, isBot: boolean, botType: BotType = 'ag
   }
   return {
     teamId,
-    id, isBot, botType, difficultyType, raceType, isEliminated: false,
+    id, isBot, botType, difficultyType, attackStartType, raceType, isEliminated: false,
     transportPriority: ['plank', 'stone', 'log', ...TOOL_TYPES, ...WEAPON_TYPES, 'coal', 'iron_ore', 'iron', 'gold_ore', 'gold',
       'water', 'grain', 'flour', 'bread', 'fish', 'pig', 'meat', 'rice', 'honey', 'sulfur', 'gems', 'gunpowder',
       'wine', 'beer', 'rice_wine', 'mead'],
@@ -521,6 +523,7 @@ export interface CreateWorldOptions {
   teamIds?: readonly number[];
   botType?: BotType;
   difficultyType?: BotDifficultyType;
+  attackStartType?: BotAttackStartType;
   /** The people of each player, in player order; Romans when not given. */
   raceTypes?: readonly RaceType[];
   mapLayout?: MapLayoutType;
@@ -543,7 +546,7 @@ export const STARTING_SETTLERS: Partial<Record<SettlerType, number>> = {
 /** Creates a seeded map: a sandbox for one player, or a match for 2 to 8, two of them on a mirrored map if wanted. */
 export function createWorld({
   seed = 1, width, height, playerCount = 1, teamIds = [], botType = 'aggressive', raceTypes = [], mapLayout = 'continent', isMirrored = true,
-  startingGoodsType = 'default', victoryType = 'conquest', difficultyType = 'normal'
+  startingGoodsType = 'default', victoryType = 'conquest', difficultyType = 'normal', attackStartType = 'by_style'
 }: CreateWorldOptions = {}): World {
   if (!Number.isInteger(playerCount) || playerCount < 1 || playerCount > 8) throw new RangeError('a map holds 1 to 8 players');
   const w = width ?? (playerCount >= 2 ? 144 : 96);
@@ -553,7 +556,7 @@ export function createWorld({
     throw new RangeError('map size must be between 48 and 512 tiles');
   }
   const n = w * h;
-  const players = Array.from({ length: playerCount }, (_, k) => defaultPlayer(k, k > 0, botType, raceTypes[k] ?? 'romans', teamIds[k] ?? k, difficultyType));
+  const players = Array.from({ length: playerCount }, (_, k) => defaultPlayer(k, k > 0, botType, raceTypes[k] ?? 'romans', teamIds[k] ?? k, difficultyType, attackStartType));
   const world: World = {
     seed, tick: 0, width: w, height: h,
     terrain: new Uint8Array(n), tree: new Int16Array(n).fill(NO_TREE), field: new Int16Array(n).fill(NO_FIELD),

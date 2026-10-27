@@ -77,6 +77,28 @@ export const BOT_DIFFICULTY_SETTINGS: Record<BotDifficultyType, BotDifficultySet
   hard: { label: 'Hard', summary: 'Builds more at once, attacks sooner with bigger squads', decisionEvery: 1, parallelSites: 4, attackFactor: 0.8, attackExtraMinutes: 0, squadExtra: 6 }
 };
 
+/**
+ * When the computer players start attacking: as their style decides, or at a time the player picks to practise
+ * against, or never (they only defend). The castle may be attacked 15 minutes after the first attack.
+ */
+export const BOT_ATTACK_START_TYPES = ['by_style', 'immediately', 'after_15', 'after_30', 'after_60', 'never'] as const;
+export type BotAttackStartType = (typeof BOT_ATTACK_START_TYPES)[number];
+
+export const BOT_ATTACK_START_SETTINGS: Record<BotAttackStartType, { label: string; summary: string; minutes: number | null }> = {
+  by_style: { label: 'By its style', summary: 'Calm waits, aggressive comes early', minutes: null },
+  immediately: { label: 'Right away', summary: 'As soon as it has soldiers', minutes: 0 },
+  after_15: { label: 'After 15 min', summary: 'Time to set up a defence', minutes: 15 },
+  after_30: { label: 'After 30 min', summary: 'Build up first, then defend', minutes: 30 },
+  after_60: { label: 'After 60 min', summary: 'A long peaceful start', minutes: 60 },
+  never: { label: 'Never', summary: 'Only defends: practise building', minutes: Infinity }
+};
+/** With a chosen start, the castle may be attacked this long after the first attack. */
+const CASTLE_AFTER_FIRST_ATTACK_MINUTES = 15;
+/** With a chosen start, the bot attacks and scouts with squads this small (it keeps one more on patrol), so the attack comes when it was promised. */
+const CHOSEN_START_ARMY = 2;
+/** ... and goes for the castle with this many. */
+const CHOSEN_START_CASTLE_ARMY = 8;
+
 /** One line of what a bot decided and why; collected for tests and for tuning. */
 export interface BotLogEntry {
   tick: number;
@@ -491,18 +513,26 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
   // Then attack the nearest weakly held building in sight once the army is big enough; otherwise gather at the front.
   const mapSize = mapSizeTypeOf(obs.width);
   // In the economic mode soldiers are too weak away from home to win anything there: the bot only defends.
-  const mayAttack = obs.victoryType !== 'economy' && obs.tick >= (settings.firstAttackMinutes[mapSize] * level.attackFactor + level.attackExtraMinutes) * TICKS_PER_MINUTE;
+  // The first attack: when the player chose one, at that time; otherwise as the style and level decide.
+  const startMinutes = BOT_ATTACK_START_SETTINGS[obs.player.attackStartType].minutes;
+  const firstAttackMinutes = startMinutes ?? settings.firstAttackMinutes[mapSize] * level.attackFactor + level.attackExtraMinutes;
+  const castleMinutes = startMinutes === null ? settings.castleMinutes[mapSize] * level.attackFactor + level.attackExtraMinutes
+    : startMinutes + CASTLE_AFTER_FIRST_ATTACK_MINUTES;
+  const mayAttack = obs.victoryType !== 'economy' && obs.tick >= firstAttackMinutes * TICKS_PER_MINUTE;
+  const isChosenStart = startMinutes !== null;
+  const attackArmy = isChosenStart ? Math.min(CHOSEN_START_ARMY, settings.attackArmy) : settings.attackArmy;
+  const castleArmy = isChosenStart ? Math.min(CHOSEN_START_CASTLE_ARMY, settings.castleArmy) : settings.castleArmy;
   const attacking = obs.ownSoldiers.filter((s) => isSoldierType(s.settlerType) && s.phase === 'attacking').length;
   const army = free.length + attacking;
   // Soldiers beyond one in each tower count toward the castle attack: once there are enough, the towers send them out.
   const spareInTowers = obs.ownBuildings.filter((b) => b.typeId !== 'castle').reduce((n, b) => n + Math.max(0, b.garrisonCount - 1), 0);
-  const isCastleTime = obs.tick >= (settings.castleMinutes[mapSize] * level.attackFactor + level.attackExtraMinutes) * TICKS_PER_MINUTE;
-  const mayTakeCastle = army >= settings.castleArmy && isCastleTime;
-  const isGatheringForCastle = !mayTakeCastle && isCastleTime && !isIslands && army + spareInTowers >= settings.castleArmy;
+  const isCastleTime = mayAttack && obs.tick >= castleMinutes * TICKS_PER_MINUTE;
+  const mayTakeCastle = army >= castleArmy && isCastleTime;
+  const isGatheringForCastle = !mayTakeCastle && isCastleTime && !isIslands && army + spareInTowers >= castleArmy;
   const targets = obs.enemyBuildings.filter((b) => b.isComplete && BUILDING_TYPES[b.typeId].garrisonCapacity > 0 && spots.canReach(b.doorX, b.doorY, from)
-    && (b.typeId !== 'castle' || mayTakeCastle || obs.enemyBuildings.every((o) => o.typeId === 'castle' || BUILDING_TYPES[o.typeId].garrisonCapacity === 0)));
+    && (b.typeId !== 'castle' || mayTakeCastle || (!isChosenStart && obs.enemyBuildings.every((o) => o.typeId === 'castle' || BUILDING_TYPES[o.typeId].garrisonCapacity === 0))));
   // A landed army attacks whatever it has; it cannot wait for reinforcements the way a home army can.
-  if (mayAttack && targets.length > 0 && (army >= settings.attackArmy || landed.length > 0) && free.length > 0) {
+  if (mayAttack && targets.length > 0 && (army >= attackArmy || landed.length > 0) && free.length > 0) {
     const cx = free.reduce((sum, s) => sum + s.x, 0) / free.length;
     const cy = free.reduce((sum, s) => sum + s.y, 0) / free.length;
     // Near and weakly held first; a large army goes for the castle to end the match.
@@ -518,7 +548,7 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
       commands.push({ type: 'attackBuilding', playerId: me, soldierIds: squad.map((s) => s.id), buildingId: target.id });
       note(`attack ${target.typeId} #${target.id} with ${squad.length} (army ${army})`);
     }
-  } else if (mayAttack && targets.length === 0 && (free.length >= settings.attackArmy * 2 || landed.length > 0) && turn % 5 === 0) {
+  } else if (mayAttack && targets.length === 0 && (free.length >= attackArmy * (isChosenStart ? 1 : 2) || landed.length > 0) && turn % 5 === 0) {
     // A big army that sees nothing to attack advances into the unknown, toward the enemy side; so does a landed one.
     const front = spots.frontTile(toward, from);
     if (front) {
@@ -545,6 +575,22 @@ export function decideBot(obs: Observation, spots: BotSpotFinder, log?: (text: s
     machineTargets.sort((a, b) => (b.garrisonCount * 8 - Math.hypot(b.doorX - mx, b.doorY - my)) - (a.garrisonCount * 8 - Math.hypot(a.doorX - mx, a.doorY - my)) || a.id - b.id);
     commands.push({ type: 'attackBuilding', playerId: me, soldierIds: idleMachines.map((m) => m.id), buildingId: machineTargets[0].id });
     note(`machines: ${idleMachines.length} against ${machineTargets[0].typeId} #${machineTargets[0].id}`);
+  }
+  // Before a chosen start, a squad patrols by the castle, so the towers do not take every soldier and the attack can
+  // come when it was promised.
+  if (isChosenStart && !mayAttack && Number.isFinite(firstAttackMinutes) && obs.victoryType !== 'economy' && castle) {
+    const patrolling = free.filter((s) => s.phase === 'moving').length;
+    const idle = free.filter((s) => s.phase === 'idle').slice(0, Math.max(0, attackArmy + 1 - patrolling));
+    if (idle.length > 0) {
+      commands.push({ type: 'patrolSoldiers', playerId: me, soldierIds: idle.map((s) => s.id), x: castle.doorX, y: castle.doorY + 3 });
+      note(`keep ${idle.length} on patrol for the attack at minute ${firstAttackMinutes}`);
+    }
+  }
+  // A chosen start that has come while its soldiers all sit inside: the castle keeps one and sends the rest out.
+  // A chosen start that has come while its soldiers all sit inside: the castle keeps one and sends the rest out.
+  if (mayAttack && isChosenStart && free.length < attackArmy && castle && castle.garrisonWanted > 1) {
+    commands.push({ type: 'setGarrisonWanted', playerId: me, buildingId: castle.id, count: 1 });
+    note('send the castle garrison out to attack');
   }
   // Enough soldiers for the castle, but sitting in towers: every tower keeps one and sends the rest out.
   if (mayAttack && isGatheringForCastle) {

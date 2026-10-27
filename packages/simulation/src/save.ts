@@ -5,8 +5,8 @@ import {
 import type { BuildingTypeId, GoodAmounts, GoodType, RaceType, ShipType, SoldierType, StartingGoodsType, TradeModeType, VictoryType } from './definitions.ts';
 import { FIELD_RIPE, TREE_MATURE, recomputeTerritory, tileIndex } from './world.ts';
 import { FISH_MAX, stockFish } from './land.ts';
-import { BOT_DIFFICULTY_TYPES, BOT_TYPES } from './bot.ts';
-import type { BotDifficultyType, BotType } from './bot.ts';
+import { BOT_ATTACK_START_TYPES, BOT_DIFFICULTY_TYPES, BOT_TYPES } from './bot.ts';
+import type { BotAttackStartType, BotDifficultyType, BotType } from './bot.ts';
 import type { Building, FarSight, GameMessage, PlayerState, PlayerStats, Settler, StatsSample, SettlerPhase, TradeRoute, World } from './world.ts';
 
 /** Bump when the saved shape changes; older saves are then refused with a clear message. */
@@ -15,6 +15,13 @@ export const SAVE_VERSION = 14;
 function raceType(value: unknown): RaceType {
   if (typeof value !== 'string' || !(RACE_TYPES as readonly string[]).includes(value)) fail('a people is unknown');
   return value as RaceType;
+}
+
+/** Saves from before the attack start setting attack as the style decides. */
+function attackStartType(value: unknown): BotAttackStartType {
+  if (value === undefined) return 'by_style';
+  if (typeof value !== 'string' || !(BOT_ATTACK_START_TYPES as readonly string[]).includes(value)) fail('an attack start is unknown');
+  return value as BotAttackStartType;
 }
 
 /** Saves from before difficulty levels play at normal. */
@@ -227,7 +234,7 @@ export function loadGame(data: unknown): World {
     stats.goodsMade = goodRecord(raw.stats.goodsMade, GOOD_TYPES, (v, what) => int(v, 0, Number.MAX_SAFE_INTEGER, what), 'goods made');
     stats.history = statsHistory(raw.stats.history);
     return {
-      id: int(raw.id, k, k, 'player id'), teamId: int(raw.teamId, 0, 7, 'player team'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), difficultyType: difficultyType(raw.difficultyType), raceType: raceType(raw.raceType), isEliminated: bool(raw.isEliminated, 'player state'),
+      id: int(raw.id, k, k, 'player id'), teamId: int(raw.teamId, 0, 7, 'player team'), isBot: bool(raw.isBot, 'player type'), botType: botType(raw.botType), difficultyType: difficultyType(raw.difficultyType), attackStartType: attackStartType(raw.attackStartType), raceType: raceType(raw.raceType), isEliminated: bool(raw.isEliminated, 'player state'),
       transportPriority: order.map((g) => good(g, 'priority entry')), isStored,
       productionOrders: goodRecord(raw.productionOrders, MADE_GOODS, (v, w) => int(v, 0, 99, w), 'production orders'),
       productionShares: goodRecord(raw.productionShares, MADE_GOODS, (v, w) => int(v, 0, 10, w), 'production shares'),

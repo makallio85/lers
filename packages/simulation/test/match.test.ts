@@ -168,6 +168,30 @@ test('soldiers sent against an enemy tower still being built tear it down', () =
   assert.ok(world.messages.some((m) => m.owner === 1 && m.text === 'Small tower site destroyed'));
 });
 
+test('a chosen attack start: the computer attacks soon after it, and never when told never', () => {
+  const attackMinute = (attackStartType: 'after_15' | 'never') => {
+    const world = createMatch(7, 'calm', 'small', 'romans', 'asians', 'continent', { attackStartType });
+    // The practising player holds one manned tower toward the enemy.
+    const castle = castleOf(world, 0)!;
+    let tower: Building | null = null;
+    for (let dx = 8; dx < 14 && !tower; dx++) for (let dy = -3; dy <= 3 && !tower; dy++) {
+      if (placementProblem(world, 0, 'guard_tower_small', castle.x + dx, castle.y + dy) === null) tower = finished(world, 'guard_tower_small', 0, castle.x + dx, castle.y + dy);
+    }
+    const guard = newSettler(world, 0, 'swordsman', tower!.doorX, tower!.doorY);
+    guard.isInside = true; guard.phase = 'inside'; guard.homeId = tower!.id; tower!.garrison = [guard.id]; tower!.isOccupied = true;
+    recomputeTerritory(world);
+    const log: BotLogEntry[] = [];
+    for (let t = 0; t < 25 * 600; t++) {
+      stepMatch(world, [], log);
+      if (log.some((e) => e.playerId === 1 && e.text.startsWith('attack '))) return t / 600;
+    }
+    return null;
+  };
+  const minute = attackMinute('after_15');
+  assert.ok(minute !== null && minute >= 15 && minute < 20, `first attack at minute ${minute}`);
+  assert.equal(attackMinute('never'), null);
+});
+
 test('observations hide what a player cannot see', () => {
   const world = createMatch(4);
   run(world, 10);
