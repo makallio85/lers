@@ -300,7 +300,8 @@ function capture(world: World, b: Building, s: Settler): void {
     b.owner = s.owner;
     b.garrison = [s.id];
     b.isOccupied = true;
-    b.garrisonWanted = BUILDING_TYPES[b.typeId].garrisonCapacity;
+    // Only the soldier who took it moves in; the player raises the garrison if wanted.
+    b.garrisonWanted = 1;
     b.stock = emptyGoods(); b.input = emptyGoods(); b.incoming = emptyGoods(); b.reserved = emptyGoods();
     b.blockedReason = null; b.blockedSince = null;
     s.phase = 'inside'; s.isInside = true; s.homeId = b.id;
