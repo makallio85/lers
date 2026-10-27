@@ -151,6 +151,8 @@ const PLANK_SCALE = 1.5;
 const STONE_SCALE = 3;
 interface SettlerView {
   root: Container; body: Sprite; load: Sprite; dir: number; walked: number;
+  /** A soldier's helmet top and crest (bowman's cap), drawn over the body in its owner's colour. */
+  tint?: Sprite; owner?: number;
   /** A soldier's people and look, kept so it can fall when it dies; and when it died, once it has. */
   race?: RaceType; look?: SettlerLook; diedAt?: number;
   /** What the settler carried last frame, and when that changed: a carrier bends to pick up or put down its load. */
@@ -310,6 +312,16 @@ export class MapView {
   get scale(): number { return this.camera.scale.x; }
 
   private raceOf(owner: number) { return this.world.players[owner]?.raceType ?? 'romans'; }
+
+  /** Lays a soldier's owner-coloured helmet or cap over its body, on the same frame; hides it for everyone else. */
+  private placeTint(v: SettlerView, race: RaceType, look: SettlerLook, anim: SettlerAnim, dir: number, frame: number, owner: number): void {
+    const art = this.bank.settlerTint(race, look, anim, dir, frame);
+    if (!art) { if (v.tint) v.tint.visible = false; return; }
+    if (!v.tint) { v.tint = new Sprite(); v.root.addChildAt(v.tint, v.root.getChildIndex(v.body) + 1); }
+    this.place(v.tint, art, 0, 0);
+    v.tint.tint = OWNER_COLORS[owner] ?? 0xffffff;
+    v.tint.visible = true;
+  }
 
   private place(sprite: Sprite, art: ArtSprite, tx: number, ty: number): void {
     sprite.texture = art.texture;
@@ -888,6 +900,7 @@ export class MapView {
         if (since < DIE_FRAMES * DIE_FRAME_MS + FALLEN_MS) {
           const art = this.bank.settler(v.race, v.look, 'die', v.dir, Math.min(DIE_FRAMES - 1, Math.floor(since / DIE_FRAME_MS)));
           if (art) this.place(v.body, art, 0, 0);
+          this.placeTint(v, v.race, v.look, 'die', v.dir, Math.min(DIE_FRAMES - 1, Math.floor(since / DIE_FRAME_MS)), v.owner ?? 0);
           v.load.visible = false;
           v.root.alpha = Math.max(0, Math.min(1, 1 - (since - DIE_FRAMES * DIE_FRAME_MS - FALLEN_MS / 2) / (FALLEN_MS / 2)));
           continue;
@@ -1034,9 +1047,10 @@ export class MapView {
     }
     const art = this.bank.settler(race, look, anim, v.dir, frame + s.id);
     if (!art) return false;
-    if (isSoldierType(s.settlerType)) { v.race = race; v.look = look; }
+    if (isSoldierType(s.settlerType)) { v.race = race; v.look = look; v.owner = s.owner; }
     this.cueSound(s, v, look, anim, frame + s.id, tx, ty);
     this.place(v.body, art, 0, 0);
+    this.placeTint(v, race, look, anim, v.dir, frame + s.id, s.owner);
     const p = iso(tx, ty);
     v.root.position.set(p.x, p.y);
     v.root.zIndex = tx + ty;
