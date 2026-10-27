@@ -1,10 +1,12 @@
 import {
-  BOT_ATTACK_START_TYPES, BOT_DIFFICULTY_TYPES, BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
+  BOT_ATTACK_START_TYPES, BOT_DIFFICULTY_TYPES, BOT_TYPES, TICKS_PER_SECOND, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
   BOARDING_RANGE, qualityLabel, siteQuality, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, isEnemy, isWinner, maxPlayersOf, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
 } from '../../simulation/src/index.ts';
+import { nextTip } from './tips.ts';
+import type { Tip } from './tips.ts';
 import type { BotAttackStartType, BotDifficultyType, BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import { SoundBoard } from './sound.ts';
@@ -12,7 +14,7 @@ import { MusicPlayer } from './music.ts';
 import type { Ghost } from './renderer.ts';
 import * as simulation from '../../simulation/src/index.ts';
 import {
-  GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, buildingCounts, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages,
+  GOODS_VIEWS, SETTLERS_VIEWS, formatClock, outsideStrength, buildingCounts, renderBuildPanel, renderEndScreen, renderGameMenu, renderGoodsPanel, renderMessages, renderTip,
   renderMilitaryPanel, renderOrderBar, renderSelection, renderSettlersPanel, renderSpeed, renderStatsPanel, renderStock, renderTabs, machinesOf,
   renderLoading, renderMatchSetup, renderSettings, renderTitle, landName
 } from './ui.ts';
@@ -145,6 +147,10 @@ const ui = {
   menuNotice: null as string | null,
   isEndHidden: false,
   dismissed: new Set<number>(),
+  /** The practice tip on screen, the tick it appeared, and the tips this match has shown. */
+  tip: null as Tip | null,
+  tipSince: 0,
+  tipsShown: new Set<string>(),
   /** The last unit tapped and when, so a second tap on it soon after selects all of its kind in view. */
   lastTap: null as { id: number; at: number } | null,
   /**
@@ -318,7 +324,7 @@ function renderFront(): void {
       allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied, maxPlayers: maxPlayersOf(lastMapSize, lastMapLayout)
     }));
   } else if (ui.front === 'settings') {
-    setHtml(els.front, renderSettings({ isSoundOn: sounds.isOn, isMusicOn: music.isOn, soundLevel: sounds.level, musicLevel: music.level }));
+    setHtml(els.front, renderSettings({ isSoundOn: sounds.isOn, isMusicOn: music.isOn, soundLevel: sounds.level, musicLevel: music.level, isTipsOn }));
   }
 }
 
@@ -415,12 +421,34 @@ function renderStats(): void {
   setHtml(els.stats, renderStatsScreen(world, PLAYER, ui.statsView, ui.statsGroup));
 }
 
+const TIPS_KEY = 'lers.tips';
+let isTipsOn = (() => { try { return localStorage.getItem(TIPS_KEY) !== 'off'; } catch { return true; } })();
+/** A tip stays this long unless closed sooner. */
+const TIP_TICKS = 40 * TICKS_PER_SECOND;
+
+/** Shows the next practice tip whose moment has come, one at a time, each once per match. */
+function refreshTip(): void {
+  if (!isTipsOn) { ui.tip = null; return; }
+  if (ui.tip && world.tick - ui.tipSince > TIP_TICKS) ui.tip = null;
+  if (ui.tip) return;
+  const tip = nextTip(world, PLAYER, ui.tipsShown);
+  if (!tip) return;
+  ui.tip = tip; ui.tipSince = world.tick; ui.tipsShown.add(tip.id);
+}
+
+function setTipsOn(isOn: boolean): void {
+  isTipsOn = isOn;
+  remember(TIPS_KEY, isOn ? 'on' : 'off');
+  if (!isOn) ui.tip = null;
+}
+
 function refreshLive(): void {
   playNews();
   renderStats();
   setHtml(els.stock, renderStock(world, PLAYER));
   els.clock.textContent = formatClock(world.tick);
-  setHtml(els.messages, renderMessages(world, PLAYER, ui.dismissed));
+  refreshTip();
+  setHtml(els.messages, renderTip(ui.tip) + renderMessages(world, PLAYER, ui.dismissed));
   renderPanel();
   renderSelectionCard();
   renderHint();
@@ -947,6 +975,8 @@ async function enter(next: World, text: string): Promise<void> {
   setHtml(els.front, renderLoading(text));
   await view.prepare(next, showProgress);
   world = next;
+  // A new match starts its tips over; a loaded game has seen its first minutes already.
+  ui.tip = null; ui.tipsShown = new Set(next.tick > 0 ? ['materials', 'carriers'] : []);
   showWorld();
   renderPanel(); refreshLive();
   // Two frames drawn behind the loading screen, then it lifts.
@@ -1180,6 +1210,9 @@ document.addEventListener('click', (e) => {
       renderMenu(); break;
     case 'sound':
       sounds.setOn(!sounds.isOn); renderMenu(); break;
+    case 'tips': setTipsOn(!isTipsOn); renderMenu(); break;
+    case 'tips-off': setTipsOn(false); refreshLive(); break;
+    case 'tip-done': ui.tip = null; refreshLive(); break;
     case 'music':
       music.setOn(!music.isOn); renderMenu(); break;
     case 'victory':

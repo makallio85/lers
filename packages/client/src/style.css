@@ -99,6 +99,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .messages { position: absolute; right: 76px; bottom: 16px; z-index: 3; width: min(340px, calc(100% - 100px)); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .message { pointer-events: auto; display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line-strong); font-size: 13px; }
 .message.is-warning { border-color: var(--warning); }
+.message.is-tip { border-color: var(--accent); }
 .message svg { flex-shrink: 0; width: 18px; height: 18px; }
 .message-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .message-body strong { font-weight: 600; }
