@@ -85,7 +85,7 @@ function keepOutOfFootprints(world: World, s: Settler, site: Building): void {
 export const GROWTH_TICKS = 45;
 const IDLE_BEFORE_GOING_HOME = 30;
 
-type GatherType = 'woodcutter' | 'stonecutter' | 'forester' | 'fisher' | 'farmer';
+type GatherType = 'woodcutter' | 'stonecutter' | 'forester' | 'fisher' | 'farmer' | 'waterworker';
 
 interface GatherRule {
   radius: number;
@@ -100,7 +100,9 @@ const GATHER_RULES: Record<GatherType, GatherRule> = {
   stonecutter: { radius: WORK_AREA_RADIUS.stonecutter, workTicks: 200, restTicks: 30, output: 'stone', blockedText: 'No rocks nearby' },
   forester: { radius: WORK_AREA_RADIUS.forester, workTicks: 40, restTicks: 160, output: null, blockedText: 'No free land nearby' },
   fisher: { radius: WORK_AREA_RADIUS.fisher, workTicks: 180, restTicks: 60, output: 'fish', blockedText: 'No fish nearby' },
-  farmer: { radius: WORK_AREA_RADIUS.farm, workTicks: 90, restTicks: 60, output: 'grain', blockedText: 'No free land for fields' }
+  farmer: { radius: WORK_AREA_RADIUS.farm, workTicks: 90, restTicks: 60, output: 'grain', blockedText: 'No free land for fields' },
+  // The waterworker walks to the shore in his work area, fills his buckets and carries the water home.
+  waterworker: { radius: WORK_AREA_RADIUS.waterworks, workTicks: 80, restTicks: 60, output: 'water', blockedText: 'No water nearby' }
 };
 
 function isGatherType(value: SettlerType): value is GatherType {
@@ -1148,6 +1150,7 @@ function findTarget(world: World, s: Settler, home: Building, type: GatherType):
         case 'forester': if (d >= 2 && isFreeLand(world, i)) candidates.push({ index: i, d }); break;
         // Only a shore by water that holds fish.
         case 'fisher': if (isShore(world, x, y) && bestFishWater(world, x, y) >= 0) candidates.push({ index: i, d }); break;
+        case 'waterworker': if (isShore(world, x, y)) candidates.push({ index: i, d }); break;
         case 'farmer':
           if (world.field[i] >= FIELD_RIPE) ripe.push({ index: i, d });
           else if (fields < MAX_FIELDS_PER_FARM && d >= 1.5 && isFreeLand(world, i)) candidates.push({ index: i, d });
@@ -1218,6 +1221,7 @@ function finishWork(world: World, s: Settler, home: Building, type: SettlerType)
     const water = bestFishWater(world, i % world.width, Math.floor(i / world.width));
     if (water >= 0 && landChance(world, water, world.fish[water] / FISH_MAX)) { world.fish[water]--; s.carrying = 'fish'; }
   }
+  else if (type === 'waterworker') s.carrying = 'water';
   else if (type === 'farmer') {
     if (world.field[i] >= FIELD_RIPE) { world.field[i] = NO_FIELD; s.carrying = 'grain'; }
     else if (isFreeLand(world, i)) world.field[i] = 0;

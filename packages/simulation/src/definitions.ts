@@ -1,11 +1,11 @@
 /** Static game data: goods, settler types, building types and their build menu groups. */
 
 /** Gatherers whose work area the player can move; it must stay this close to the building. */
-export const WORK_AREA_BUILDINGS = ['woodcutter', 'stonecutter', 'forester', 'fisher', 'farm'] as const;
+export const WORK_AREA_BUILDINGS = ['woodcutter', 'stonecutter', 'forester', 'fisher', 'farm', 'waterworks'] as const;
 export const WORK_AREA_REACH = 22;
 /** How far around its work area each gatherer works. */
 export const WORK_AREA_RADIUS: Record<(typeof WORK_AREA_BUILDINGS)[number], number> = {
-  woodcutter: 10, stonecutter: 10, forester: 6, fisher: 8, farm: 5
+  woodcutter: 10, stonecutter: 10, forester: 6, fisher: 8, farm: 5, waterworks: 8
 };
 
 export const GOOD_TYPES = [
@@ -400,7 +400,7 @@ export const BUILDING_TYPES: Record<BuildingTypeId, BuildingType> = {
   bakery: building('bakery', 'Bakery', 'food', 3, 4, 5, 'Baker', 'Flour, water', 'Bread',
     { worker: 'baker', recipe: { inputs: { flour: 1, water: 1 }, output: 'bread', ticks: 210 } }),
   waterworks: building('waterworks', 'Waterworks', 'food', 2, 3, 4, 'Waterworker', 'Water nearby', 'Water',
-    { worker: 'waterworker', placementType: 'near_water', recipe: { inputs: {}, output: 'water', ticks: 180 } }),
+    { worker: 'waterworker', placementType: 'near_water' }),
   fisher: building('fisher', 'Fisher', 'food', 2, 3, 2, 'Fisher + fishing rod', 'Water nearby', 'Fish',
     { worker: 'fisher', tool: 'rod', placementType: 'near_water' }),
   pig_farm: building('pig_farm', 'Pig farm', 'food', 3, 6, 6, 'Pig farmer', 'Grain, water', 'Pigs',

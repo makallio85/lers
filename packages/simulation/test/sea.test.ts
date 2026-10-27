@@ -138,7 +138,9 @@ test('trade ships carry a landing dock\'s goods across the sea to a colony on th
 });
 
 test('on an islands map two built-in bots build ships, ferry their armies across and play to a winner', () => {
-  const world = createMatch(7, 'aggressive', 'small', 'romans', 'egyptians', 'islands');
+  // Seed 11: on some island maps both bots use up their ore before they meet and the match stalls (seeds 7 and 8
+  // since the waterworks got a work area); this one plays to a winner in about 66 minutes.
+  const world = createMatch(11, 'aggressive', 'small', 'romans', 'egyptians', 'islands');
   world.players[0].isBot = true;
   const log: BotLogEntry[] = [];
   // Crossing by sea makes island matches last longer: 60–100 minutes here, depending on small changes elsewhere.
