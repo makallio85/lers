@@ -123,6 +123,37 @@ function dirToward(from: { x: number; y: number }, to: { x: number; y: number })
   return (Math.round(Math.atan2(to.x - from.x, to.y - from.y) / (Math.PI / 4)) + 8) % 8;
 }
 
+/** Garrison soldiers are drawn at this share of a settler's size, small enough to fit a tower's top. */
+const GUARD_SCALE = 0.7;
+type GuardedBuildingType = 'guard_tower_small' | 'guard_tower_large' | 'castle';
+/**
+ * Where garrison soldiers stand on each people's towers and castle: platforms, walls and windows, read off the
+ * rendered art. Each spot is in the art's pixels from the building's foot (its manifest anchor); the first spots fill
+ * first. Re-read them whenever these buildings are rendered anew.
+ */
+const GUARD_SPOTS: Record<RaceType, Record<GuardedBuildingType, readonly (readonly [number, number])[]>> = {
+  romans: {
+    guard_tower_small: [[30, -58]],
+    guard_tower_large: [[42, -121], [10, 5], [-140, -80]],
+    castle: [[90, -85], [-80, -140], [80, -150], [-85, -85]]
+  },
+  egyptians: {
+    guard_tower_small: [[-15, -222], [20, -224]],
+    guard_tower_large: [[-25, -300], [15, -298], [12, 13], [-135, -67]],
+    castle: [[-30, -280], [20, -278], [-120, -100], [130, -80], [-188, -132], [202, -117]]
+  },
+  asians: {
+    guard_tower_small: [[-18, -176], [-20, -111]],
+    guard_tower_large: [[-19, -262], [-34, -192], [13, 23], [-139, -57]],
+    castle: [[-24, -205], [-24, -128], [-160, -70], [140, -55], [60, -40]]
+  },
+  amazons: {
+    guard_tower_small: [[-25, -172], [20, -172]],
+    guard_tower_large: [[-40, -228], [0, -224], [40, -228]],
+    castle: [[15, -165], [50, -165]]
+  }
+};
+
 /** How long a demolished building takes to collapse, in milliseconds. */
 const COLLAPSE_MS = 1500;
 
@@ -713,23 +744,26 @@ export class MapView {
     if (art) this.place(v.sails, art, cx, cy);
   }
 
-  /** Soldiers inside a tower or castle stand on its walls, as many as are inside, up to what the top holds. */
+  /**
+   * Soldiers inside a tower or castle stand where its art has room for them: on its platform or walls, or in its
+   * windows. A few show, not the whole garrison; the card gives the count.
+   */
   private drawGuards(b: Building, v: BuildingView, hasArt: boolean): void {
+    const race = this.raceOf(b.owner);
+    const spots = GUARD_SPOTS[race][b.typeId as GuardedBuildingType] ?? [];
     const inside = b.isComplete && hasArt && isMilitaryBuilding(b)
       ? b.garrison.map((id) => this.world.settlers.find((s) => s.id === id)).filter((s): s is Settler => !!s) : [];
-    const shown = inside.slice(0, b.typeId === 'castle' ? 6 : b.size >= 3 ? 4 : 2);
+    const shown = inside.slice(0, spots.length);
     while (v.guards.children.length < shown.length) v.guards.addChild(new Sprite());
-    const top = v.body.y - v.body.anchor.y * v.body.height;
-    const race = this.raceOf(b.owner);
     shown.forEach((s, k) => {
       const sprite = v.guards.children[k] as Sprite;
       const art = this.bank.settler(race, lookOf(s.settlerType), 'walk', 0, 0);
       if (!art) { sprite.visible = false; return; }
       this.place(sprite, art, 0, 0);
-      sprite.scale.set(this.bank.scale * 0.8);
-      // Spread across the top: a tower's platform, the castle's walls.
-      const spread = b.typeId === 'castle' ? 26 : 9;
-      sprite.position.set(v.body.x + (k - (shown.length - 1) / 2) * spread, top + (b.typeId === 'castle' ? v.body.height * 0.42 : v.body.height * 0.2));
+      sprite.scale.set(this.bank.scale * GUARD_SCALE);
+      // Spots are in the building art's own pixels from its foot, which the body sprite stands on.
+      const [dx, dy] = spots[k];
+      sprite.position.set(v.body.x + dx * this.bank.scale, v.body.y + dy * this.bank.scale);
       sprite.visible = true;
     });
     for (let j = shown.length; j < v.guards.children.length; j++) v.guards.children[j].visible = false;
