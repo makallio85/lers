@@ -795,9 +795,12 @@ function prepareStart(world: World, x: number, y: number, area: StartArea, varia
     // A few tiles of gems and sulfur at the near edge, so every people finds what it mines.
     const tx = i % world.width;
     const edge = d > 3.8 ? (isFarSide ? DEPOSIT_GOLD : tx % 2 === 0 ? DEPOSIT_SULFUR : DEPOSIT_GEMS) : null;
-    // Around the iron, patches of bare rock where a geologist finds nothing: the same pattern at every start.
-    const ox = (i % world.width) - Math.floor(mountain.x), oy = Math.floor(i / world.width) - Math.floor(mountain.y);
-    const isBare = d >= 2.2 && ((Math.imul(Math.floor(ox / 2) + 31, 73856093) ^ Math.imul(Math.floor(oy / 2) + 17, 19349663)) >>> 0) % 100 < 38;
+    // As in the original, most of a mountain is bare: iron in the middle, coal on one side of it (the side toward
+    // the castle), a little gold and gems at the edge, and plain rock elsewhere. The same at every start.
+    const ox = (i % world.width) + 0.5 - mountain.x, oy = Math.floor(i / world.width) + 0.5 - mountain.y;
+    const toCastle = Math.atan2(centreY - mountain.y, centreX - mountain.x);
+    const off = Math.abs(((Math.atan2(oy, ox) - toCastle + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+    const isBare = d >= 2.2 && (edge === null ? off > 1.9 : ((Math.imul(Math.floor(ox) + 31, 73856093) ^ Math.imul(Math.floor(oy) + 17, 19349663)) >>> 0) % 100 < 55);
     setDeposit(world, i, isBare ? DEPOSIT_NONE : d < 2.2 ? DEPOSIT_IRON : edge ?? DEPOSIT_COAL);
   });
   forEachNear(pond, 2.4, (i) => { world.terrain[i] = TERRAIN_WATER; world.tree[i] = NO_TREE; world.rock[i] = 0; setDeposit(world, i, DEPOSIT_NONE); });
