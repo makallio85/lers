@@ -8,7 +8,7 @@ import {
 import type { BuildingTypeId, GoodType, SettlerType, WarMachineType } from './definitions.ts';
 import { applyCommand } from './commands.ts';
 import type { Command, CommandResult } from './commands.ts';
-import { checkVictory, releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
+import { checkVictory, destroyBuildingsOnForeignLand, releaseEmptyBuildings, removeDead, sendDefenders, updateSoldier } from './combat.ts';
 import { WALK_SPEED, advance, distance, doorTile, spreadStanding, tileOf, walkTo } from './movement.ts';
 import { updateVision } from './vision.ts';
 import { landRegion } from './regions.ts';
@@ -534,6 +534,7 @@ function fillGarrisons(world: World): void {
     }
   }
   releaseEmptyBuildings(world);
+  destroyBuildingsOnForeignLand(world);
 }
 
 /** Steps one soldier out of the nearest garrison of the same owner that holds two or more, and returns it. */

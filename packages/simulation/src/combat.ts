@@ -328,6 +328,38 @@ function destroyBuildingsOnLostLand(world: World, loser: number): void {
   recomputeTerritory(world);
 }
 
+/** The territory version last checked for buildings standing on another player's land. */
+const checkedTerritory = new WeakMap<World, number>();
+
+/**
+ * Whenever the borders move (a tower manned or taken, pioneers' posts), a player's buildings standing on land another
+ * player now holds are destroyed, as in the original: construction sites and civilian buildings, and towers that can
+ * be neither held nor taken there (empty, but covered by another tower of their owner). An empty tower without cover
+ * stays, for the new owner's soldiers to take.
+ */
+export function destroyBuildingsOnForeignLand(world: World): void {
+  if (checkedTerritory.get(world) === world.territoryVersion) return;
+  checkedTerritory.set(world, world.territoryVersion);
+  let isChanged = false;
+  for (const b of [...world.buildings]) {
+    if (b.typeId === 'castle') continue;
+    let foreign = 0;
+    for (let dy = 0; dy < b.size && foreign === 0; dy++) {
+      for (let dx = 0; dx < b.size && foreign === 0; dx++) {
+        const owner = world.territory[tileIndex(world, b.x + dx, b.y + dy)];
+        if (owner !== 0 && owner !== b.owner + 1) foreign = owner;
+      }
+    }
+    if (foreign === 0) continue;
+    if (b.isComplete && isMilitaryBuilding(b) && (b.isOccupied || !coveringBuilding(world, b))) continue;
+    const label = BUILDING_TYPES[b.typeId].label;
+    destroyBuilding(world, b);
+    pushMessage(world, b.owner, b.isComplete ? `${label} lost` : `${label} site lost`, 'Another player took the land it stood on.', true, null);
+    isChanged = true;
+  }
+  if (isChanged) recomputeTerritory(world);
+}
+
 // ---------------------------------------------------------------- war machines
 
 /** A war machine under fire warns its target's owner at most this often. */
