@@ -310,3 +310,16 @@ test('statistics are sampled once a minute, count gathered goods, and survive a 
   const copy = loadGame(JSON.parse(JSON.stringify(saveGame(world))));
   assert.deepEqual(copy.players[0].stats.history, stats.history);
 });
+
+test('a toolsmith with no hammer in storage gets one from an idle builder, and new crews leave it alone', () => {
+  const world = createWorld({ seed: 11 });
+  const castle = castleOf(world, 0)!;
+  // Every hammer is a builder's: the start's builders hold theirs, storage has none.
+  castle.stock.hammer = 0;
+  castle.stock.iron = 4; castle.stock.coal = 4;
+  const id = place(world, 'toolsmith');
+  const smith = building(world, id);
+  runUntil(world, () => smith.isComplete, 8000);
+  runUntil(world, () => smith.workerId !== null, 1200);
+  assert.notEqual(smith.workerId, null, 'an idle builder handed in its hammer and the toolsmith has a worker');
+});
