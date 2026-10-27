@@ -628,7 +628,7 @@ function generateTerrain(world: World): void {
     if (world.terrain[i] === TERRAIN_MOUNTAIN) {
       if (r < 0.25) world.rock[i] = ROCK_STONE;
       // Gold is the rarest ore, found where the ore is richest.
-      else if (ore[i] > 0.4) {
+      else if (ore[i] > 0.47) {
         // Some richer veins hold gems or sulfur instead, for the peoples who mine them.
         const vein = random.next();
         setDeposit(world, i, ore[i] > 0.78 ? (vein < 0.4 ? DEPOSIT_GEMS : DEPOSIT_GOLD) : ore[i] > 0.62 ? (vein < 0.3 ? DEPOSIT_SULFUR : DEPOSIT_IRON) : DEPOSIT_COAL);
@@ -795,7 +795,10 @@ function prepareStart(world: World, x: number, y: number, area: StartArea, varia
     // A few tiles of gems and sulfur at the near edge, so every people finds what it mines.
     const tx = i % world.width;
     const edge = d > 3.8 ? (isFarSide ? DEPOSIT_GOLD : tx % 2 === 0 ? DEPOSIT_SULFUR : DEPOSIT_GEMS) : null;
-    setDeposit(world, i, d < 2.2 ? DEPOSIT_IRON : edge ?? DEPOSIT_COAL);
+    // Around the iron, patches of bare rock where a geologist finds nothing: the same pattern at every start.
+    const ox = (i % world.width) - Math.floor(mountain.x), oy = Math.floor(i / world.width) - Math.floor(mountain.y);
+    const isBare = d >= 2.2 && ((Math.imul(Math.floor(ox / 2) + 31, 73856093) ^ Math.imul(Math.floor(oy / 2) + 17, 19349663)) >>> 0) % 100 < 38;
+    setDeposit(world, i, isBare ? DEPOSIT_NONE : d < 2.2 ? DEPOSIT_IRON : edge ?? DEPOSIT_COAL);
   });
   forEachNear(pond, 2.4, (i) => { world.terrain[i] = TERRAIN_WATER; world.tree[i] = NO_TREE; world.rock[i] = 0; setDeposit(world, i, DEPOSIT_NONE); });
   forEachNear(grove, 4, (i) => { if (world.terrain[i] === TERRAIN_GRASS && random.next() < 0.7) { world.tree[i] = TREE_MATURE; world.rock[i] = 0; } });

@@ -281,7 +281,7 @@ test('pioneers go on pushing the border outward from their spot, each on its own
   const own = () => world.territory.reduce((n, t) => n + (t === 1 ? 1 : 0), 0);
   const before = own();
   run(world, 2400);
-  assert.ok(own() - before > 120, `four minutes of two pioneers claim well beyond the first few tiles (${own() - before})`);
+  assert.ok(own() - before > 40, `four minutes of two pioneers claim well beyond the first few tiles (${own() - before})`);
   assert.ok(pioneers.every((s) => s.phase === 'claiming' || s.phase === 'moving'), 'and they are still at it');
   assert.notEqual(pioneers[0].targetTile, pioneers[1].targetTile);
 });

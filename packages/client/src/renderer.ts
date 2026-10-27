@@ -214,7 +214,8 @@ export class MapView {
     this.ghostSprite.alpha = 0.6;
     this.ghostSprite.visible = false;
     this.upright.addChild(this.ghostSprite);
-    this.camera.addChild(this.groundBase, this.upright, this.signs, this.groundTop, this.bars);
+    // Geologists' signs stand on the ground, so buildings, trees and settlers in front of them cover them.
+    this.camera.addChild(this.groundBase, this.signs, this.upright, this.groundTop, this.bars);
     app.stage.addChild(this.camera, this.screenOverlay);
   }
 
@@ -362,7 +363,8 @@ export class MapView {
       const tx = i % world.width, ty = Math.floor(i / world.width);
       const cx = tx * TILE + TILE / 2, cy = ty * TILE + TILE / 2;
       // A sign on every tile the geologist checked.
-      if (prospect && prospect[i] === 1 && world.rock[i] === 0) {
+      // A building put up there takes its signs down.
+      if (prospect && prospect[i] === 1 && world.rock[i] === 0 && world.footprint[i] === 0) {
         // A standing sign: a post with a flag in the ore's colour, or a bare cross-piece where there is none.
         const p = iso(tx + 0.5, ty + 0.5);
         const hasOre = world.deposit[i] !== 0 && world.depositAmount[i] > 0;
