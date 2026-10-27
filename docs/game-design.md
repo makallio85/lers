@@ -204,7 +204,7 @@ The map shows what the simulation holds, so a player can read the settlement wit
 - **Goods traffic:** a selected building's card shows what is arriving and what is leaving, and on the map the carriers bringing it goods have a green ring, those coming to take goods away an orange one.
 - **Carried goods** are drawn large enough to tell what each carrier and donkey carries.
 - **Soldiers look like soldiers:** a steel helmet with a red crest, nose and cheek guards, a steel breastplate and belt, and a round wooden shield with a steel rim on the left arm for swordsmen and spearmen; bowmen wear a leather cap with a feather and a leather jerkin, with a quiver on the back. Workers wear none of this, so soldiers stand out among them at a glance.
-- **Work shows:** woodcutters, builders, stonecutters and geologists swing their tool; diggers, pioneers and farmers bend down to dig, sow and plant. Tools are drawn half again as large as life so they read at normal zoom.
+- **Work shows:** woodcutters, builders, stonecutters and geologists swing their tool; diggers, pioneers and farmers bend down to dig, sow and plant. Tools are drawn half again as large as life so they read at normal zoom. The sawmill's carpenter works in the yard, as observed in The Settlers III: at a sawhorse left of the door he saws a log for about two thirds of each plank's time, then carries the plank to the pile right of the door and walks back; with no logs he waits by the door. Only on screen; the simulation is unchanged.
 - **Mills turn their sails** while the miller grinds.
 - **Smoke** rises from workshops with a fire while their worker is at work.
 - **Fallen soldiers** fall where they stood, lie a moment and fade.
