@@ -31,7 +31,7 @@ export const CLAIM_RADIUS = 4;
 /** Pioneers go on pushing the border outward from their spot, claiming land next to the player's own, this far. */
 export const PIONEER_REACH = 12;
 const PROSPECT_TICKS = 50;
-const CLAIM_TICKS = 50;
+const CLAIM_TICKS = 30;
 
 /** A producer stops once this many finished goods wait at its door. */
 export const OUTPUT_LIMIT = 8;
@@ -1245,8 +1245,14 @@ function updateSpecialist(world: World, s: Settler): void {
       world.prospect[s.owner][s.targetTile] = 1;
       world.mapVersion++;
     } else if (canClaim(world, s.owner, s.targetTile)) {
-      // One tile per post, as a geologist checks one tile at a time.
+      // One tile per post, as a geologist checks one tile at a time; rocks and other ground nobody can stand on
+      // next to it go along, so the claimed land has no holes.
       world.pioneerLand[s.targetTile] = s.owner + 1;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!inBounds(world, tx + dx, ty + dy)) continue;
+        const j = tileIndex(world, tx + dx, ty + dy);
+        if (!isWalkable(world, j) && world.footprint[j] === 0 && canClaim(world, s.owner, j)) world.pioneerLand[j] = s.owner + 1;
+      }
       recomputeTerritory(world);
     }
     s.targetTile = -1; s.timer = 0;
