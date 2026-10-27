@@ -1,11 +1,11 @@
 import {
-  BOT_DIFFICULTY_TYPES, BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
+  BOT_ATTACK_START_TYPES, BOT_DIFFICULTY_TYPES, BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, MAX_ORDER, MAX_SPECIALISTS,
   RACE_SETTINGS, RACE_TYPES, SOLDIER_STATS, SPECIALIST_TYPES, WORK_AREA_BUILDINGS, WORK_AREA_RADIUS, WORK_AREA_REACH, applyCommand, isSpecialistType, storedGold,
   buildingById, castleOf, createMatch, createWorld, groundProblem, isMilitaryBuilding, isSoldierType, isUnitType, loadGame, mapSizeTypeOf,
   placementProblem, saveGame, stepMatch, tileIndex, updateVision, buildingLabel, spellProblem, SPELL_RANGE, SPELL_STATS, DONKEY_LOAD, TRADE_UNLIMITED,
   BOARDING_RANGE, qualityLabel, siteQuality, MAP_LAYOUT_TYPES, STARTING_GOODS_TYPES, VICTORY_TYPES, isEnemy, isWinner, maxPlayersOf, SHIP_TYPES, TRANSPORT_CAPACITY, isShipType, isWarMachineType, passengersOf
 } from '../../simulation/src/index.ts';
-import type { BotDifficultyType, BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
+import type { BotAttackStartType, BotDifficultyType, BotType, MapLayoutType, MapSizeType, ShipType, StartingGoodsType, VictoryType, RaceType, SoldierType, SpecialistType, SpellType, TradeModeType, BuildingGroupType, BuildingTypeId, Command, CommandResult, GoodType, Settler, World } from '../../simulation/src/index.ts';
 import { MapView, TILE } from './renderer.ts';
 import { SoundBoard } from './sound.ts';
 import { MusicPlayer } from './music.ts';
@@ -42,6 +42,7 @@ function randomSeed(): number {
 const params = new URLSearchParams(location.search);
 const BOT_TYPE_KEY = 'lers.botType';
 const DIFFICULTY_KEY = 'lers.difficulty';
+const ATTACK_START_KEY = 'lers.attackStart';
 const MAP_SIZE_KEY = 'lers.mapSize';
 const RACE_KEY = 'lers.race';
 const MAP_LAYOUT_KEY = 'lers.mapLayout';
@@ -71,6 +72,7 @@ function remember(key: string, value: string): void {
 /** The opponent and map size chosen last; the menu highlights them and "Play again" keeps them. */
 let lastBotType: BotType = chosen(BOT_TYPES, BOT_TYPE_KEY, 'bot', 'aggressive');
 let lastDifficulty: BotDifficultyType = chosen(BOT_DIFFICULTY_TYPES, DIFFICULTY_KEY, 'difficulty', 'normal');
+let lastAttackStart: BotAttackStartType = chosen(BOT_ATTACK_START_TYPES, ATTACK_START_KEY, 'attack', 'by_style');
 let lastMapSize: MapSizeType = chosen(MAP_SIZE_TYPES, MAP_SIZE_KEY, 'size', 'medium');
 let lastRace: RaceType = chosen(RACE_TYPES, RACE_KEY, 'race', 'romans');
 let lastMapLayout: MapLayoutType = chosen(MAP_LAYOUT_TYPES, MAP_LAYOUT_KEY, 'land', 'continent');
@@ -90,7 +92,7 @@ function fitPlayers(): void {
 }
 fitPlayers();
 const nextSetup = () => ({
-  difficultyType: lastDifficulty, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory,
+  difficultyType: lastDifficulty, attackStartType: lastAttackStart, isMirrored: lastIsMirrored, startingGoodsType: lastStartingGoods, victoryType: lastVictory,
   allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied
 });
 const botType = (): BotType => world.players[1]?.botType ?? lastBotType;
@@ -311,7 +313,7 @@ function renderFront(): void {
   if (ui.front === 'title') setHtml(els.front, renderTitle({ autosavedAt: savedLabel(AUTOSAVE_KEY), savedAt: savedLabel(SAVE_KEY), isMusicWaiting: music.isWaitingForGesture }));
   else if (ui.front === 'setup') {
     setHtml(els.front, renderMatchSetup({
-      botType: lastBotType, difficultyType: lastDifficulty, mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored,
+      botType: lastBotType, difficultyType: lastDifficulty, attackStartType: lastAttackStart, mapSize: lastMapSize, mapLayout: lastMapLayout, isMirrored: lastIsMirrored,
       startingGoodsType: lastStartingGoods, victoryType: lastVictory, raceType: lastRace,
       allyCount: lastAllies, enemyCount: lastEnemies, areEnemiesAllied: lastEnemiesAllied, maxPlayers: maxPlayersOf(lastMapSize, lastMapLayout)
     }));
@@ -1134,6 +1136,10 @@ document.addEventListener('click', (e) => {
     case 'bot-type':
       if ((BOT_TYPES as readonly string[]).includes(target.dataset.bot ?? '')) { lastBotType = target.dataset.bot as BotType; remember(BOT_TYPE_KEY, lastBotType); }
       renderFront(); break;
+    case 'attack-start':
+      if ((BOT_ATTACK_START_TYPES as readonly string[]).includes(target.dataset.attack ?? '')) { lastAttackStart = target.dataset.attack as BotAttackStartType; remember(ATTACK_START_KEY, lastAttackStart); }
+      renderFront();
+      break;
     case 'difficulty':
       if ((BOT_DIFFICULTY_TYPES as readonly string[]).includes(target.dataset.difficulty ?? '')) { lastDifficulty = target.dataset.difficulty as BotDifficultyType; remember(DIFFICULTY_KEY, lastDifficulty); }
       renderFront(); break;

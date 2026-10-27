@@ -1,5 +1,5 @@
 import {
-  BOT_DIFFICULTY_SETTINGS, BOT_DIFFICULTY_TYPES, BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
+  BOT_ATTACK_START_SETTINGS, BOT_ATTACK_START_TYPES, BOT_DIFFICULTY_SETTINGS, BOT_DIFFICULTY_TYPES, BOT_TYPES, BOT_TYPE_SETTINGS, BUILDING_GROUP_TYPES, BUILDING_TYPES, GOOD_LABELS, MAP_SIZE_SETTINGS, MAP_SIZE_TYPES, GOOD_TYPES, MAX_SHARE, SETTLER_LABELS, SETTLER_PLURALS, SOLDIER_TYPES,
   GOLD_FOR_FULL_STRENGTH, GOOD_NAMES, RACE_SETTINGS, RACE_TYPES, buildingCost, isBuildableBy, siteCost, HEAL_RADIUS, OUTSIDE_MIN_STRENGTH, SOLDIER_STATS, SPECIALIST_TOOLS, SPECIALIST_TYPES, storedGold, TICKS_PER_SECOND, TOOL_TYPES, WEAPON_TYPES, WORK_AREA_BUILDINGS, castleOf, consumersOf,
   costTotal, distributedGoods, goodCount, heldGood, toolShortage, isMilitaryBuilding, isSoldierType, isStorageBuilding, isUnitType, isWarMachineType, settlerById,
   BUILDING_STRUCTURE, WAR_MACHINES_PER_HALL, WAR_MACHINE_STATS, WAR_MACHINE_TYPES,
@@ -9,7 +9,7 @@ import {
   passengersOf, shipsOfDock, isSpecialistType, qualityLabel, siteQuality, STARTING_GOODS_LABELS, STARTING_GOODS_TYPES, VICTORY_LABELS, VICTORY_TYPES, economyProgress, isEnemy, isWinner
 } from '../../simulation/src/index.ts';
 import type {
-  BotDifficultyType, BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, StartingGoodsType, VictoryType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
+  BotAttackStartType, BotDifficultyType, BotType, Building, BuildingGroupType, MapLayoutType, MapSizeType, StartingGoodsType, VictoryType, RaceType, BuildingTypeId, GameMessage, GoodAmounts, GoodType, Settler, SettlerType, SpellType, World
 } from '../../simulation/src/index.ts';
 
 export type TabId = 'build' | 'goods' | 'settlers' | 'military' | 'stats';
@@ -473,6 +473,7 @@ export interface SetupState {
   /** The computer's style and how well it plays. */
   botType: BotType;
   difficultyType: BotDifficultyType;
+  attackStartType: BotAttackStartType;
   mapSize: MapSizeType;
   mapLayout: MapLayoutType;
   /** Whether the next match's map is mirrored, and how much each player starts with. */
@@ -598,6 +599,7 @@ export function renderMatchSetup(state: SetupState): string {
         </button>`).join('')}
     </div>
     ${choiceRow('Difficulty', 'menu-difficulty', BOT_DIFFICULTY_TYPES.map((d) => ({ value: d, name: BOT_DIFFICULTY_SETTINGS[d].label, note: BOT_DIFFICULTY_SETTINGS[d].summary })), state.difficultyType, 'difficulty', 'difficulty')}
+    ${choiceRow('Computer attacks', 'menu-attack-start', BOT_ATTACK_START_TYPES.map((a) => ({ value: a, name: BOT_ATTACK_START_SETTINGS[a].label, note: BOT_ATTACK_START_SETTINGS[a].summary })), state.attackStartType, 'attack-start', 'attack', state.victoryType === 'economy')}
     ${choiceRow('Opponent', 'menu-opponent', BOT_TYPES.map((t) => ({ value: t, name: BOT_TYPE_SETTINGS[t].label, note: opponentText(t, state.mapSize, state.victoryType) })), state.botType, 'bot-type', 'bot')}
     ${choiceRow('Map size', 'menu-map-size', MAP_SIZE_TYPES.map((m) => ({ value: m, name: MAP_SIZE_SETTINGS[m].label, note: `${MAP_SIZE_SETTINGS[m].width} × ${MAP_SIZE_SETTINGS[m].height}` })), state.mapSize, 'map-size', 'size')}
     ${choiceRow('Land', 'menu-map-layout', MAP_LAYOUT_TYPES.map((m) => ({ value: m, name: MAP_LAYOUT_LABELS[m], note: m === 'islands' ? 'Each people on its own island: attack by ship' : 'One land: walk to the enemy' })), state.mapLayout, 'map-layout', 'layout')}

@@ -1,7 +1,7 @@
 import { BUILDING_TYPES, DEPOSIT_COAL, DEPOSIT_GOLD, DEPOSIT_IRON, MAP_SIZE_SETTINGS, RACE_TYPES } from './definitions.ts';
 import type { BuildingTypeId, MapLayoutType, MapSizeType, RaceType, StartingGoodsType, VictoryType } from './definitions.ts';
 import { BOT_DECISION_TICKS, BOT_DIFFICULTY_SETTINGS, decideBot } from './bot.ts';
-import type { BotDifficultyType, BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
+import type { BotAttackStartType, BotDifficultyType, BotLogEntry, BotSpotFinder, BotType, SpotNeed } from './bot.ts';
 import { groundProblem, placementProblem } from './commands.ts';
 import { siteQuality } from './land.ts';
 import { landRegion } from './regions.ts';
@@ -33,6 +33,8 @@ export interface MatchSetup {
   areEnemiesAllied?: boolean;
   /** How well the computer players play (normal by default). */
   difficultyType?: BotDifficultyType;
+  /** When the computer players start attacking (as their style decides by default). */
+  attackStartType?: BotAttackStartType;
 }
 
 /** A match: you (player 0) against one built-in computer player, on a mirrored map unless the setup says otherwise. */
@@ -54,7 +56,7 @@ export function createMatch(
   return createWorld({
     seed, playerCount: races.length, teamIds: teams, botType, width, height, raceTypes: races, mapLayout,
     isMirrored: setup.isMirrored ?? true, startingGoodsType: setup.startingGoodsType ?? 'default', victoryType: setup.victoryType ?? 'conquest',
-    difficultyType: setup.difficultyType ?? 'normal'
+    difficultyType: setup.difficultyType ?? 'normal', attackStartType: setup.attackStartType ?? 'by_style'
   });
 }
 
