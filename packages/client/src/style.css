@@ -400,3 +400,7 @@ a.build-commit:hover { color: var(--accent); text-decoration: underline; }
 .land-quality.is-good { color: var(--good); }
 .land-quality.is-fair { color: var(--accent); }
 .land-quality.is-poor, .land-quality.is-very-poor { color: var(--warning-text); }
+.update-banner { position: fixed; top: calc(var(--top-height) + 8px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 9;
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-radius: 8px; background: var(--panel); border: 1px solid var(--accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); font-size: 14px; max-width: calc(100vw - 32px); }
+.update-banner .primary, .update-banner .secondary { min-height: 36px; font-size: 14px; }

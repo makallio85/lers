@@ -318,7 +318,7 @@ test('a work area can be set while the building is still going up', () => {
   assert.equal(b.workX, b.doorX + 3);
 });
 
-test('a geologist leaves mountain that becomes another player\'s land, and never searches there', () => {
+test('a geologist\'s signs are everyone\'s: every player knows the tiles marked', () => {
   const world = createMatch(7, 'calm', 'medium', 'romans');
   world.players[1].isBot = false;
   const castle = castleOf(world, 0)!;
@@ -331,15 +331,9 @@ test('a geologist leaves mountain that becomes another player\'s land, and never
   command(world, { type: 'setSpecialists', playerId: 0, specialistType: 'geologist', count: 1 });
   run(world, 30);
   const geologist = world.settlers.find((s) => s.owner === 0 && s.settlerType === 'geologist')!;
-  const mx = best % world.width, my = Math.floor(best / world.width);
-  command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [geologist.id], x: mx, y: my, isWorking: true });
-  runUntil(world, () => geologist.phase === 'prospecting' && geologist.targetTile >= 0, 3000);
-  // The whole mountain around him becomes the other player's land.
-  for (let y = my - 8; y <= my + 8; y++) for (let x = mx - 8; x <= mx + 8; x++) {
-    if (x >= 0 && y >= 0 && x < world.width && y < world.height) world.territory[tileIndex(world, x, y)] = 2;
-  }
-  const before = world.prospect[0].reduce((n, v) => n + v, 0);
-  run(world, 400);
-  assert.equal(geologist.phase, 'idle', 'he stops');
-  assert.equal(world.prospect[0].reduce((n, v) => n + v, 0), before, 'and marks nothing there');
+  command(world, { type: 'moveSpecialists', playerId: 0, settlerIds: [geologist.id], x: best % world.width, y: Math.floor(best / world.width), isWorking: true });
+  run(world, 1500);
+  const marked = world.prospect[0].reduce((n, v) => n + v, 0);
+  assert.ok(marked > 5);
+  assert.equal(world.prospect[1].reduce((n, v) => n + v, 0), marked, 'the other player sees the same signs');
 });

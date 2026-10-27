@@ -1129,6 +1129,11 @@ document.addEventListener('click', (e) => {
     case 'open-title': openFront('title'); break;
     case 'close-front': closeFront(); break;
     case 'continue': load(AUTOSAVE_KEY); break;
+    case 'reload-update':
+      // The match goes on after the reload from its autosave (Continue on the title).
+      if (isMatch() && world.winner === null) save(AUTOSAVE_KEY);
+      location.reload(); break;
+    case 'dismiss-update': if (updateBanner) updateBanner.hidden = true; break;
     case 'race':
       if ((RACE_TYPES as readonly string[]).includes(target.dataset.race ?? '')) { lastRace = target.dataset.race as RaceType; remember(RACE_KEY, lastRace); }
       renderMenu(); break;
@@ -1279,6 +1284,21 @@ function simulate(now: number): void {
   }
 }
 setInterval(() => { if (document.hidden) simulate(performance.now()); }, 250);
+
+/** Every two minutes: has a newer build been deployed? Then offer to reload, the match saved first. */
+const updateBanner = document.getElementById('update-banner');
+async function checkForUpdate(): Promise<void> {
+  if (__BUILD_COMMIT__ === 'local' || !updateBanner || !updateBanner.hidden) return;
+  try {
+    const response = await fetch('./version.json', { cache: 'no-store' });
+    if (!response.ok) return;
+    const { commit } = await response.json() as { commit?: string };
+    if (!commit || commit === __BUILD_COMMIT__) return;
+    setHtml(updateBanner, `<span>A new version of Lers is out.</span><button type="button" class="primary" data-action="reload-update">Reload</button><button type="button" class="secondary" data-action="dismiss-update">Later</button>`);
+    updateBanner.hidden = false;
+  } catch { /* offline: try again later */ }
+}
+setInterval(() => { void checkForUpdate(); }, 120_000);
 // Back in view: show what happened meanwhile at once.
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { simulate(performance.now()); refreshLive(); } });
 
@@ -1348,7 +1368,7 @@ requestAnimationFrame(frame);
 
 // Exposed for automated screenshots and debugging in the browser console.
 Object.defineProperty(window, 'lers', {
-  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders, checkGhost, sounds, music })
+  get: () => ({ world, view, ui, TILE, placementProblem, stepMatch, setSpeed, refreshLive, simulation, renderPanel, renderSelectionCard, renderOrders, checkGhost, checkForUpdate, sounds, music })
 });
 
 // The statistics charts' hover readout: a crosshair at the nearest sample and its values beside it.
