@@ -1103,6 +1103,17 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'dismiss': ui.dismissed.add(Number(target.dataset.id)); refreshLive(); break;
+    case 'show-next-of-type': {
+      // Each click shows the next of the player's buildings of this type, oldest first, then starts over.
+      const typeId = target.dataset.type;
+      const own = world.buildings.filter((b) => b.owner === PLAYER && b.typeId === typeId).sort((a, b) => a.id - b.id);
+      if (own.length === 0) break;
+      const current = own.findIndex((b) => b.id === ui.selectedId);
+      const b = own[(current + 1) % own.length];
+      view.centreOn(b.x + b.size / 2, b.y + b.size / 2);
+      ui.selectedId = b.id; renderSelectionCard(); refreshLive();
+      break;
+    }
     case 'show-building': {
       const b = buildingById(world, Number(target.dataset.id));
       if (b) { view.centreOn(b.x + b.size / 2, b.y + b.size / 2); ui.selectedId = b.id; renderSelectionCard(); }

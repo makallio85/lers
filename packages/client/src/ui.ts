@@ -148,6 +148,8 @@ export function renderBuildPanel(groupType: BuildingGroupType, selected: Buildin
     </button>`).join('');
   const t = BUILDING_TYPES[isBuildableBy(selected, race) ? selected : types[0]?.id ?? selected];
   const isPlacing = placing === selected;
+  // Built ones and sites going up: the button beside "Place on map" steps through them on the map.
+  const owned = (counts[t.id]?.built ?? 0) + (counts[t.id]?.building ?? 0);
   return `
     ${groups}
     <div class="buildings">${cards}</div>
@@ -165,6 +167,7 @@ export function renderBuildPanel(groupType: BuildingGroupType, selected: Buildin
       <button type="button" class="primary" data-action="${isPlacing ? 'cancel-placing' : 'start-placing'}" ${t.isAvailable ? '' : 'disabled'}>
         ${isPlacing ? 'Cancel placing' : t.isAvailable ? 'Place on map' : 'Not available yet'}
       </button>
+      ${owned > 0 ? `<button type="button" class="secondary" data-action="show-next-of-type" data-type="${t.id}">${owned === 1 ? 'Show on map' : `Show next on map (${owned})`}</button>` : ''}
     </div>`;
 }
 
