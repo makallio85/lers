@@ -101,6 +101,8 @@ interface BuildingView {
   collapsedAt?: number; collapseY?: number;
   /** The building's middle, in tiles, for the sound of its collapse. */
   foot?: { x: number; y: number };
+  /** Footprint size in tiles, kept for the collapse once the building is gone. */
+  size?: number;
 }
 
 /** A settler drawn outside its building while the simulation has it inside: where, facing which way, doing what. */
@@ -228,7 +230,7 @@ export class MapView {
   /** The player whose eyes the map is drawn through. */
   viewer = 0;
   /** Called with each map sound and where it happens on the canvas; nothing plays when unset. */
-  onSound: ((id: SoundId, x: number, y: number) => void) | null = null;
+  onSound: ((id: SoundId, x: number, y: number, volume?: number) => void) | null = null;
   private readonly bank = new SpriteBank();
   /** Flat layers drawn in tile space and tilted into the isometric view. */
   private readonly groundBase = new Container();
@@ -558,6 +560,7 @@ export class MapView {
       const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
       v.root.zIndex = cx + cy;
       v.foot = { x: cx, y: cy };
+      v.size = b.size;
       cullPoints.set(v.root, iso(cx, cy));
       // While it rises the building has no shadow yet; it gets its full shadow once it is finished.
       const art = b.isComplete ? this.bank.building(this.raceOf(b.owner), b.typeId) : this.bank.buildingWithoutShadow(this.raceOf(b.owner), b.typeId);
@@ -588,7 +591,8 @@ export class MapView {
     for (const [id, v] of this.buildingViews) {
       if (alive.has(id)) continue;
       if (!existing.has(id) && v.body.visible && v.body.texture) {
-        if (v.collapsedAt === undefined && v.foot) this.sound('collapse', v.foot.x, v.foot.y);
+        // Louder the bigger it was: a hut crumbles, a castle comes down with a roar.
+        if (v.collapsedAt === undefined && v.foot) this.sound('collapse', v.foot.x, v.foot.y, Math.min(1, 0.55 + 0.15 * (v.size ?? 2)));
         v.collapsedAt ??= now;
         const t = (now - v.collapsedAt) / COLLAPSE_MS;
         if (t < 1) {
@@ -1177,17 +1181,18 @@ export class MapView {
       if (isFirstLook) return;
     }
     const id: SoundId | null = isMachine ? 'siege'
-      : anim === 'attack' ? (s.settlerType === 'bowman' ? 'bow' : 'clash')
+      // Each kind of soldier sounds its own: swords clash and ring, spears knock and stab, bows twang.
+      : anim === 'attack' ? (s.settlerType === 'bowman' ? 'bow' : s.settlerType === 'spearman' ? 'thrust' : 'clash')
       : look === 'woodcutter' ? 'chop' : look === 'builder' ? 'hammer' : look === 'stonecutter' ? 'pick'
       : look === 'digger' || look === 'pioneer' || look === 'farmer' ? 'dig' : null;
     if (id) this.sound(id, tx, ty);
   }
 
   /** Hands a map sound at a tile to whoever plays sound, with where it is on the canvas. */
-  private sound(id: SoundId, tx: number, ty: number): void {
+  private sound(id: SoundId, tx: number, ty: number, volume = 1): void {
     if (!this.onSound) return;
     const p = this.tileToCanvas(tx - 0.5, ty - 0.5);
-    this.onSound(id, p.x, p.y);
+    this.onSound(id, p.x, p.y, volume);
   }
 
   /** Plain shapes, used when the art is not available. */
