@@ -808,7 +808,8 @@ export function renderSelection(world: World, b: Building, owner: number, isConf
     : b.isComplete && isMilitaryBuilding(b)
     ? `<div class="made-row"><span>Soldiers wanted</span>${stepper('garrison', `data-id="${b.id}"`, b.garrisonWanted, 'Soldiers wanted')}<span class="muted">of ${type.garrisonCapacity}</span></div>` : '';
   const canPause = (b.isComplete && type.worker !== null) || !b.isComplete;
-  const hasWorkArea = b.isComplete && (WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId);
+  // Settable while the building still goes up, so its worker starts in the right place.
+  const hasWorkArea = (WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId);
   const pauseLabel = b.isComplete ? (b.isPaused ? 'Resume' : 'Pause') : (b.isPaused ? 'Resume' : 'Suspend');
   const actions = b.typeId === 'castle' ? '' : isConfirmingDemolish
     ? `<div class="actions"><button type="button" class="danger" data-action="confirm-demolish">Demolish now</button><button type="button" class="secondary" data-action="cancel-demolish">Keep it</button></div>

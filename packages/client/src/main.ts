@@ -1311,7 +1311,7 @@ function workReachShown(): { x: number; y: number; radius: number } | null {
 
 function workAreaShown(): { x: number; y: number; radius: number } | null {
   const b = buildingById(world, ui.workAreaFor ?? ui.selectedId);
-  if (!b || b.owner !== PLAYER || !b.isComplete || !(WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId)) return null;
+  if (!b || b.owner !== PLAYER || !(WORK_AREA_BUILDINGS as readonly string[]).includes(b.typeId)) return null;
   const radius = WORK_AREA_RADIUS[b.typeId as (typeof WORK_AREA_BUILDINGS)[number]];
   return { x: b.workX ?? b.doorX, y: b.workY ?? b.doorY, radius };
 }
